@@ -10,7 +10,7 @@
     "lint": "eslint . --ext .ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev --name init",
-    "db:seed": "ts-node src/scripts/seed.ts"
+    "db:seed": "ts-node src/script/seed.ts"
   },
   "dependencies": {
     "@google/genai": "^1.21.0",
