@@ -1,0 +1,46 @@
+// {
+//   "compilerOptions": {
+//     "target": "ES2020",
+//     "module": "ES2020",
+//     "moduleResolution": "node",
+//     "outDir": "./dist",
+//     "rootDir": "./src",
+//     "strict": true,
+//     "esModuleInterop": true,
+//     "skipLibCheck": true,
+//     "resolveJsonModule": true,
+//     "forceConsistentCasingInFileNames": true,
+//     "ignoreDeprecations": "6.0"
+//   },
+//   "include": ["src"],
+//   "exclude": ["node_modules", "dist"]
+// }
+
+{
+  "compilerOptions": {
+    // Target modern JavaScript features
+    "target": "ES2020",
+    // Use NodeNext modules for compatibility with nodenext resolution
+    "module": "NodeNext",
+    // Node-style module resolution for ES modules
+    "moduleResolution": "nodenext",
+    // Output compiled files here
+    "outDir": "./dist",
+    // Source root
+    "rootDir": "./src",
+    // Enable strict type-checking
+    "strict": true,
+    // Allow default imports from CommonJS modules
+    "esModuleInterop": true,
+    // Skip type checks on declaration files (speeds up build)
+    "skipLibCheck": true,
+    // Allow importing JSON modules
+    "resolveJsonModule": true,
+    // Ensure consistent file casing
+    "forceConsistentCasingInFileNames": true,
+    // Enable source maps (optional, useful for debugging)
+    "sourceMap": true
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
+}

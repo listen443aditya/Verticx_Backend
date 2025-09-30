@@ -1,0 +1,641 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+enum UserRole {
+  Admin
+  Principal
+  Registrar
+  Teacher
+  Student
+  Parent
+  Librarian
+  SuperAdmin
+  SupportStaff
+}
+
+enum BranchStatus {
+  active
+  pending
+  suspended
+}
+
+enum AttendanceStatus {
+  Present
+  Absent
+  Tardy
+}
+
+enum LectureStatus {
+  pending
+  completed
+}
+
+enum TeacherAttendanceStatus {
+  Present
+  Absent
+  OnLeave
+  HalfDay
+}
+
+enum ExamStatus {
+  Upcoming
+  Ongoing
+  Completed
+}
+
+enum ExamResultStatus {
+  Pending
+  Published
+}
+
+enum FeeAdjustmentType {
+  concession
+  charge
+}
+
+enum ManualExpenseCategory {
+  Utilities
+  Supplies
+  Maintenance
+  Events
+  Miscellaneous
+}
+
+// ============================================================================
+// CORE MODELS
+// ============================================================================
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         UserRole
+  phone        String?
+  branchId     String?
+  status       String?
+  designation  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  branch      Branch?  @relation(fields: [branchId], references: [id])
+  principalOf Branch[] @relation("BranchPrincipal")
+  registrarOf Branch[] @relation("BranchRegistrar")
+
+  currentOtp       String?
+  profileAccessOtp String?
+
+  children Student[] @relation("ParentChildren")
+}
+
+model Branch {
+  id                       String       @id @default(uuid())
+  registrationId           String       @unique
+  name                     String
+  location                 String
+  principalId              String?
+  registrarId              String?
+  status                   BranchStatus @default(pending)
+  email                    String?
+  helplineNumber           String?
+  erpPricePerStudent       Float?
+  erpConcessionPercentage  Float?
+  billingCycle             String?
+  nextDueDate              DateTime?
+  enabledFeatures          Json         @default("{}")
+  academicSessionStartDate DateTime?
+  stats                    Json         @default("{}")
+  createdAt                DateTime     @default(now())
+  updatedAt                DateTime     @updatedAt
+
+  principal            User?                    @relation("BranchPrincipal", fields: [principalId], references: [id])
+  registrar            User?                    @relation("BranchRegistrar", fields: [registrarId], references: [id])
+  users                User[]
+  feeTemplates         FeeTemplate[]
+  teachers             Teacher[]
+  students             Student[]
+  registrationRequests RegistrationRequest[]
+  classes              SchoolClass[]
+  subjects             Subject[]
+  courses              Course[]
+  examinations         Examination[]
+  lectures             Lecture[]
+  expenses             ManualExpense[]
+  salaryAdjustments    ManualSalaryAdjustment[]
+  payrolls             PayrollRecord[]
+  erpPayments          ErpPayment[]
+  transportRoutes      TransportRoute[]
+  hostels              Hostel[]
+  libraryBooks         LibraryBook[]
+  inventoryItems       InventoryItem[]
+  schoolEvents         SchoolEvent[]
+  announcements        Announcement[]
+  smsMessages          SmsMessage[]
+  timetables           TimetableConfig[]
+  ExamSchedule         ExamSchedule[]
+  ExamMark             ExamMark[]
+  principalQueries   PrincipalQuery[]
+}
+
+model RegistrationRequest {
+  id             String   @id @default(uuid())
+  schoolName     String
+  registrationId String
+  principalName  String
+  email          String
+  phone          String
+  location       String
+  submittedAt    DateTime @default(now())
+  status         String   @default("pending")
+
+  branch Branch? @relation(fields: [registrationId], references: [registrationId], onDelete: Cascade)
+}
+
+model Teacher {
+  id            String    @id @default(uuid())
+  branchId      String
+  name          String
+  email         String    @unique
+  phone         String?
+  subjectIds    String[]  @default([])
+  qualification String?
+  doj           DateTime?
+  gender        String?
+  status        String    @default("active")
+  salary        Float?
+  leaveBalances Json?
+  createdAt     DateTime  @default(now())
+
+  branch            Branch                    @relation(fields: [branchId], references: [id])
+  attendanceRecords TeacherAttendanceRecord[]
+  lectures          Lecture[]
+  courses           Course[]
+  examMarks         ExamMark[]
+  SchoolClass       SchoolClass[]
+  Subject           Subject[]
+}
+
+model Student {
+  id                String    @id @default(uuid())
+  branchId          String
+  name              String
+  gradeLevel        Int
+  parentId          String?
+  classId           String?
+  status            String    @default("active")
+  dob               DateTime?
+  address           String?
+  guardianInfo      Json?
+  profilePictureUrl String?
+  leaveBalances     Json?
+  createdAt         DateTime  @default(now())
+
+  branch            Branch             @relation(fields: [branchId], references: [id])
+  feeRecords        FeeRecord[]
+  feePayments       FeePayment[]
+  attendanceRecords AttendanceRecord[]
+  examMarks         ExamMark[]
+
+  parent        User?           @relation("ParentChildren", fields: [parentId], references: [id])
+  class         SchoolClass?    @relation(fields: [classId], references: [id])
+  FeeAdjustment FeeAdjustment[]
+}
+
+// ============================================================================
+// ACADEMICS
+// ============================================================================
+model SchoolClass {
+  id         String  @id @default(uuid())
+  branchId   String
+  gradeLevel Int
+  section    String
+  mentorId   String?
+
+  branch        Branch         @relation(fields: [branchId], references: [id])
+  students      Student[]
+  subjects      Subject[]
+  mentor        Teacher?       @relation(fields: [mentorId], references: [id])
+  courses       Course[]
+  examSchedules ExamSchedule[]
+}
+
+model Subject {
+  id        String  @id @default(uuid())
+  branchId  String
+  name      String
+  teacherId String?
+
+  branch        Branch         @relation(fields: [branchId], references: [id])
+  teacher       Teacher?       @relation(fields: [teacherId], references: [id])
+  courses       Course[]
+  examSchedules ExamSchedule[]
+  SchoolClass   SchoolClass?   @relation(fields: [schoolClassId], references: [id])
+  schoolClassId String?
+}
+
+model Course {
+  id        String @id @default(uuid())
+  name      String
+  branchId  String
+  subjectId String
+  teacherId String
+
+  branch        Branch       @relation(fields: [branchId], references: [id])
+  subject       Subject      @relation(fields: [subjectId], references: [id])
+  teacher       Teacher      @relation(fields: [teacherId], references: [id])
+  examMarks     ExamMark[]
+  SchoolClass   SchoolClass? @relation(fields: [schoolClassId], references: [id])
+  schoolClassId String?
+}
+
+model Examination {
+  id           String           @id @default(uuid())
+  branchId     String
+  name         String
+  startDate    DateTime
+  endDate      DateTime
+  status       ExamStatus
+  resultStatus ExamResultStatus
+
+  branch    Branch         @relation(fields: [branchId], references: [id])
+  schedules ExamSchedule[]
+  marks     ExamMark[]
+}
+
+model ExamSchedule {
+  id            String   @id @default(uuid())
+  examinationId String
+  branchId      String
+  classId       String
+  subjectId     String
+  date          DateTime
+  startTime     String
+  endTime       String
+  room          String
+  totalMarks    Int
+
+  examination Examination @relation(fields: [examinationId], references: [id])
+  branch      Branch      @relation(fields: [branchId], references: [id])
+  class       SchoolClass @relation(fields: [classId], references: [id])
+  subject     Subject     @relation(fields: [subjectId], references: [id])
+  marks       ExamMark[]
+}
+
+model ExamMark {
+  id             String   @id @default(uuid())
+  branchId       String
+  examinationId  String
+  examScheduleId String
+  studentId      String
+  teacherId      String
+  score          Int
+  totalMarks     Int
+  enteredAt      DateTime @default(now())
+
+  branch       Branch       @relation(fields: [branchId], references: [id])
+  examination  Examination  @relation(fields: [examinationId], references: [id])
+  examSchedule ExamSchedule @relation(fields: [examScheduleId], references: [id])
+  student      Student      @relation(fields: [studentId], references: [id])
+  teacher      Teacher      @relation(fields: [teacherId], references: [id])
+  Course       Course?      @relation(fields: [courseId], references: [id])
+  courseId     String?
+}
+
+// ============================================================================
+// FINANCE
+// ============================================================================
+model FeeTemplate {
+  id               String   @id @default(uuid())
+  branchId         String
+  name             String
+  amount           Float
+  gradeLevel       Int
+  monthlyBreakdown Json?
+  createdAt        DateTime @default(now())
+
+  branch Branch @relation(fields: [branchId], references: [id])
+}
+
+model FeeRecord {
+  id                  String   @id @default(uuid())
+  studentId           String
+  totalAmount         Float
+  paidAmount          Float
+  dueDate             DateTime
+  previousSessionDues Float?
+
+  student  Student      @relation(fields: [studentId], references: [id])
+  payments FeePayment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model FeePayment {
+  id            String   @id @default(uuid())
+  studentId     String
+  feeRecordId   String?
+  amount        Float
+  paidDate      DateTime
+  transactionId String
+  details       String?
+
+  student   Student    @relation(fields: [studentId], references: [id])
+  feeRecord FeeRecord? @relation(fields: [feeRecordId], references: [id])
+
+  createdAt DateTime @default(now())
+}
+
+model FeeAdjustment {
+  id         String            @id @default(uuid())
+  studentId  String
+  amount     Float
+  type       FeeAdjustmentType
+  reason     String
+  adjustedBy String
+  date       DateTime
+
+  student Student @relation(fields: [studentId], references: [id])
+}
+
+model ManualExpense {
+  id          String                @id @default(uuid())
+  branchId    String
+  description String
+  category    ManualExpenseCategory
+  amount      Float
+  date        DateTime
+  enteredBy   String
+
+  branch Branch @relation(fields: [branchId], references: [id])
+}
+
+model ManualSalaryAdjustment {
+  id         String   @id @default(uuid())
+  branchId   String
+  staffId    String
+  month      String
+  amount     Float
+  reason     String
+  adjustedBy String
+  adjustedAt DateTime @default(now())
+
+  branch Branch @relation(fields: [branchId], references: [id])
+}
+
+model PayrollRecord {
+  id                     String    @id @default(uuid())
+  branchId               String
+  staffId                String
+  staffName              String
+  staffRole              UserRole
+  month                  String
+  baseSalary             Float?
+  unpaidLeaveDays        Int
+  leaveDeductions        Float?
+  manualAdjustmentsTotal Float
+  netPayable             Float?
+  status                 String
+  paidAt                 DateTime?
+  paidBy                 String?
+
+  branch Branch @relation(fields: [branchId], references: [id])
+}
+
+model ErpPayment {
+  id            String   @id @default(uuid())
+  branchId      String
+  amount        Float
+  paymentDate   DateTime
+  transactionId String
+
+  branch Branch @relation(fields: [branchId], references: [id])
+}
+
+// ============================================================================
+// ATTENDANCE & LECTURE
+// ============================================================================
+model AttendanceRecord {
+  id        String           @id @default(uuid())
+  studentId String
+  courseId  String
+  classId   String?
+  date      DateTime
+  status    AttendanceStatus
+
+  student   Student  @relation(fields: [studentId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+model TeacherAttendanceRecord {
+  id        String                  @id @default(uuid())
+  branchId  String
+  teacherId String
+  date      DateTime
+  status    TeacherAttendanceStatus
+  notes     String?
+
+  teacher   Teacher  @relation(fields: [teacherId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Lecture {
+  id            String        @id @default(uuid())
+  branchId      String
+  classId       String
+  subjectId     String
+  teacherId     String
+  topic         String
+  scheduledDate DateTime
+  status        LectureStatus
+
+  teacher   Teacher  @relation(fields: [teacherId], references: [id])
+  branch    Branch   @relation(fields: [branchId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================================================
+// INFRASTRUCTURE
+// ============================================================================
+model TransportRoute {
+  id         String @id @default(uuid())
+  branchId   String
+  routeName  String
+  busNumber  String
+  driverName String
+  capacity   Int
+
+  branch   Branch    @relation(fields: [branchId], references: [id])
+  busStops BusStop[]
+}
+
+model BusStop {
+  id         String @id @default(uuid())
+  name       String
+  pickupTime String
+  dropTime   String
+  charges    Float
+  routeId    String
+
+  route TransportRoute @relation(fields: [routeId], references: [id])
+}
+
+model Hostel {
+  id       String @id @default(uuid())
+  branchId String
+  name     String
+  warden   String
+
+  branch Branch @relation(fields: [branchId], references: [id])
+  rooms  Room[]
+}
+
+model Room {
+  id         String @id @default(uuid())
+  hostelId   String
+  roomNumber String
+  capacity   Int
+  fee        Float
+  roomType   String
+
+  hostel Hostel @relation(fields: [hostelId], references: [id])
+}
+
+model LibraryBook {
+  id              String @id @default(uuid())
+  branchId        String
+  title           String
+  author          String
+  isbn            String
+  totalCopies     Int
+  availableCopies Int
+
+  branch    Branch         @relation(fields: [branchId], references: [id])
+  issuances BookIssuance[]
+}
+
+model BookIssuance {
+  id           String    @id @default(uuid())
+  bookId       String
+  memberId     String
+  memberType   String
+  issuedDate   DateTime
+  dueDate      DateTime
+  returnedDate DateTime?
+  finePerDay   Float
+
+  book LibraryBook @relation(fields: [bookId], references: [id])
+}
+
+model InventoryItem {
+  id       String @id @default(uuid())
+  branchId String
+  name     String
+  category String
+  quantity Int
+  location String
+
+  branch Branch         @relation(fields: [branchId], references: [id])
+  logs   InventoryLog[]
+}
+
+model InventoryLog {
+  id        String   @id @default(uuid())
+  itemId    String
+  change    Int
+  reason    String
+  timestamp DateTime @default(now())
+  user      String
+
+  item InventoryItem @relation(fields: [itemId], references: [id])
+}
+
+// ============================================================================
+// EVENTS & COMMUNICATION
+// ============================================================================
+model SchoolEvent {
+  id          String   @id @default(uuid())
+  branchId    String
+  name        String
+  date        DateTime
+  description String?
+  location    String?
+  category    String
+  createdBy   String
+  createdAt   DateTime @default(now())
+  status      String
+
+  branch Branch @relation(fields: [branchId], references: [id])
+}
+
+model Announcement {
+  id       String   @id @default(uuid())
+  branchId String
+  title    String
+  message  String
+  audience String
+  sentAt   DateTime @default(now())
+
+  branch Branch @relation(fields: [branchId], references: [id])
+}
+
+model SmsMessage {
+  id             String   @id @default(uuid())
+  branchId       String
+  message        String
+  recipientCount Int
+  sentAt         DateTime @default(now())
+  sentBy         String
+
+  branch Branch @relation(fields: [branchId], references: [id])
+}
+
+model TimetableConfig {
+  id        String  @id @default(uuid())
+  classId   String
+  timeSlots Json
+  Branch    Branch? @relation(fields: [branchId], references: [id])
+  branchId  String?
+}
+
+// ============================================================================
+// SYSTEM
+// ============================================================================
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  userName  String?
+  action    String
+  timestamp DateTime @default(now())
+  meta      Json?
+}
+
+model SystemSettings {
+  id                    String   @id @default("global")
+  defaultErpPrice       Float?
+  globalFeatureToggles  Json?
+  loginPageAnnouncement String?
+  updatedAt             DateTime @updatedAt
+}
+
+model PrincipalQuery {
+  id         String   @id @default(uuid())
+  branchId   String
+  title      String
+  description String
+  createdAt  DateTime @default(now())
+  resolved   Boolean  @default(false)
+  resolvedAt DateTime?
+  branch     Branch   @relation(fields: [branchId], references: [id])
+}
+
