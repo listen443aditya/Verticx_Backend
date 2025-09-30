@@ -33,17 +33,15 @@ async function seedSuperAdmin() {
   console.log("Password hashed successfully.");
 
   // 3. Create the user in the database
-  await prisma.user.create({
-    data: {
-      id: SUPER_ADMIN_ID,
-      email: SUPER_ADMIN_EMAIL,
-      password: hashedPassword, // Store the HASHED password
-      name: "Super Admin", // A default name
-      role: UserRole.SuperAdmin, // Ensure this matches your Prisma schema enum for roles
-      // Add any other required fields with default values
-      // e.g., status: 'active'
-    },
-  });
+   await prisma.user.create({
+     data: {
+       id: SUPER_ADMIN_ID,
+       email: SUPER_ADMIN_EMAIL,
+       passwordHash: hashedPassword, // This is the corrected field name
+       name: "Super Admin",
+       role: UserRole.SuperAdmin, // Use the imported enum for type safety
+     },
+   });
 
   console.log("✅ Super Admin user has been created successfully!");
 }
