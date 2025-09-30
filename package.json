@@ -12,6 +12,7 @@
     "prisma:migrate": "prisma migrate dev --name init"
   },
   "dependencies": {
+    "@google/genai": "^1.21.0",
     "@prisma/client": "^6.16.2",
     "@prisma/extension-accelerate": "^2.0.2",
     "axios": "^1.12.2",
