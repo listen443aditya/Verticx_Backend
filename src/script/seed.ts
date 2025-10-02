@@ -8,7 +8,7 @@ const prisma = new PrismaClient();
 
 // --- Super Admin Details ---
 const SUPER_ADMIN_ID = "listen443Aditya";
-const SUPER_ADMIN_EMAIL = "superadmin@verticx.com";
+const SUPER_ADMIN_EMAIL = "aditya@verticx.com";
 const SUPER_ADMIN_PASSWORD = "#Aditya@845101";
 
 async function seedSuperAdmin() {
