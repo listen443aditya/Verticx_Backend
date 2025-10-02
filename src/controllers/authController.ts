@@ -1,35 +1,48 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import bcrypt from "bcryptjs";
+import prisma from "../prisma";
 import { User, UserRole } from "../types/api";
 
-// The secret key should be stored in environment variables, not in the code.
 const JWT_SECRET = process.env.JWT_SECRET || "your-default-super-secret-key";
+
+// A custom interface to add the 'user' property to Express's Request object
+interface AuthenticatedRequest extends Request {
+  user?: UserPayload;
+}
 
 export interface UserPayload {
   id: string;
+  name: string;
   role: UserRole;
-  branchId?: string;
+  branchId: string | null;
 }
 
 /**
  * Creates a JWT for a given user payload.
- * @param user The user object to encode.
- * @returns The generated JWT string.
  */
-export const createToken = (user: User): string => {
+export const createToken = (user: {
+  id: string;
+  name: string;
+  role: UserRole;
+  branchId: string | null;
+}): string => {
   const payload: UserPayload = {
     id: user.id,
+    name: user.name,
     role: user.role,
     branchId: user.branchId,
   };
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: "24h" });
+
+  // FIX: Use a number (of seconds) for expiresIn to resolve the complex type error.
+  // 86400 seconds = 24 hours.
+  const expiresIn = 86400;
+
+  return jwt.sign(payload, JWT_SECRET, { expiresIn });
 };
 
 /**
  * Verifies a JWT and returns its payload.
- * Throws an error if the token is invalid or expired.
- * @param token The JWT string to verify.
- * @returns The decoded user payload.
  */
 export const verifyToken = (token: string): UserPayload => {
   try {
@@ -39,7 +52,7 @@ export const verifyToken = (token: string): UserPayload => {
   }
 };
 
-// --- MISSING CONTROLLER FUNCTIONS ADDED BELOW ---
+// --- CONTROLLER FUNCTIONS ---
 
 export const login = async (
   req: Request,
@@ -47,9 +60,32 @@ export const login = async (
   next: NextFunction
 ) => {
   try {
-    // TODO: Add your logic here to find the user in the DB and verify their password.
-    // If valid, create a token using createToken() and send it back.
-    res.status(501).json({ message: "Login endpoint not implemented yet." });
+    const { identifier, password } = req.body;
+
+    if (!identifier || !password) {
+      return res
+        .status(400)
+        .json({ message: "Username/Email and password are required." });
+    }
+
+    const user = await prisma.user.findFirst({
+      where: { OR: [{ email: identifier }, { id: identifier }] },
+    });
+
+    if (!user) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
+
+    if (!isPasswordValid) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    const token = createToken(user);
+    const { passwordHash: _, ...userWithoutPassword } = user;
+
+    res.status(200).json({ user: userWithoutPassword, token });
   } catch (error) {
     next(error);
   }
@@ -61,10 +97,32 @@ export const verifyOtp = async (
   next: NextFunction
 ) => {
   try {
-    // TODO: Add your logic here to verify the OTP.
-    res
-      .status(501)
-      .json({ message: "Verify OTP endpoint not implemented yet." });
+    const { userId, otp } = req.body;
+    if (!userId || !otp) {
+      return res.status(400).json({ message: "User ID and OTP are required." });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+
+    if (!user || !user.currentOtp) {
+      return res.status(401).json({ message: "Invalid OTP request." });
+    }
+
+    const isOtpValid = user.currentOtp === otp;
+
+    if (!isOtpValid) {
+      return res.status(401).json({ message: "Invalid OTP." });
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: { currentOtp: null },
+    });
+
+    const token = createToken(updatedUser);
+    const { passwordHash: _, ...userWithoutPassword } = updatedUser;
+
+    res.status(200).json({ user: userWithoutPassword, token });
   } catch (error) {
     next(error);
   }
@@ -76,10 +134,77 @@ export const registerSchool = async (
   next: NextFunction
 ) => {
   try {
-    // TODO: Add your logic here for school registration.
-    res
-      .status(501)
-      .json({ message: "Register School endpoint not implemented yet." });
+    const {
+      schoolName,
+      branchLocation,
+      principalName,
+      principalEmail,
+      principalPassword,
+    } = req.body;
+
+    if (
+      !schoolName ||
+      !branchLocation ||
+      !principalName ||
+      !principalEmail ||
+      !principalPassword
+    ) {
+      return res
+        .status(400)
+        .json({ message: "All fields are required for school registration." });
+    }
+
+    const existingUser = await prisma.user.findUnique({
+      where: { email: principalEmail },
+    });
+    if (existingUser) {
+      return res
+        .status(409)
+        .json({ message: "An account with this email already exists." });
+    }
+
+    const hashedPassword = await bcrypt.hash(principalPassword, 10);
+
+    const result = await prisma.$transaction(async (tx) => {
+      const newBranch = await tx.branch.create({
+        data: {
+          name: schoolName,
+          location: branchLocation,
+          registrationId: `REG-${Date.now()}-${Math.random()
+            .toString(36)
+            .substring(2, 8)
+            .toUpperCase()}`,
+          enabledFeatures: {
+            online_payments_enabled: false,
+            transport_module_enabled: true,
+            hostel_module_enabled: false,
+          },
+        },
+      });
+
+      const principalUser = await tx.user.create({
+        data: {
+          name: principalName,
+          email: principalEmail,
+          passwordHash: hashedPassword,
+          role: "Principal",
+          branchId: newBranch.id,
+        },
+      });
+
+      await tx.branch.update({
+        where: { id: newBranch.id },
+        data: { principalId: principalUser.id },
+      });
+
+      return { newBranch, principalUser };
+    });
+
+    res.status(201).json({
+      message: "School registered successfully!",
+      branchId: result.newBranch.id,
+      principalId: result.principalUser.id,
+    });
   } catch (error) {
     next(error);
   }
@@ -91,38 +216,77 @@ export const logout = async (
   next: NextFunction
 ) => {
   try {
-    // TODO: If you are using a token blocklist, add the logic here.
-    res.status(200).json({ message: "Logged out successfully." });
+    res
+      .status(200)
+      .json({ message: "Logged out successfully. Please clear your token." });
   } catch (error) {
     next(error);
   }
 };
 
 export const checkSession = async (
-  req: Request,
+  req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    // The 'protect' middleware has already run and attached the user to `req.user`.
-    // We can just return the user data for the frontend to use.
-    const user = req.user;
-    res.status(200).json({ user });
+    const userFromToken = req.user;
+    if (!userFromToken) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+
+    const freshUser = await prisma.user.findUnique({
+      where: { id: userFromToken.id },
+    });
+    if (!freshUser) {
+      return res.status(401).json({ message: "User not found" });
+    }
+
+    const { passwordHash: _, ...userWithoutPassword } = freshUser;
+    res.status(200).json({ user: userWithoutPassword });
   } catch (error) {
     next(error);
   }
 };
 
 export const changePassword = async (
-  req: Request,
+  req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    // TODO: Add your logic here to handle password changes.
-    res
-      .status(501)
-      .json({ message: "Change Password endpoint not implemented yet." });
+    const { currentPassword, newPassword } = req.body;
+    const userFromToken = req.user;
+
+    if (!currentPassword || !newPassword || !userFromToken) {
+      return res
+        .status(400)
+        .json({ message: "Current and new password are required." });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userFromToken.id },
+    });
+    if (!user) {
+      return res.status(401).json({ message: "User not found." });
+    }
+
+    const isPasswordValid = await bcrypt.compare(
+      currentPassword,
+      user.passwordHash
+    );
+    if (!isPasswordValid) {
+      return res.status(401).json({ message: "Incorrect current password." });
+    }
+
+    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: hashedNewPassword },
+    });
+
+    res.status(200).json({ message: "Password changed successfully." });
   } catch (error) {
     next(error);
   }

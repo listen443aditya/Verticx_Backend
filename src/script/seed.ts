@@ -7,8 +7,8 @@ import * as bcrypt from "bcrypt";
 const prisma = new PrismaClient();
 
 // --- Super Admin Details ---
-const SUPER_ADMIN_ID = "listen443Aditya";
-const SUPER_ADMIN_EMAIL = "aditya@verticx.com";
+const SUPER_ADMIN_ID = "Adityaadmin";
+const SUPER_ADMIN_EMAIL = "adityaadmin@verticx.com";
 const SUPER_ADMIN_PASSWORD = "#Aditya@845101";
 
 async function seedSuperAdmin() {
@@ -39,7 +39,7 @@ async function seedSuperAdmin() {
        email: SUPER_ADMIN_EMAIL,
        passwordHash: hashedPassword, // This is the corrected field name
        name: "Super Admin",
-       role: UserRole.SuperAdmin, // Use the imported enum for type safety
+       role: UserRole.Admin, // Use the imported enum for type safety
      },
    });
 
