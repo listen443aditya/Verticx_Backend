@@ -59,7 +59,7 @@ app.use("/api/misc", miscRoutes);
 
 // --- Health Check ---
 app.get("/", (req: Request, res: Response) => {
-  res.status(200).send("✅ Verticx Backend is running on Railway!");
+  res.status(200).send('✅ Verticx Backend is running');
 });
 
 // --- Error Handling ---
