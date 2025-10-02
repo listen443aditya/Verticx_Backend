@@ -50,6 +50,20 @@ async function startServer() {
       });
     };
 
+
+    
+
+    // ADD THIS LINE
+    console.log(
+      `[DEBUG] The value of process.env.PORT from Railway is: ${process.env.PORT}`
+    );
+
+    dotenv.config(); // Load env before anything else
+
+
+
+
+
     process.on("SIGINT", () => gracefulShutdown("SIGINT"));
     process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 
