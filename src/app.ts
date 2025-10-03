@@ -45,6 +45,12 @@ app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// --- DEPLOYMENT TEST ROUTE ---
+app.get("/api/ping", (req: Request, res: Response) => {
+  res.status(200).json({ message: "Pong! The backend is reachable and routing works!" });
+});
+
+
 // --- API Routes ---
 // Each route file is responsible for a specific user role or feature set.
 app.use("/api/auth", authRoutes);
