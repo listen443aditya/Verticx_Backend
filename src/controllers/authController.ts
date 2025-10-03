@@ -13,6 +13,7 @@ interface AuthenticatedRequest extends Request {
   user?: UserPayload;
 }
 
+// FIX: Standardized branchId to `string | null` to match the Prisma schema.
 export interface UserPayload {
   id: string;
   name: string;
@@ -23,22 +24,22 @@ export interface UserPayload {
 /**
  * Creates a JWT for a given user payload.
  */
+// FIX: Made the function signature robust to handle `null` or `undefined` for branchId.
 export const createToken = (user: {
   id: string;
   name: string;
   role: UserRole;
-  branchId: string | null;
+  branchId?: string | null; // Accepts both null and undefined
 }): string => {
   const payload: UserPayload = {
     id: user.id,
     name: user.name,
     role: user.role,
-    branchId: user.branchId,
+    // Safely coalesce undefined or null to just null for the payload
+    branchId: user.branchId ?? null,
   };
 
-  // FIX: Use a number (of seconds) for expiresIn to resolve the complex type error.
-  // 86400 seconds = 24 hours.
-  const expiresIn = 86400;
+  const expiresIn = 86400; // 24 hours in seconds
 
   return jwt.sign(payload, JWT_SECRET, { expiresIn });
 };
