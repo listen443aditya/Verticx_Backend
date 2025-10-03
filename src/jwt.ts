@@ -1,7 +1,9 @@
 import jwt from 'jsonwebtoken';
 import { User } from './types/api'; // Ensure you have a User type defined
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-default-super-secret-key';
+const JWT_SECRET =
+  process.env.JWT_SECRET ||
+  "Lq9w1fe&hbA//=r5H%l=+WSG*^7@j@Ncw7+B!mp=m@t^Qi^CNaf@uKBf@vu2fiJv@$ih$oQRcpLlo%gJ2de7tT!C*/GY$Lp5yyfpDPyQAJnZkn/7zHNeTd16S6COSpMW";
 const JWT_EXPIRES_IN = '7d';
 
 /**
