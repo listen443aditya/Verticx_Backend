@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import prisma from "../prisma";
 import { User, UserRole } from "../types/api";
+import { randomInt } from "crypto"; // Import crypto for OTP generation
 
 const JWT_SECRET =
   process.env.JWT_SECRET ||
@@ -13,7 +14,6 @@ interface AuthenticatedRequest extends Request {
   user?: UserPayload;
 }
 
-// FIX: Standardized branchId to `string | null` to match the Prisma schema.
 export interface UserPayload {
   id: string;
   name: string;
@@ -24,18 +24,16 @@ export interface UserPayload {
 /**
  * Creates a JWT for a given user payload.
  */
-// FIX: Made the function signature robust to handle `null` or `undefined` for branchId.
 export const createToken = (user: {
   id: string;
   name: string;
   role: UserRole;
-  branchId?: string | null; // Accepts both null and undefined
+  branchId?: string | null;
 }): string => {
   const payload: UserPayload = {
     id: user.id,
     name: user.name,
     role: user.role,
-    // Safely coalesce undefined or null to just null for the payload
     branchId: user.branchId ?? null,
   };
 
@@ -85,10 +83,40 @@ export const login = async (
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    const token = createToken(user);
-    const { passwordHash: _, ...userWithoutPassword } = user;
+    // --- OTP LOGIC IMPLEMENTED HERE ---
+    const rolesRequiringOtp: UserRole[] = [
+      "SuperAdmin",
+      "Admin",
+      "Principal",
+      "Registrar",
+    ];
 
-    res.status(200).json({ user: userWithoutPassword, token });
+    if (rolesRequiringOtp.includes(user.role)) {
+      // This user needs OTP verification.
+      const otp = randomInt(100000, 999999).toString(); // Generate a 6-digit OTP
+
+      // Save the OTP to the user's record in the database.
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { currentOtp: otp },
+      });
+
+      // For development: Log the OTP to the server console so you can easily test.
+      console.log(`OTP for ${user.email}: ${otp}`);
+
+      const { passwordHash: _, ...userWithoutPassword } = user;
+
+      // Send a response indicating that OTP is required, without the session token.
+      return res
+        .status(200)
+        .json({ user: userWithoutPassword, otpRequired: true });
+    } else {
+      // This user does NOT need OTP. Log them in directly.
+      const token = createToken(user);
+      const { passwordHash: _, ...userWithoutPassword } = user;
+
+      return res.status(200).json({ user: userWithoutPassword, token });
+    }
   } catch (error) {
     next(error);
   }
@@ -117,6 +145,7 @@ export const verifyOtp = async (
       return res.status(401).json({ message: "Invalid OTP." });
     }
 
+    // OTP is valid, clear it to prevent reuse and create a session token.
     const updatedUser = await prisma.user.update({
       where: { id: userId },
       data: { currentOtp: null },
