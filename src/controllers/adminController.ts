@@ -1,3 +1,4 @@
+// src/controllers/adminController.ts
 import { Request, Response } from "express";
 import { adminApiService, sharedApiService } from "../services";
 import { User } from "../types/api";

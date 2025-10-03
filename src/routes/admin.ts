@@ -1,3 +1,4 @@
+// src/routes/admin.ts
 import { Router } from 'express';
 import * as adminController from '../controllers/adminController';
 import { protect } from '../middlewares/auth';

@@ -18,6 +18,7 @@ import studentRoutes from "./routes/student";
 import miscRoutes from "./routes/misc";
 import generalRoutes from "./routes/general";
 
+
 const app: Express = express();
 
 // --- Middlewares ---
@@ -56,7 +57,7 @@ app.use("/api/teacher", teacherRoutes);
 app.use("/api/student", studentRoutes);
 app.use("/api/general", generalRoutes);
 app.use("/api/misc", miscRoutes);
-
+app.use("/api/superadmin", adminRoutes);
 // --- Health Check ---
 app.get("/", (req: Request, res: Response) => {
   res.status(200).send('Verticx Backend is running');
