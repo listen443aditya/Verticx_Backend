@@ -25,23 +25,23 @@ export const generateUniqueId = (
     case "student":
       prefix = "STU";
       count = db.students.length;
-      return `VRTX-${prefix}-${(count + 1).toString().padStart(4, "0")}`;
+      return `VRTX-${prefix}-${(count + 1).toString().padStart(7, "0")}`;
     case "teacher":
       prefix = "TCH";
       count = db.teachers.length;
-      return `VRTX-${prefix}-${(count + 1).toString().padStart(3, "0")}`;
+      return `VRTX-${prefix}-${(count + 1).toString().padStart(7, "0")}`;
     case "registrar":
       prefix = "REG";
       count = allUsers.filter((u) => u.role === "Registrar").length;
-      return `VRTX-${prefix}-${(count + 1).toString().padStart(3, "0")}`;
+      return `VRTX-${prefix}-${(count + 1).toString().padStart(7, "0")}`;
     case "librarian":
       prefix = "LIB";
       count = allUsers.filter((u) => u.role === "Librarian").length;
-      return `VRTX-${prefix}-${(count + 1).toString().padStart(3, "0")}`;
+      return `VRTX-${prefix}-${(count + 1).toString().padStart(7, "0")}`;
     case "supportstaff":
       prefix = "SST";
       count = allUsers.filter((u) => u.role === "SupportStaff").length;
-      return `VRTX-${prefix}-${(count + 1).toString().padStart(3, "0")}`;
+      return `VRTX-${prefix}-${(count + 1).toString().padStart(7, "0")}`;
     default:
       return `${type}-${Math.random().toString(36).substr(2, 9)}`;
   }

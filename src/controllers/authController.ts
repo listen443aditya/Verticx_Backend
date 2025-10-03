@@ -4,7 +4,9 @@ import bcrypt from "bcryptjs";
 import prisma from "../prisma";
 import { User, UserRole } from "../types/api";
 
-const JWT_SECRET = process.env.JWT_SECRET || "your-default-super-secret-key";
+const JWT_SECRET =
+  process.env.JWT_SECRET ||
+  "4d7eac3a255b62ccdc84521e9d6fab2d4ee910ea9dfb4cc15051cf016fb91a85";
 
 // A custom interface to add the 'user' property to Express's Request object
 interface AuthenticatedRequest extends Request {
