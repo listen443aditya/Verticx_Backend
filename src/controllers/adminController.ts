@@ -3,12 +3,21 @@ import { Request, Response, NextFunction } from "express";
 import { adminApiService, sharedApiService } from "../services";
 import { User } from "../types/api";
 import prisma from "../prisma";
-export const getRegistrationRequests = async (req: Request, res: Response) => {
+export const getRegistrationRequests = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
-    const requests = await adminApiService.getRegistrationRequests();
+    const requests = await prisma.registrationRequest.findMany({
+      orderBy: {
+        submittedAt: "desc", // Show the newest requests first
+      },
+    });
     res.status(200).json(requests);
-  } catch (error: any) {
-    res.status(500).json({ message: error.message });
+  } catch (error) {
+    console.error("Failed to get registration requests:", error);
+    next(error);
   }
 };
 
