@@ -11,6 +11,7 @@ interface AuthenticatedRequest extends Request {
   user?: { id: string; name: string; role: any; branchId: string | null };
 }
 
+// FIX: This function now ONLY fetches requests with a 'pending' status.
 export const getRegistrationRequests = async (
   req: Request,
   res: Response,
@@ -18,6 +19,9 @@ export const getRegistrationRequests = async (
 ) => {
   try {
     const requests = await prisma.registrationRequest.findMany({
+      where: {
+        status: "pending",
+      },
       orderBy: {
         submittedAt: "desc",
       },
@@ -28,14 +32,12 @@ export const getRegistrationRequests = async (
   }
 };
 
-// FIX: Implemented the complete business logic for approving a school request.
 export const approveRequest = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
   const requestId = req.params.id;
-
   try {
     const request = await prisma.registrationRequest.findUnique({
       where: { id: requestId },
@@ -52,10 +54,10 @@ export const approveRequest = async (
         .json({ message: `Request is already ${request.status}.` });
     }
 
-    const tempPassword = generatePassword(); // e.g., 'ab12cd34'
+    const tempPassword = generatePassword();
     const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
-    const result = await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx) => {
       const newBranch = await tx.branch.create({
         data: {
           name: request.schoolName,
@@ -82,20 +84,17 @@ export const approveRequest = async (
         data: { principalId: principalUser.id },
       });
 
-      await tx.registrationRequest.update({
+      // Now we delete the request instead of updating its status
+      await tx.registrationRequest.delete({
         where: { id: requestId },
-        data: { status: "approved" },
       });
-
-      return { principalEmail: principalUser.email, tempPassword };
     });
 
-    // In a real app, you would email these credentials. For now, we return them.
     res.status(200).json({
       message: `Request for ${request.schoolName} approved.`,
       credentials: {
-        email: result.principalEmail,
-        password: result.tempPassword,
+        email: request.email,
+        password: tempPassword,
       },
     });
   } catch (error) {
@@ -103,25 +102,25 @@ export const approveRequest = async (
   }
 };
 
-// FIX: Implemented the complete business logic for denying a school request.
+// FIX: This function now DELETES the request instead of updating its status.
 export const denyRequest = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    const request = await prisma.registrationRequest.update({
+    const request = await prisma.registrationRequest.delete({
       where: { id: req.params.id },
-      data: { status: "denied" },
     });
     res
       .status(200)
-      .json({ message: `Request for ${request.schoolName} has been denied.` });
+      .json({
+        message: `Request for ${request.schoolName} has been denied and removed.`,
+      });
   } catch (error) {
     next(error);
   }
 };
-
 
 export const getBranches = async (req: Request, res: Response) => {
   try {
