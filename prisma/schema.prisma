@@ -122,7 +122,7 @@ model Branch {
   feeTemplates         FeeTemplate[]
   teachers             Teacher[]
   students             Student[]
-  registrationRequests RegistrationRequest[]
+  request RegistrationRequest @relation(fields: [registrationId], references: [registrationId])
   classes              SchoolClass[]
   subjects             Subject[]
   courses              Course[]
@@ -148,15 +148,16 @@ model Branch {
 model RegistrationRequest {
   id             String   @id @default(uuid())
   schoolName     String
-  registrationId String
+  registrationId String   @unique
   principalName  String
-  email          String
+  email          String   @unique
   phone          String
   location       String
   submittedAt    DateTime @default(now())
   status         String   @default("pending")
 
-  branch Branch? @relation(fields: [registrationId], references: [registrationId], onDelete: Cascade)
+  // This is the corrected (optional) back-relation to Branch
+  branch         Branch?
 }
 
 model Teacher {

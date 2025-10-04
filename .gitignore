@@ -14,7 +14,7 @@
 # This folder is generated during the build process.
 /dist
 /build
-
+/src/script/seed.ts
 # ---------------------------
 # Environment & Secrets
 # ---------------------------
