@@ -545,6 +545,12 @@ CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 CREATE UNIQUE INDEX "Branch_registrationId_key" ON "Branch"("registrationId");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "RegistrationRequest_registrationId_key" ON "RegistrationRequest"("registrationId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "RegistrationRequest_email_key" ON "RegistrationRequest"("email");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "Teacher_email_key" ON "Teacher"("email");
 
 -- AddForeignKey
@@ -557,7 +563,7 @@ ALTER TABLE "Branch" ADD CONSTRAINT "Branch_principalId_fkey" FOREIGN KEY ("prin
 ALTER TABLE "Branch" ADD CONSTRAINT "Branch_registrarId_fkey" FOREIGN KEY ("registrarId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "RegistrationRequest" ADD CONSTRAINT "RegistrationRequest_registrationId_fkey" FOREIGN KEY ("registrationId") REFERENCES "Branch"("registrationId") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "Branch" ADD CONSTRAINT "Branch_registrationId_fkey" FOREIGN KEY ("registrationId") REFERENCES "RegistrationRequest"("registrationId") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Teacher" ADD CONSTRAINT "Teacher_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
