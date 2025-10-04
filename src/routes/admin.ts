@@ -47,5 +47,9 @@ router.get('/erp-financials', restrictTo('SuperAdmin'), adminController.getSyste
 router.get('/audit-logs', restrictTo('SuperAdmin'), adminController.getAuditLogs);
 router.get('/principal-queries', adminController.getPrincipalQueries);
 router.post('/principal-queries/:id/resolve', adminController.resolvePrincipalQuery);
-
+router.get(
+  "/contact-details",
+  restrictTo("SuperAdmin"),
+  adminController.getSuperAdminContactDetails
+);
 export default router;

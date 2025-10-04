@@ -1,8 +1,8 @@
 // src/controllers/adminController.ts
-import { Request, Response } from "express";
+import { Request, Response, NextFunction } from "express";
 import { adminApiService, sharedApiService } from "../services";
 import { User } from "../types/api";
-
+import prisma from "../prisma";
 export const getRegistrationRequests = async (req: Request, res: Response) => {
   try {
     const requests = await adminApiService.getRegistrationRequests();
@@ -313,5 +313,23 @@ export const resolvePrincipalQuery = async (req: Request, res: Response) => {
     res.status(200).json(query);
   } catch (error: any) {
     res.status(404).json({ message: error.message });
+  }
+};
+
+// Add this to src/controllers/adminController.ts
+
+export const getSuperAdminContactDetails = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    // In a real app, you might have a more specific way to identify the primary contact.
+    const superAdmin = await prisma.user.findFirst({ where: { role: 'SuperAdmin' } });
+    
+    if (!superAdmin) {
+      return res.status(404).json({ message: "Super Admin contact details not found." });
+    }
+
+    const { passwordHash: _, ...contactDetails } = superAdmin;
+    res.status(200).json(contactDetails);
+  } catch (error) {
+    next(error);
   }
 };
