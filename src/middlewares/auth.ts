@@ -94,7 +94,7 @@ declare global {
 
 const JWT_SECRET =
   process.env.JWT_SECRET ||
-  "4d7eac3a255b62ccdc84521e9d6fab2d4ee910ea9dfb4cc15051cf016fb91a85";
+  "Lq9w1fe&hbA//=r5H%l=+WSG*^7@j@Ncw7+B!mp=m@t^Qi^CNaf@uKBf@vu2fiJv@$ih$oQRcpLlo%gJ2de7tT!C*/GY$Lp5yyfpDPyQAJnZkn/7zHNeTd16S6COSpMW";
 
 // FIX: Rewritten to be async and use Prisma for database lookups.
 export const protect = async (req: Request, res: Response, next: NextFunction) => {
