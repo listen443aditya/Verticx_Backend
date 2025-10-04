@@ -161,6 +161,8 @@ export const verifyOtp = async (
   }
 };
 
+// in src/controllers/authController.ts
+
 export const registerSchool = async (
   req: Request,
   res: Response,
@@ -169,80 +171,57 @@ export const registerSchool = async (
   try {
     const {
       schoolName,
-      branchLocation,
+      registrationId,
       principalName,
-      principalEmail,
-      principalPassword,
+      email,
+      phone,
+      location,
     } = req.body;
 
+    // FIX: Updated validation to match the form data. Password is no longer required here.
     if (
       !schoolName ||
-      !branchLocation ||
+      !registrationId ||
       !principalName ||
-      !principalEmail ||
-      !principalPassword
+      !email ||
+      !phone ||
+      !location
     ) {
       return res
         .status(400)
         .json({ message: "All fields are required for school registration." });
     }
 
-    const existingUser = await prisma.user.findUnique({
-      where: { email: principalEmail },
+    // Check if a request with the same unique details already exists
+    const existingRequest = await prisma.registrationRequest.findFirst({
+        where: { OR: [{ registrationId }, { email }] }
     });
-    if (existingUser) {
-      return res
-        .status(409)
-        .json({ message: "An account with this email already exists." });
+    
+    if (existingRequest) {
+        return res.status(409).json({ message: "A registration request with this ID or email already exists." });
     }
 
-    const hashedPassword = await bcrypt.hash(principalPassword, 10);
-
-    const result = await prisma.$transaction(async (tx) => {
-      const newBranch = await tx.branch.create({
+    // FIX: Create a RegistrationRequest in the database instead of a User and Branch.
+    const newRequest = await prisma.registrationRequest.create({
         data: {
-          name: schoolName,
-          location: branchLocation,
-          registrationId: `REG-${Date.now()}-${Math.random()
-            .toString(36)
-            .substring(2, 8)
-            .toUpperCase()}`,
-          enabledFeatures: {
-            online_payments_enabled: false,
-            transport_module_enabled: true,
-            hostel_module_enabled: false,
-          },
-        },
-      });
-
-      const principalUser = await tx.user.create({
-        data: {
-          name: principalName,
-          email: principalEmail,
-          passwordHash: hashedPassword,
-          role: "Principal",
-          branchId: newBranch.id,
-        },
-      });
-
-      await tx.branch.update({
-        where: { id: newBranch.id },
-        data: { principalId: principalUser.id },
-      });
-
-      return { newBranch, principalUser };
+            schoolName,
+            registrationId,
+            principalName,
+            email,
+            phone,
+            location,
+        }
     });
 
+    // Send a success response confirming the request was submitted.
     res.status(201).json({
-      message: "School registered successfully!",
-      branchId: result.newBranch.id,
-      principalId: result.principalUser.id,
+      message: "Registration request submitted successfully! We will review your application and contact you shortly.",
+      requestId: newRequest.id,
     });
   } catch (error) {
     next(error);
   }
 };
-
 export const logout = async (
   req: Request,
   res: Response,
