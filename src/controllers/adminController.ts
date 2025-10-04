@@ -3,6 +3,14 @@ import { Request, Response, NextFunction } from "express";
 import { adminApiService, sharedApiService } from "../services";
 import { User } from "../types/api";
 import prisma from "../prisma";
+import bcrypt from "bcryptjs"; // Import bcrypt for password hashing
+import { generatePassword } from "../utils/helpers"; // We'll assume a helper for password generation
+
+// A custom interface to add the 'user' property from your 'protect' middleware
+interface AuthenticatedRequest extends Request {
+  user?: { id: string; name: string; role: any; branchId: string | null };
+}
+
 export const getRegistrationRequests = async (
   req: Request,
   res: Response,
@@ -11,36 +19,109 @@ export const getRegistrationRequests = async (
   try {
     const requests = await prisma.registrationRequest.findMany({
       orderBy: {
-        submittedAt: "desc", // Show the newest requests first
+        submittedAt: "desc",
       },
     });
     res.status(200).json(requests);
   } catch (error) {
-    console.error("Failed to get registration requests:", error);
     next(error);
   }
 };
 
-export const approveRequest = async (req: Request, res: Response) => {
+// FIX: Implemented the complete business logic for approving a school request.
+export const approveRequest = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const requestId = req.params.id;
+
   try {
-    const credentials = await adminApiService.approveRequest(req.params.id);
-    res.status(200).json({
-      message: "Request approved and school created.",
-      ...credentials,
+    const request = await prisma.registrationRequest.findUnique({
+      where: { id: requestId },
     });
-  } catch (error: any) {
-    res.status(404).json({ message: error.message });
+
+    if (!request) {
+      return res
+        .status(404)
+        .json({ message: "Registration request not found." });
+    }
+    if (request.status !== "pending") {
+      return res
+        .status(400)
+        .json({ message: `Request is already ${request.status}.` });
+    }
+
+    const tempPassword = generatePassword(); // e.g., 'ab12cd34'
+    const hashedPassword = await bcrypt.hash(tempPassword, 10);
+
+    const result = await prisma.$transaction(async (tx) => {
+      const newBranch = await tx.branch.create({
+        data: {
+          name: request.schoolName,
+          location: request.location,
+          registrationId: request.registrationId,
+          status: "active",
+        },
+      });
+
+      const principalUser = await tx.user.create({
+        data: {
+          name: request.principalName,
+          email: request.email,
+          phone: request.phone,
+          passwordHash: hashedPassword,
+          role: "Principal",
+          branchId: newBranch.id,
+          status: "active",
+        },
+      });
+
+      await tx.branch.update({
+        where: { id: newBranch.id },
+        data: { principalId: principalUser.id },
+      });
+
+      await tx.registrationRequest.update({
+        where: { id: requestId },
+        data: { status: "approved" },
+      });
+
+      return { principalEmail: principalUser.email, tempPassword };
+    });
+
+    // In a real app, you would email these credentials. For now, we return them.
+    res.status(200).json({
+      message: `Request for ${request.schoolName} approved.`,
+      credentials: {
+        email: result.principalEmail,
+        password: result.tempPassword,
+      },
+    });
+  } catch (error) {
+    next(error);
   }
 };
 
-export const denyRequest = async (req: Request, res: Response) => {
+// FIX: Implemented the complete business logic for denying a school request.
+export const denyRequest = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
-    await adminApiService.denyRequest(req.params.id);
-    res.status(200).json({ message: "Request denied." });
-  } catch (error: any) {
-    res.status(404).json({ message: error.message });
+    const request = await prisma.registrationRequest.update({
+      where: { id: req.params.id },
+      data: { status: "denied" },
+    });
+    res
+      .status(200)
+      .json({ message: `Request for ${request.schoolName} has been denied.` });
+  } catch (error) {
+    next(error);
   }
 };
+
 
 export const getBranches = async (req: Request, res: Response) => {
   try {
