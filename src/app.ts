@@ -46,7 +46,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api", generalRoutes); // For routes like /api/profile
 
 // FIX: Use the new, dedicated routers for each role
-app.use("/api/admin", adminRoutes);
+app.use("/api/admin", superAdminRoutes);
 app.use("/api/superadmin", superAdminRoutes);
 
 app.use("/api/principal", principalRoutes);

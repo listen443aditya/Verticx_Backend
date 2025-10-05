@@ -804,49 +804,60 @@ export const getSuperAdminContactDetails = async (
 };
 
 
-// // --- Master Configuration ---
-// export const getMasterConfig = async (
-//   req: AuthenticatedRequest,
-//   res: Response,
-//   next: NextFunction
-// ) => {
-//   try {
-//     const masterConfig = await prisma.systemSettings.findUnique({
-//       where: { id: "global" },
-//     });
-//     if (!masterConfig) {
-//       return res
-//         .status(500)
-//         .json({ message: "Master configuration could not be found." });
-//     }
-//     res.status(200).json(masterConfig);
-//   } catch (error) {
-//     next(error);
-//   }
-// };
+// --- Master Configuration ---
+export const getMasterConfig = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const masterConfig = await prisma.systemSettings.findUnique({
+      where: { id: "global" },
+    });
+    if (!masterConfig) {
+      return res
+        .status(500)
+        .json({ message: "Master configuration could not be found." });
+    }
+    res.status(200).json(masterConfig);
+  } catch (error) {
+    next(error);
+  }
+};
 
-// export const updateMasterConfig = async (
-//   req: AuthenticatedRequest,
-//   res: Response,
-//   next: NextFunction
-// ) => {
-//   try {
-//     const { defaultErpPrice, globalFeatureToggles, loginPageAnnouncement } =
-//       req.body;
-//     if (defaultErpPrice === undefined || globalFeatureToggles === undefined) {
-//       return res.status(400).json({ message: "Invalid request body." });
-//     }
-//     const updatedSettings = await prisma.systemSettings.update({
-//       where: { id: "global" },
-//       data: { defaultErpPrice, globalFeatureToggles, loginPageAnnouncement },
-//     });
-//     res
-//       .status(200)
-//       .json({
-//         message: "Master configuration updated.",
-//         settings: updatedSettings,
-//       });
-//   } catch (error) {
-//     next(error);
-//   }
-// };
+export const updateMasterConfig = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    // FIX: Destructure with the correct camelCase names that Prisma expects.
+    const { defaultErpPrice, globalFeatureToggles, loginPageAnnouncement } =
+      req.body;
+
+    // A simple validation
+    if (defaultErpPrice === undefined || globalFeatureToggles === undefined) {
+      return res.status(400).json({
+        message: "Invalid request body. Required fields are missing.",
+      });
+    }
+
+    const updatedSettings = await prisma.systemSettings.update({
+      where: { id: "global" },
+      // FIX: The 'data' object must use the camelCase properties defined by the Prisma client.
+      data: {
+        defaultErpPrice,
+        globalFeatureToggles,
+        loginPageAnnouncement,
+      },
+    });
+
+    res.status(200).json({
+      message: "Master configuration has been updated successfully.",
+      settings: updatedSettings,
+    });
+  } catch (error) {
+    // Forward any potential errors to your error-handling middleware
+    next(error);
+  }
+};
