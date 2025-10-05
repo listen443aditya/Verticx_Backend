@@ -98,6 +98,8 @@ CREATE TABLE "Teacher" (
     "salary" DOUBLE PRECISION,
     "leaveBalances" JSONB,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "transportRouteId" TEXT,
+    "busStopId" TEXT,
 
     CONSTRAINT "Teacher_pkey" PRIMARY KEY ("id")
 );
@@ -117,6 +119,9 @@ CREATE TABLE "Student" (
     "profilePictureUrl" TEXT,
     "leaveBalances" JSONB,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "transportRouteId" TEXT,
+    "busStopId" TEXT,
+    "roomId" TEXT,
 
     CONSTRAINT "Student_pkey" PRIMARY KEY ("id")
 );
