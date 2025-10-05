@@ -55,7 +55,6 @@ export const approveRequest = async (
     const tempPassword = generatePassword();
     const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
-    // Use a transaction to ensure all database operations succeed or none do.
     await prisma.$transaction(async (tx) => {
       const newBranch = await tx.branch.create({
         data: {
@@ -65,6 +64,7 @@ export const approveRequest = async (
           status: "active",
         },
       });
+
       const principalUser = await tx.user.create({
         data: {
           name: request.principalName,
@@ -76,18 +76,25 @@ export const approveRequest = async (
           status: "active",
         },
       });
+
       await tx.branch.update({
         where: { id: newBranch.id },
         data: { principalId: principalUser.id },
       });
-      await tx.registrationRequest.delete({
+
+      // FIX: Instead of deleting the request, we update its status to 'approved'.
+      await tx.registrationRequest.update({
         where: { id: requestId },
+        data: { status: "approved" },
       });
     });
 
     res.status(200).json({
       message: `Request for ${request.schoolName} approved.`,
-      credentials: { email: request.email, password: tempPassword },
+      credentials: {
+        email: request.email,
+        password: tempPassword,
+      },
     });
   } catch (error) {
     next(error);
