@@ -1,4 +1,5 @@
 // src/controllers/adminController.ts
+// import prisma from "../prisma";
 import { Request, Response, NextFunction } from "express";
 import prisma from "../prisma";
 import bcrypt from "bcryptjs";
@@ -11,6 +12,13 @@ import { User, UserRole, BranchStatus } from "@prisma/client";
 interface AuthenticatedRequest extends Request {
   user?: { id: string; name: string; role: UserRole; branchId: string | null };
 }
+
+const toCamelCase = (dbRow: any) => ({
+  id: dbRow.id,
+  defaultErpPrice: dbRow.default_erp_price,
+  globalFeatureToggles: dbRow.global_feature_toggles,
+  loginPageAnnouncement: dbRow.login_page_announcement,
+});
 
 // --- Registration & Branch Management ---
 
@@ -707,6 +715,71 @@ export const getSuperAdminContactDetails = async (
     }
     const { passwordHash: _, ...contactDetails } = superAdmin;
     res.status(200).json(contactDetails);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getMasterConfig = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const masterConfig = await prisma.systemSettings.findUnique({
+      where: { id: "global" },
+    });
+
+    if (!masterConfig) {
+      console.error("CRITICAL: The global SystemSettings record is missing.");
+      return res
+        .status(500)
+        .json({ message: "Master configuration could not be found." });
+    }
+
+    // Prisma automatically handles the mapping of snake_case to camelCase.
+    // The object is already in the correct form.
+    res.status(200).json(masterConfig);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Updates the single, global system configuration.
+ * Accessible only by SuperAdmin.
+ */
+export const updateMasterConfig = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { defaultErpPrice, globalFeatureToggles, loginPageAnnouncement } =
+      req.body;
+
+    // Prisma's strong typing provides validation. We ensure the core fields exist.
+    if (defaultErpPrice === undefined || globalFeatureToggles === undefined) {
+      return res
+        .status(400)
+        .json({
+          message: "Invalid request body. Required fields are missing.",
+        });
+    }
+
+    const updatedSettings = await prisma.systemSettings.update({
+      where: { id: "global" },
+      data: {
+        defaultErpPrice,
+        globalFeatureToggles,
+        loginPageAnnouncement,
+      },
+    });
+
+    res.status(200).json({
+      message: "Master configuration has been updated successfully.",
+      settings: updatedSettings,
+    });
   } catch (error) {
     next(error);
   }
