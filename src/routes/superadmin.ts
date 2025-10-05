@@ -2,7 +2,7 @@ import { Router } from "express";
 import * as adminController from "../controllers/adminController";
 import { protect } from "../middlewares/auth";
 import { restrictTo } from "../middlewares/roles";
-
+import * as superAdminController from "../controllers/superAdminController"; 
 const router = Router();
 
 // This entire router is a fortress, protected by authentication
@@ -24,8 +24,8 @@ router.get("/principal-queries", adminController.getPrincipalQueries);
 router.get("/contact-details", adminController.getSuperAdminContactDetails);
 
 // --- Master Configuration: The One True Path ---
-router.get("/master-config", adminController.getMasterConfig);
-router.put("/master-config", adminController.updateMasterConfig);
+router.get("/master-config", superAdminController.getMasterConfig);
+router.put("/master-config", superAdminController.updateMasterConfig);
 
 // --- Actions & Mutations ---
 router.post(

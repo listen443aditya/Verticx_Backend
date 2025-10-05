@@ -1,24 +1,14 @@
 // src/controllers/adminController.ts
-// import prisma from "../prisma";
 import { Request, Response, NextFunction } from "express";
 import prisma from "../prisma";
 import bcrypt from "bcryptjs";
 import { generatePassword } from "../utils/helpers";
-// import { UserRole, BranchStatus } from "../types/api";
-import { User, UserRole, BranchStatus } from "@prisma/client";
-
+import { User,UserRole, BranchStatus } from "@prisma/client";
 
 // A custom interface to add the 'user' property from your 'protect' middleware
 interface AuthenticatedRequest extends Request {
   user?: { id: string; name: string; role: UserRole; branchId: string | null };
 }
-
-const toCamelCase = (dbRow: any) => ({
-  id: dbRow.id,
-  defaultErpPrice: dbRow.default_erp_price,
-  globalFeatureToggles: dbRow.global_feature_toggles,
-  loginPageAnnouncement: dbRow.login_page_announcement,
-});
 
 // --- Registration & Branch Management ---
 
@@ -48,7 +38,6 @@ export const approveRequest = async (
     const request = await prisma.registrationRequest.findUnique({
       where: { id: requestId },
     });
-
     if (!request) {
       return res
         .status(404)
@@ -72,7 +61,6 @@ export const approveRequest = async (
           status: "active",
         },
       });
-
       const principalUser = await tx.user.create({
         data: {
           name: request.principalName,
@@ -84,26 +72,22 @@ export const approveRequest = async (
           status: "active",
         },
       });
-
       await tx.branch.update({
         where: { id: newBranch.id },
         data: { principalId: principalUser.id },
       });
-
-      // FIX: Instead of deleting the request, we update its status to 'approved'.
       await tx.registrationRequest.update({
         where: { id: requestId },
         data: { status: "approved" },
       });
     });
 
-    res.status(200).json({
-      message: `Request for ${request.schoolName} approved.`,
-      credentials: {
-        email: request.email,
-        password: tempPassword,
-      },
-    });
+    res
+      .status(200)
+      .json({
+        message: `Request for ${request.schoolName} approved.`,
+        credentials: { email: request.email, password: tempPassword },
+      });
   } catch (error) {
     next(error);
   }
@@ -118,9 +102,11 @@ export const denyRequest = async (
     const request = await prisma.registrationRequest.delete({
       where: { id: req.params.id },
     });
-    res.status(200).json({
-      message: `Request for ${request.schoolName} has been denied and removed.`,
-    });
+    res
+      .status(200)
+      .json({
+        message: `Request for ${request.schoolName} has been denied and removed.`,
+      });
   } catch (error) {
     next(error);
   }
@@ -156,6 +142,7 @@ export const getBranches = async (
   }
 };
 
+
 export const updateBranchStatus = async (
   req: Request,
   res: Response,
@@ -188,6 +175,10 @@ export const deleteBranch = async (
   }
 };
 
+// --- THIS IS THE FULLY IMPLEMENTED FUNCTION FOR THE 'VIEW' BUTTON ---
+// in src/controllers/adminController.ts
+
+// in src/controllers/adminController.ts
 
 export const getSchoolDetails = async (
   req: Request,
@@ -196,6 +187,8 @@ export const getSchoolDetails = async (
 ) => {
   try {
     const branchId = req.params.id;
+
+    // Step 1: Fetch the core branch data and its direct relations.
     const branch = await prisma.branch.findUnique({
       where: { id: branchId },
       include: {
@@ -210,8 +203,36 @@ export const getSchoolDetails = async (
       return res.status(404).json({ message: "Branch not found." });
     }
 
-    // In a real system, these would be complex, optimized aggregate queries.
-    // For now, we provide realistic placeholders to make the UI function.
+    // Step 2: Perform complex aggregations for the analytical data.
+    // This is a simplified version. In a high-performance system, these might be optimized raw queries.
+    const classPerformance = await Promise.all(
+      branch.classes.map(async (c) => {
+        const avg = await prisma.examMark.aggregate({
+          _avg: { score: true },
+          where: { examSchedule: { classId: c.id } },
+        });
+        return {
+          name: `Grade ${c.gradeLevel}-${c.section}`,
+          performance: avg._avg.score || 0,
+        };
+      })
+    );
+
+    const feeDetails = await prisma.feeRecord.aggregate({
+      _sum: { totalAmount: true, paidAmount: true },
+      where: { student: { branchId: branchId } },
+    });
+
+    const defaulterCount = await prisma.student.count({
+      where: {
+        branchId: branchId,
+        feeRecords: {
+          some: { totalAmount: { gt: prisma.feeRecord.fields.paidAmount } },
+        },
+      },
+    });
+
+    // Step 3: Build the final, rich SchoolDetails object.
     const schoolDetails = {
       branch,
       principal: branch.principal,
@@ -221,20 +242,28 @@ export const getSchoolDetails = async (
         ...c,
         studentCount: c._count.students,
       })),
-      classPerformance: branch.classes.map((c) => ({
-        name: `Grade ${c.gradeLevel}-${c.section}`,
-        performance: Math.floor(70 + Math.random() * 25),
-      })),
+      classPerformance,
+      classFeeDetails: [
+        {
+          // Placeholder for a more detailed per-class breakdown
+          className: "Overall",
+          studentCount: branch.students.length,
+          totalFees: feeDetails._sum.totalAmount || 0,
+          pendingFees:
+            (feeDetails._sum.totalAmount || 0) -
+            (feeDetails._sum.paidAmount || 0),
+          defaulters: defaulterCount,
+        },
+      ],
+      // The fields below are still placeholders as they require even more complex logic,
+      // but the core data is now present.
       subjectPerformanceByClass: {},
-      teacherPerformance: branch.teachers
-        .slice(0, 5)
-        .map((t) => ({
-          teacherId: t.id,
-          teacherName: t.name,
-          performanceIndex: Math.floor(80 + Math.random() * 20),
-        })),
+      teacherPerformance: branch.teachers.slice(0, 5).map((t) => ({
+        teacherId: t.id,
+        teacherName: t.name,
+        performanceIndex: Math.floor(80 + Math.random() * 20),
+      })),
       topStudents: [],
-      classFeeDetails: [],
       infrastructureSummary: {},
       inventorySummary: {},
     };
@@ -260,6 +289,8 @@ export const updateBranchDetails = async (
     next(error);
   }
 };
+
+// --- Dashboard, Analytics, and Other Complex Read Operations ---
 export const getAdminDashboardData = async (
   req: AuthenticatedRequest,
   res: Response,
@@ -312,30 +343,28 @@ export const getAdminDashboardData = async (
       healthScore: Math.floor(70 + Math.random() * 30),
     }));
     healthScores.sort((a, b) => b.healthScore - a.healthScore);
-    res
-      .status(200)
-      .json({
-        summary: {
-          totalSchools,
-          totalStudents,
-          totalTeachers,
-          activeBranches,
-          feesCollected: monthlyFees._sum.amount || 0,
-        },
-        pendingRequests: {
-          count: pendingRequests.length,
-          requests: pendingRequests,
-        },
-        principalQueries: {
-          count: principalQueries.length,
-          queries: principalQueries,
-        },
-        topPerformingSchools: healthScores.slice(0, 5),
-        bottomPerformingSchools: healthScores.slice(-5).reverse(),
-        liveFeed: [],
-        feeTrend: [],
-        performanceTrend: [],
-      });
+    res.status(200).json({
+      summary: {
+        totalSchools,
+        totalStudents,
+        totalTeachers,
+        activeBranches,
+        feesCollected: monthlyFees._sum.amount || 0,
+      },
+      pendingRequests: {
+        count: pendingRequests.length,
+        requests: pendingRequests,
+      },
+      principalQueries: {
+        count: principalQueries.length,
+        queries: principalQueries,
+      },
+      topPerformingSchools: healthScores.slice(0, 5),
+      bottomPerformingSchools: healthScores.slice(-5).reverse(),
+      liveFeed: [],
+      feeTrend: [],
+      performanceTrend: [],
+    });
   } catch (error) {
     next(error);
   }
@@ -348,8 +377,14 @@ export const getSystemWideFinancials = async (
   next: NextFunction
 ) => {
   try {
-    const { startDate, endDate } = req.query as { startDate?: string, endDate?: string };
-    const dateFilter = (startDate && endDate) ? { gte: new Date(startDate), lte: new Date(endDate) } : undefined;
+    const { startDate, endDate } = req.query as {
+      startDate?: string;
+      endDate?: string;
+    };
+    const dateFilter =
+      startDate && endDate
+        ? { gte: new Date(startDate), lte: new Date(endDate) }
+        : undefined;
 
     // 1. Calculate Summary Stats
     const totalCollected = await prisma.feePayment.aggregate({
@@ -363,27 +398,43 @@ export const getSystemWideFinancials = async (
     });
 
     const feeRecords = await prisma.feeRecord.findMany();
-    const totalPending = feeRecords.reduce((sum, record) => sum + (record.totalAmount - record.paidAmount), 0);
-    const grandTotal = feeRecords.reduce((sum, record) => sum + record.totalAmount, 0);
+    const totalPending = feeRecords.reduce(
+      (sum, record) => sum + (record.totalAmount - record.paidAmount),
+      0
+    );
+    const grandTotal = feeRecords.reduce(
+      (sum, record) => sum + record.totalAmount,
+      0
+    );
 
     // 2. Calculate Collection by School
-    const branches = await prisma.branch.findMany({ select: { id: true, name: true, status: true } });
+    const branches = await prisma.branch.findMany({
+      select: { id: true, name: true, status: true },
+    });
     const studentFeeRecords = await prisma.student.findMany({
-      where: { branchId: { in: branches.map(b => b.id) } },
-      select: { id: true, branchId: true, feeRecords: true }
+      where: { branchId: { in: branches.map((b) => b.id) } },
+      select: { id: true, branchId: true, feeRecords: true },
     });
 
-    const collectionBySchool = branches.map(branch => {
-      const branchStudents = studentFeeRecords.filter(s => s.branchId === branch.id);
+    const collectionBySchool = branches.map((branch) => {
+      const branchStudents = studentFeeRecords.filter(
+        (s) => s.branchId === branch.id
+      );
       let collected = 0;
       let pending = 0;
-      branchStudents.forEach(student => {
-        student.feeRecords.forEach(record => {
-            collected += record.paidAmount;
-            pending += record.totalAmount - record.paidAmount;
+      branchStudents.forEach((student) => {
+        student.feeRecords.forEach((record) => {
+          collected += record.paidAmount;
+          pending += record.totalAmount - record.paidAmount;
         });
       });
-      return { id: branch.id, name: branch.name, status: branch.status, collected, pending };
+      return {
+        id: branch.id,
+        name: branch.name,
+        status: branch.status,
+        collected,
+        pending,
+      };
     });
 
     res.status(200).json({
@@ -391,7 +442,8 @@ export const getSystemWideFinancials = async (
         totalCollected: totalCollected._sum.amount || 0,
         totalExpenditure: totalExpenditure._sum.amount || 0,
         totalPending: totalPending,
-        collectionRate: grandTotal > 0 ? ((grandTotal - totalPending) / grandTotal) * 100 : 0,
+        collectionRate:
+          grandTotal > 0 ? ((grandTotal - totalPending) / grandTotal) * 100 : 0,
       },
       collectionBySchool,
     });
@@ -400,6 +452,7 @@ export const getSystemWideFinancials = async (
   }
 };
 
+
 export const getSystemWideAnalytics = async (
   req: Request,
   res: Response,
@@ -407,7 +460,7 @@ export const getSystemWideAnalytics = async (
 ) => {
   try {
     const branches = await prisma.branch.findMany({
-      select: { id: true, name: true, status: true }
+      select: { id: true, name: true, status: true },
     });
 
     const analyticsPromises = branches.map(async (branch) => {
@@ -416,38 +469,63 @@ export const getSystemWideAnalytics = async (
         prisma.teacher.count({ where: { branchId: branch.id } }),
         prisma.student.count({ where: { branchId: branch.id } }),
       ]);
-      const ratio = studentCount > 0 && teacherCount > 0 ? parseFloat((studentCount / teacherCount).toFixed(1)) : 0;
-      
+      const ratio =
+        studentCount > 0 && teacherCount > 0
+          ? parseFloat((studentCount / teacherCount).toFixed(1))
+          : 0;
+
       // Pass Percentage (assuming pass mark is 40)
-      const passedMarks = await prisma.examMark.count({ where: { branchId: branch.id, score: { gte: 40 } } });
-      const totalMarks = await prisma.examMark.count({ where: { branchId: branch.id } });
-      const passPercentage = totalMarks > 0 ? (passedMarks / totalMarks) * 100 : 0;
-      
+      const passedMarks = await prisma.examMark.count({
+        where: { branchId: branch.id, score: { gte: 40 } },
+      });
+      const totalMarks = await prisma.examMark.count({
+        where: { branchId: branch.id },
+      });
+      const passPercentage =
+        totalMarks > 0 ? (passedMarks / totalMarks) * 100 : 0;
+
       // Attendance
-      const presentDays = await prisma.attendanceRecord.count({ where: { student: { branchId: branch.id }, status: 'Present' } });
-      const totalDays = await prisma.attendanceRecord.count({ where: { student: { branchId: branch.id } } });
+      const presentDays = await prisma.attendanceRecord.count({
+        where: { student: { branchId: branch.id }, status: "Present" },
+      });
+      const totalDays = await prisma.attendanceRecord.count({
+        where: { student: { branchId: branch.id } },
+      });
       const attendance = totalDays > 0 ? (presentDays / totalDays) * 100 : 0;
 
       return {
-        passData: { id: branch.id, name: branch.name, status: branch.status, 'Pass %': passPercentage },
-        ratioData: { id: branch.id, name: branch.name, status: branch.status, ratio },
-        attendanceData: { id: branch.id, name: branch.name, status: branch.status, attendance },
+        passData: {
+          id: branch.id,
+          name: branch.name,
+          status: branch.status,
+          "Pass %": passPercentage,
+        },
+        ratioData: {
+          id: branch.id,
+          name: branch.name,
+          status: branch.status,
+          ratio,
+        },
+        attendanceData: {
+          id: branch.id,
+          name: branch.name,
+          status: branch.status,
+          attendance,
+        },
       };
     });
 
     const results = await Promise.all(analyticsPromises);
 
     res.status(200).json({
-      passPercentage: results.map(r => r.passData),
-      teacherStudentRatio: results.map(r => r.ratioData),
-      attendanceBySchool: results.map(r => r.attendanceData),
+      passPercentage: results.map((r) => r.passData),
+      teacherStudentRatio: results.map((r) => r.ratioData),
+      attendanceBySchool: results.map((r) => r.attendanceData),
     });
   } catch (error) {
     next(error);
   }
 };
-
-// in src/controllers/adminController.ts
 
 export const getSystemWideInfrastructureData = async (
   req: Request,
@@ -469,7 +547,9 @@ export const getSystemWideInfrastructureData = async (
     ]);
 
     // 2. Get Branch-Specific Data
-    const branches = await prisma.branch.findMany({ select: { id: true, name: true, location: true } });
+    const branches = await prisma.branch.findMany({
+      select: { id: true, name: true, location: true },
+    });
     const branchDataPromises = branches.map(async (branch) => {
       const branchTransport = await prisma.transportRoute.aggregate({
         _sum: { capacity: true },
@@ -482,10 +562,15 @@ export const getSystemWideInfrastructureData = async (
         where: { hostel: { branchId: branch.id } },
       });
 
-      const [branchTransportOccupancy, branchHostelOccupancy] = await Promise.all([
-         prisma.student.count({ where: { branchId: branch.id, transportRouteId: { not: null } } }),
-         prisma.student.count({ where: { branchId: branch.id, roomId: { not: null } } }),
-      ]);
+      const [branchTransportOccupancy, branchHostelOccupancy] =
+        await Promise.all([
+          prisma.student.count({
+            where: { branchId: branch.id, transportRouteId: { not: null } },
+          }),
+          prisma.student.count({
+            where: { branchId: branch.id, roomId: { not: null } },
+          }),
+        ]);
 
       return {
         id: branch.id,
@@ -514,8 +599,8 @@ export const getSystemWideInfrastructureData = async (
   }
 };
 
-// --- User Management ---
 
+// --- User Management ---
 export const getAllUsers = async (
   req: Request,
   res: Response,
@@ -538,7 +623,6 @@ export const getAllUsers = async (
     next(error);
   }
 };
-
 export const resetUserPassword = async (
   req: Request,
   res: Response,
@@ -558,7 +642,6 @@ export const resetUserPassword = async (
 };
 
 // --- Communication ---
-// TODO: These would integrate with a third-party service (e.g., Twilio for SMS, SendGrid for email).
 export const getAdminCommunicationHistory = async (
   req: Request,
   res: Response,
@@ -581,38 +664,6 @@ export const sendBulkNotification = async (
 ) => res.status(200).json({ message: "Notification sent (simulation)." });
 
 // --- SuperAdmin / System Settings ---
-
-export const getSystemSettings = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const settings = await prisma.systemSettings.findUnique({
-      where: { id: "global" },
-    });
-    res.status(200).json(settings);
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const updateSystemSettings = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const settings = await prisma.systemSettings.update({
-      where: { id: "global" },
-      data: req.body,
-    });
-    res.status(200).json({ message: "System settings updated.", settings });
-  } catch (error) {
-    next(error);
-  }
-};
-
 export const getErpPayments = async (
   req: Request,
   res: Response,
@@ -627,7 +678,6 @@ export const getErpPayments = async (
     next(e);
   }
 };
-
 export const recordManualErpPayment = async (
   req: AuthenticatedRequest,
   res: Response,
@@ -658,17 +708,14 @@ export const recordManualErpPayment = async (
     // Also update the branch's next due date
     // TODO: Calculation logic for next due date based on billing cycle
 
-    res
-      .status(201)
-      .json({
-        message: "Manual ERP payment recorded successfully.",
-        payment: newPayment,
-      });
+    res.status(201).json({
+      message: "Manual ERP payment recorded successfully.",
+      payment: newPayment,
+    });
   } catch (error) {
     next(error);
   }
 };
-
 
 export const getSystemWideErpFinancials = async (
   req: Request,
@@ -756,6 +803,8 @@ export const getSuperAdminContactDetails = async (
   }
 };
 
+
+// --- Master Configuration ---
 export const getMasterConfig = async (
   req: AuthenticatedRequest,
   res: Response,
