@@ -9,7 +9,7 @@ const router = Router();
 
 // This router is now protected and restricted ONLY to Admin
 router.use(protect);
-router.use(restrictTo("Admin"));
+router.use(restrictTo("Admin", "SuperAdmin"));
 
 // Admin routes (subset of SuperAdmin routes)
 router.get("/dashboard", adminController.getAdminDashboardData);
