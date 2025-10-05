@@ -37,8 +37,9 @@ async function seedSuperAdmin() {
      data: {
        id: SUPER_ADMIN_ID,
        email: SUPER_ADMIN_EMAIL,
+       phone: "9801537137",
        passwordHash: hashedPassword, // This is the corrected field name
-       name: "Super Admin",
+       name: "Aditya",
        role: UserRole.SuperAdmin, // Use the imported enum for type safety
      },
    });

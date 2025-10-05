@@ -173,6 +173,8 @@ model Teacher {
   salary        Float?
   leaveBalances Json?
   createdAt     DateTime  @default(now())
+  transportRouteId  String?
+  busStopId         String?
 
   branch            Branch                    @relation(fields: [branchId], references: [id])
   attendanceRecords TeacherAttendanceRecord[]
@@ -207,6 +209,9 @@ model Student {
   parent        User?           @relation("ParentChildren", fields: [parentId], references: [id])
   class         SchoolClass?    @relation(fields: [classId], references: [id])
   FeeAdjustment FeeAdjustment[]
+  transportRouteId  String?
+  busStopId         String?
+  roomId            String?
 }
 
 // ============================================================================
