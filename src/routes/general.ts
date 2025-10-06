@@ -1,3 +1,4 @@
+// src/routes/general.ts
 import { Router } from 'express';
 import * as generalCtrl from '../controllers/generalController';
 import { protect } from "../middlewares/auth";

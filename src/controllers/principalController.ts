@@ -286,25 +286,56 @@ export const getPrincipalDashboardData = async (
   }
 };
 
+// export const getBranchDetails = async (
+//   req: Request,
+//   res: Response,
+//   next: NextFunction
+// ) => {
+//   const branchId = getPrincipalBranchId(req);
+//   if (!branchId) {
+//     return res.status(401).json({ message: "Unauthorized." });
+//   }
+//   try {
+//     const branch = await prisma.branch.findUnique({ where: { id: branchId } });
+//     if (!branch) {
+//       return res.status(404).json({ message: "Branch not found." });
+//     }
+//     res.status(200).json(branch);
+//   } catch (error) {
+//     next(error);
+//   }
+// };
+
+
 export const getBranchDetails = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
-  const branchId = getPrincipalBranchId(req);
-  if (!branchId) {
-    return res.status(401).json({ message: "Unauthorized." });
-  }
+  const idOrReg = req.params.id;
+
   try {
-    const branch = await prisma.branch.findUnique({ where: { id: branchId } });
+    const branch = await prisma.branch.findFirst({
+      where: {
+        OR: [
+          { id: idOrReg },
+          { registrationId: idOrReg }, // fallback when frontend sent registrationId
+        ],
+      },
+    });
+
     if (!branch) {
-      return res.status(404).json({ message: "Branch not found." });
+      return res.status(404).json({ error: "Branch not found" });
     }
+
     res.status(200).json(branch);
-  } catch (error) {
-    next(error);
+  } catch (err) {
+    next(err);
   }
 };
+
+
+
 
 export const updateBranchDetails = async (
   req: Request,

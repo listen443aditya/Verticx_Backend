@@ -47,6 +47,20 @@ router.get('/erp-financials', principalController.getErpFinancialsForBranch);
 router.post('/erp-bill/pay', principalController.payErpBill);
 router.get('/manual-expenses', principalController.getManualExpenses);
 router.post('/manual-expenses', principalController.addManualExpense);
+// Existing routes
+router.get(
+  "/erp/financials",
+  protect,
+  principalController.getErpFinancialsForBranch
+);
+router.post("/erp/pay", protect, principalController.payErpBill);
+
+// Optional alias for frontend if it expects /erp/payments
+router.get(
+  "/erp/payments",
+  protect,
+  principalController.getErpFinancialsForBranch
+);
 
 
 // Staff Requests
