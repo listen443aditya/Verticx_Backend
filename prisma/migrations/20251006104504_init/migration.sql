@@ -28,7 +28,7 @@ CREATE TYPE "ManualExpenseCategory" AS ENUM ('Utilities', 'Supplies', 'Maintenan
 -- CreateTable
 CREATE TABLE "User" (
     "id" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
     "email" TEXT NOT NULL,
     "passwordHash" TEXT NOT NULL,
     "role" "UserRole" NOT NULL,
@@ -40,6 +40,7 @@ CREATE TABLE "User" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "currentOtp" TEXT,
     "profileAccessOtp" TEXT,
+    "name" TEXT NOT NULL,
 
     CONSTRAINT "User_pkey" PRIMARY KEY ("id")
 );
@@ -51,7 +52,6 @@ CREATE TABLE "Branch" (
     "name" TEXT NOT NULL,
     "location" TEXT NOT NULL,
     "principalId" TEXT,
-    "registrarId" TEXT,
     "status" "BranchStatus" NOT NULL DEFAULT 'pending',
     "email" TEXT,
     "helplineNumber" TEXT,
@@ -544,10 +544,16 @@ CREATE TABLE "PrincipalQuery" (
 );
 
 -- CreateIndex
+CREATE UNIQUE INDEX "User_userId_key" ON "User"("userId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Branch_registrationId_key" ON "Branch"("registrationId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Branch_principalId_key" ON "Branch"("principalId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "RegistrationRequest_registrationId_key" ON "RegistrationRequest"("registrationId");
@@ -563,12 +569,6 @@ ALTER TABLE "User" ADD CONSTRAINT "User_branchId_fkey" FOREIGN KEY ("branchId") 
 
 -- AddForeignKey
 ALTER TABLE "Branch" ADD CONSTRAINT "Branch_principalId_fkey" FOREIGN KEY ("principalId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Branch" ADD CONSTRAINT "Branch_registrarId_fkey" FOREIGN KEY ("registrarId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Branch" ADD CONSTRAINT "Branch_registrationId_fkey" FOREIGN KEY ("registrationId") REFERENCES "RegistrationRequest"("registrationId") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Teacher" ADD CONSTRAINT "Teacher_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

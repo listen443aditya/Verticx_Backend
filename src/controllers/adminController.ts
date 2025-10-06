@@ -27,13 +27,7 @@ export const getRegistrationRequests = async (
     next(error);
   }
 };
-
-
-// The Final, Evolved `approveRequest` in src/controllers/adminController.ts
-
-// The Final, Master `approveRequest` Function in src/controllers/adminController.ts
-
-// The Final, Master `approveRequest` Function - The True Path Evolved
+// The Final, Corrected `approveRequest` Function
 
 export const approveRequest = async (
   req: Request,
@@ -60,12 +54,9 @@ export const approveRequest = async (
     const tempPassword = generatePassword();
     const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
-    // --- The Forging of the UserID ---
-    // We create a meaningful suffix for the role.
+    // Forge the new, branded UserID.
     const roleSuffix = "PRN"; // Principal
-    // We forge the new, branded, and unique UserID.
     const newUserId = `VRTX-${request.registrationId}-${roleSuffix}`;
-    // --- The Forging is Complete ---
 
     await prisma.$transaction(async (tx) => {
       const newBranch = await tx.branch.create({
@@ -77,33 +68,32 @@ export const approveRequest = async (
         },
       });
 
-      // We now use our resilient "seek-then-act" logic from before,
-      // but bestow the newly forged userId upon the user.
       let principalUser;
       const existingUser = await tx.user.findUnique({
         where: { email: request.email },
       });
 
       if (existingUser) {
-        // A soul is found. We update it, bestowing the new UserID if it doesn't have one,
-        // and binding it to the new branch.
+        // A user with this email already exists. Update their role and link them.
         principalUser = await tx.user.update({
           where: { email: request.email },
           data: {
-            id: existingUser.id || newUserId, // Assign if they don't have one
+            // We ensure their public-facing userId is set correctly.
+            userId: existingUser.userId || newUserId,
             name: request.principalName,
             phone: request.phone,
             role: "Principal",
             branchId: newBranch.id,
             status: "active",
+            // The primary key `id` is never touched in an update.
           },
         });
       } else {
-        // No soul is found. We perform the act of pure creation.
+        // No user exists. Create a new one.
         principalUser = await tx.user.create({
           data: {
-            // The `id` is a new soul, created by the system.
-            id: newUserId, // The Login ID is the new, branded one.
+            // The primary key `id` is NOT set here. Prisma creates it automatically.
+            userId: newUserId, // We provide the required, branded userId.
             email: request.email,
             name: request.principalName,
             passwordHash: hashedPassword,
@@ -115,6 +105,7 @@ export const approveRequest = async (
         });
       }
 
+      // Link the branch to the principal using their unchangeable primary key (`id`).
       await tx.branch.update({
         where: { id: newBranch.id },
         data: { principalId: principalUser.id },
@@ -127,7 +118,6 @@ export const approveRequest = async (
 
     res.status(200).json({
       message: `Request for ${request.schoolName} approved.`,
-      // We return the true, branded UserID for them to log in with.
       credentials: { userId: newUserId, password: tempPassword },
     });
   } catch (error) {
@@ -135,7 +125,6 @@ export const approveRequest = async (
     next(error);
   }
 };
-
 
 export const denyRequest = async (
   req: Request,

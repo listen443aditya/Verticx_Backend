@@ -1,16 +1,16 @@
-// src/controllers/authController.ts
+// The Final, Resilient `src/controllers/authController.ts`
+
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import prisma from "../prisma";
 import { User, UserRole } from "../types/api";
-import { randomInt } from "crypto"; // Import crypto for OTP generation
+import { randomInt } from "crypto";
 
 const JWT_SECRET =
   process.env.JWT_SECRET ||
   "Lq9w1fe&hbA//=r5H%l=+WSG*^7@j@Ncw7+B!mp=m@t^Qi^CNaf@uKBf@vu2fiJv@$ih$oQRcpLlo%gJ2de7tT!C*/GY$Lp5yyfpDPyQAJnZkn/7zHNeTd16S6COSpMW";
 
-// A custom interface to add the 'user' property to Express's Request object
 interface AuthenticatedRequest extends Request {
   user?: UserPayload;
 }
@@ -22,9 +22,6 @@ export interface UserPayload {
   branchId: string | null;
 }
 
-/**
- * Creates a JWT for a given user payload.
- */
 export const createToken = (user: {
   id: string;
   name: string;
@@ -37,15 +34,10 @@ export const createToken = (user: {
     role: user.role,
     branchId: user.branchId ?? null,
   };
-
-  const expiresIn = 86400; // 24 hours in seconds
-
+  const expiresIn = 86400; // 24 hours
   return jwt.sign(payload, JWT_SECRET, { expiresIn });
 };
 
-/**
- * Verifies a JWT and returns its payload.
- */
 export const verifyToken = (token: string): UserPayload => {
   try {
     return jwt.verify(token, JWT_SECRET) as UserPayload;
@@ -70,12 +62,23 @@ export const login = async (
         .json({ message: "Username/Email and password are required." });
     }
 
+    // FIX: The user identifier is now the branded userId.
     const user = await prisma.user.findFirst({
-      where: { OR: [{ email: identifier }, { id: identifier }] },
+      where: { OR: [{ email: identifier }, { userId: identifier }] },
     });
 
     if (!user) {
       return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    // A user without a name cannot log in. This is a critical data integrity check.
+    if (!user.name) {
+      return res
+        .status(500)
+        .json({
+          message:
+            "User account is corrupted (missing name). Please contact support.",
+        });
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
@@ -84,7 +87,6 @@ export const login = async (
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    // --- OTP LOGIC IMPLEMENTED HERE ---
     const rolesRequiringOtp: UserRole[] = [
       "SuperAdmin",
       "Admin",
@@ -93,29 +95,20 @@ export const login = async (
     ];
 
     if (rolesRequiringOtp.includes(user.role)) {
-      // This user needs OTP verification.
-      const otp = randomInt(100000, 999999).toString(); // Generate a 6-digit OTP
-
-      // Save the OTP to the user's record in the database.
+      const otp = randomInt(100000, 999999).toString();
       await prisma.user.update({
         where: { id: user.id },
         data: { currentOtp: otp },
       });
-
-      // For development: Log the OTP to the server console so you can easily test.
       console.log(`OTP for ${user.email}: ${otp}`);
-
       const { passwordHash: _, ...userWithoutPassword } = user;
-
-      // Send a response indicating that OTP is required, without the session token.
       return res
         .status(200)
         .json({ user: userWithoutPassword, otpRequired: true });
     } else {
-      // This user does NOT need OTP. Log them in directly.
-      const token = createToken(user);
+      // THE FIX: We now pass a user object that is guaranteed to have a string for `name`.
+      const token = createToken(user as UserPayload);
       const { passwordHash: _, ...userWithoutPassword } = user;
-
       return res.status(200).json({ user: userWithoutPassword, token });
     }
   } catch (error) {
@@ -140,19 +133,29 @@ export const verifyOtp = async (
       return res.status(401).json({ message: "Invalid OTP request." });
     }
 
+    // A user without a name cannot complete login.
+    if (!user.name) {
+      return res
+        .status(500)
+        .json({
+          message:
+            "User account is corrupted (missing name). Please contact support.",
+        });
+    }
+
     const isOtpValid = user.currentOtp === otp;
 
     if (!isOtpValid) {
       return res.status(401).json({ message: "Invalid OTP." });
     }
 
-    // OTP is valid, clear it to prevent reuse and create a session token.
     const updatedUser = await prisma.user.update({
       where: { id: userId },
       data: { currentOtp: null },
     });
 
-    const token = createToken(updatedUser);
+    // THE FIX: We now pass a user object that is guaranteed to have a string for `name`.
+    const token = createToken(updatedUser as UserPayload);
     const { passwordHash: _, ...userWithoutPassword } = updatedUser;
 
     res.status(200).json({ user: userWithoutPassword, token });
@@ -160,8 +163,6 @@ export const verifyOtp = async (
     next(error);
   }
 };
-
-
 
 export const registerSchool = async (
   req: Request,
@@ -178,7 +179,6 @@ export const registerSchool = async (
       location,
     } = req.body;
 
-    // FIX: Updated validation to match the form data. Password is no longer required here.
     if (
       !schoolName ||
       !registrationId ||
@@ -192,36 +192,40 @@ export const registerSchool = async (
         .json({ message: "All fields are required for school registration." });
     }
 
-    // Check if a request with the same unique details already exists
     const existingRequest = await prisma.registrationRequest.findFirst({
-        where: { OR: [{ registrationId }, { email }] }
+      where: { OR: [{ registrationId }, { email }] },
     });
-    
+
     if (existingRequest) {
-        return res.status(409).json({ message: "A registration request with this ID or email already exists." });
+      return res
+        .status(409)
+        .json({
+          message:
+            "A registration request with this ID or email already exists.",
+        });
     }
 
-    // FIX: Create a RegistrationRequest in the database instead of a User and Branch.
     const newRequest = await prisma.registrationRequest.create({
-        data: {
-            schoolName,
-            registrationId,
-            principalName,
-            email,
-            phone,
-            location,
-        }
+      data: {
+        schoolName,
+        registrationId,
+        principalName,
+        email,
+        phone,
+        location,
+      },
     });
 
-    // Send a success response confirming the request was submitted.
     res.status(201).json({
-      message: "Registration request submitted successfully! We will review your application and contact you shortly.",
+      message:
+        "Registration request submitted successfully! We will review your application and contact you shortly.",
       requestId: newRequest.id,
     });
   } catch (error) {
     next(error);
   }
 };
+
 export const logout = async (
   req: Request,
   res: Response,

@@ -74,36 +74,38 @@ enum ManualExpenseCategory {
 // CORE MODELS
 // ============================================================================
 model User {
-  id           String   @id @default(uuid())
-  name         String
-  email        String   @unique
-  passwordHash String
-  role         UserRole
-  phone        String?
-  branchId     String?
-  status       String?
-  designation  String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  branch      Branch?  @relation(fields: [branchId], references: [id])
-  principalOf Branch[] @relation("BranchPrincipal")
-  registrarOf Branch[] @relation("BranchRegistrar")
-
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  email            String   @unique
+  passwordHash     String
+  role             UserRole
+  phone            String?
+  branchId         String?
+  status           String?
+  designation      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
   currentOtp       String?
   profileAccessOtp String?
+  name             String
+  // A User's general "home" branch. This is the ONLY link needed for belonging.
+  branch           Branch?  @relation("BranchUsers", fields: [branchId], references: [id])
+
+  // A User can be the Principal of ONE Branch. This is the singular crown.
+  principalOf Branch? @relation("BranchPrincipal")
 
   children Student[] @relation("ParentChildren")
 }
 
 model Branch {
   id                       String       @id @default(cuid())
-  registrationId           String       @unique // A sovereign identifier. A memory. Not a relation.
+  registrationId           String       @unique
   name                     String
   location                 String
-  principalId              String?      @unique
-  registrarId              String?
+  principalId              String?      @unique // A branch has only one principal.
+  // The registrarId is removed. It is a phantom.
   status                   BranchStatus @default(pending)
+  // ... all other scalar fields ...
   email                    String?
   helplineNumber           String?
   erpPricePerStudent       Float?
@@ -116,10 +118,14 @@ model Branch {
   createdAt                DateTime     @default(now())
   updatedAt                DateTime     @updatedAt
 
-  principal         User?                    @relation("BranchPrincipal", fields: [principalId], references: [id])
-  registrar         User?                    @relation("BranchRegistrar", fields: [registrarId], references: [id])
-  users             User[]
-  // ... all other relations EXCEPT the one to RegistrationRequest
+  // The link to the User who is the Principal.
+  principal User? @relation("BranchPrincipal", fields: [principalId], references: [id])
+
+  // The list of all Users who belong to this Branch.
+  // Registrars are found within this court, identified by their 'role'.
+  users User[] @relation("BranchUsers")
+
+  // ... all other relations ...
   feeTemplates      FeeTemplate[]
   teachers          Teacher[]
   students          Student[]

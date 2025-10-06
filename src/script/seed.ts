@@ -1,4 +1,4 @@
-// src/scripts/seed.ts
+// The Final, Perfected `src/script/seed.ts`
 
 import { PrismaClient, UserRole } from "@prisma/client";
 import * as bcrypt from "bcrypt";
@@ -7,14 +7,17 @@ import * as bcrypt from "bcrypt";
 const prisma = new PrismaClient();
 
 // --- Super Admin Details ---
+// The secret soul (id) and public face (email) are now distinct.
 const SUPER_ADMIN_ID = "superadmin@verticx.com";
 const SUPER_ADMIN_EMAIL = "aditya@verticx.com";
+// The new, branded login ID.
+const SUPER_ADMIN_USER_ID = "VRTX-SUPERADMIN";
 const SUPER_ADMIN_PASSWORD = "#Aditya@845101";
 
 async function seedSuperAdmin() {
   console.log("Starting to seed Super Admin...");
 
-  // 1. Check if the super admin already exists to prevent duplicates
+  // We seek the Super Admin by their immutable soul (the id).
   const existingSuperAdmin = await prisma.user.findUnique({
     where: {
       id: SUPER_ADMIN_ID,
@@ -26,23 +29,22 @@ async function seedSuperAdmin() {
     return;
   }
 
-  // 2. Hash the password
-  // A salt round of 10 is a strong, standard choice.
   const saltRounds = 10;
   const hashedPassword = await bcrypt.hash(SUPER_ADMIN_PASSWORD, saltRounds);
   console.log("Password hashed successfully.");
 
-  // 3. Create the user in the database
-   await prisma.user.create({
-     data: {
-       id: SUPER_ADMIN_ID,
-       email: SUPER_ADMIN_EMAIL,
-       phone: "9801537137",
-       passwordHash: hashedPassword, // This is the corrected field name
-       name: "Aditya",
-       role: UserRole.SuperAdmin, // Use the imported enum for type safety
-     },
-   });
+  // We create a complete being, with all three parts of their identity.
+  await prisma.user.create({
+    data: {
+      id: SUPER_ADMIN_ID, // The secret soul.
+      userId: SUPER_ADMIN_USER_ID, // The branded login.
+      email: SUPER_ADMIN_EMAIL, // The public face.
+      phone: "9801537137",
+      passwordHash: hashedPassword,
+      name: "Aditya",
+      role: UserRole.SuperAdmin,
+    },
+  });
 
   console.log("✅ Super Admin user has been created successfully!");
 }
@@ -55,7 +57,6 @@ async function main() {
     console.error("Error seeding Super Admin:", error);
     process.exit(1);
   } finally {
-    // 5. Always disconnect from the database
     await prisma.$disconnect();
     console.log("Database connection closed.");
   }
