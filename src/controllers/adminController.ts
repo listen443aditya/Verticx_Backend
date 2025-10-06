@@ -118,7 +118,7 @@ export const approveRequest = async (
 
     res.status(200).json({
       message: `Request for ${request.schoolName} approved.`,
-      credentials: { userId: newUserId, password: tempPassword },
+      credentials: { userId: newUserId, password: tempPassword, email: request.email },
     });
   } catch (error) {
     console.error("Error during request approval:", error);
@@ -712,7 +712,7 @@ export const resetUserPassword = async (
     const newPassword = generatePassword();
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     await prisma.user.update({
-      where: { id: req.params.id },
+      where: { id: req.params.userId },
       data: { passwordHash: hashedPassword },
     });
     res.status(200).json({ newPassword });
