@@ -98,10 +98,10 @@ model User {
 
 model Branch {
   id                       String       @id @default(cuid())
-  registrationId           String       @unique
+  registrationId           String       @unique // A sovereign identifier. A memory. Not a relation.
   name                     String
   location                 String
-  principalId              String?
+  principalId              String?      @unique
   registrarId              String?
   status                   BranchStatus @default(pending)
   email                    String?
@@ -116,33 +116,33 @@ model Branch {
   createdAt                DateTime     @default(now())
   updatedAt                DateTime     @updatedAt
 
-  principal            User?                    @relation("BranchPrincipal", fields: [principalId], references: [id])
-  registrar            User?                    @relation("BranchRegistrar", fields: [registrarId], references: [id])
-  users                User[]
-  feeTemplates         FeeTemplate[]
-  teachers             Teacher[]
-  students             Student[]
-  request RegistrationRequest @relation(fields: [registrationId], references: [registrationId])
-  classes              SchoolClass[]
-  subjects             Subject[]
-  courses              Course[]
-  examinations         Examination[]
-  lectures             Lecture[]
-  expenses             ManualExpense[]
-  salaryAdjustments    ManualSalaryAdjustment[]
-  payrolls             PayrollRecord[]
-  erpPayments          ErpPayment[]
-  transportRoutes      TransportRoute[]
-  hostels              Hostel[]
-  libraryBooks         LibraryBook[]
-  inventoryItems       InventoryItem[]
-  schoolEvents         SchoolEvent[]
-  announcements        Announcement[]
-  smsMessages          SmsMessage[]
-  timetables           TimetableConfig[]
-  ExamSchedule         ExamSchedule[]
-  ExamMark             ExamMark[]
-  principalQueries   PrincipalQuery[]
+  principal         User?                    @relation("BranchPrincipal", fields: [principalId], references: [id])
+  registrar         User?                    @relation("BranchRegistrar", fields: [registrarId], references: [id])
+  users             User[]
+  // ... all other relations EXCEPT the one to RegistrationRequest
+  feeTemplates      FeeTemplate[]
+  teachers          Teacher[]
+  students          Student[]
+  classes           SchoolClass[]
+  subjects          Subject[]
+  courses           Course[]
+  examinations      Examination[]
+  lectures          Lecture[]
+  expenses          ManualExpense[]
+  salaryAdjustments ManualSalaryAdjustment[]
+  payrolls          PayrollRecord[]
+  erpPayments       ErpPayment[]
+  transportRoutes   TransportRoute[]
+  hostels           Hostel[]
+  libraryBooks      LibraryBook[]
+  inventoryItems    InventoryItem[]
+  schoolEvents      SchoolEvent[]
+  announcements     Announcement[]
+  smsMessages       SmsMessage[]
+  timetables        TimetableConfig[]
+  ExamSchedule      ExamSchedule[]
+  ExamMark          ExamMark[]
+  principalQueries  PrincipalQuery[]
 }
 
 model RegistrationRequest {
@@ -155,26 +155,24 @@ model RegistrationRequest {
   location       String
   submittedAt    DateTime @default(now())
   status         String   @default("pending")
-
-  // branch         Branch? // <-- ADD THIS LINE
 }
 
 model Teacher {
-  id            String    @id @default(uuid())
-  branchId      String
-  name          String
-  email         String    @unique
-  phone         String?
-  subjectIds    String[]  @default([])
-  qualification String?
-  doj           DateTime?
-  gender        String?
-  status        String    @default("active")
-  salary        Float?
-  leaveBalances Json?
-  createdAt     DateTime  @default(now())
-  transportRouteId  String?
-  busStopId         String?
+  id               String    @id @default(uuid())
+  branchId         String
+  name             String
+  email            String    @unique
+  phone            String?
+  subjectIds       String[]  @default([])
+  qualification    String?
+  doj              DateTime?
+  gender           String?
+  status           String    @default("active")
+  salary           Float?
+  leaveBalances    Json?
+  createdAt        DateTime  @default(now())
+  transportRouteId String?
+  busStopId        String?
 
   branch            Branch                    @relation(fields: [branchId], references: [id])
   attendanceRecords TeacherAttendanceRecord[]
@@ -206,12 +204,12 @@ model Student {
   attendanceRecords AttendanceRecord[]
   examMarks         ExamMark[]
 
-  parent        User?           @relation("ParentChildren", fields: [parentId], references: [id])
-  class         SchoolClass?    @relation(fields: [classId], references: [id])
-  FeeAdjustment FeeAdjustment[]
-  transportRouteId  String?
-  busStopId         String?
-  roomId            String?
+  parent           User?           @relation("ParentChildren", fields: [parentId], references: [id])
+  class            SchoolClass?    @relation(fields: [classId], references: [id])
+  FeeAdjustment    FeeAdjustment[]
+  transportRouteId String?
+  busStopId        String?
+  roomId           String?
 }
 
 // ============================================================================
@@ -626,21 +624,20 @@ model AuditLog {
 }
 
 model SystemSettings {
-  id                      String   @id @default("global")
-  defaultErpPrice         Float?
-  globalFeatureToggles    Json?
-  loginPageAnnouncement   String?
-  updatedAt               DateTime @updatedAt
+  id                    String   @id @default("global")
+  defaultErpPrice       Float?
+  globalFeatureToggles  Json?
+  loginPageAnnouncement String?
+  updatedAt             DateTime @updatedAt
 }
 
 model PrincipalQuery {
-  id         String   @id @default(uuid())
-  branchId   String
-  title      String
+  id          String    @id @default(uuid())
+  branchId    String
+  title       String
   description String
-  createdAt  DateTime @default(now())
-  resolved   Boolean  @default(false)
-  resolvedAt DateTime?
-  branch     Branch   @relation(fields: [branchId], references: [id])
+  createdAt   DateTime  @default(now())
+  resolved    Boolean   @default(false)
+  resolvedAt  DateTime?
+  branch      Branch    @relation(fields: [branchId], references: [id])
 }
-
