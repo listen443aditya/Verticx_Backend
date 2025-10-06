@@ -180,6 +180,8 @@ export const deleteBranch = async (
 
 // in src/controllers/adminController.ts
 
+// The Final, Perfected Backend Function for src/controllers/adminController.ts
+
 export const getSchoolDetails = async (
   req: Request,
   res: Response,
@@ -232,7 +234,8 @@ export const getSchoolDetails = async (
     const [
       inventoryData,
       transportData,
-      hostelaData,
+      hostelData,
+      libraryData,
       transportOccupancy,
       hostelOccupancy,
     ] = await prisma.$transaction([
@@ -250,6 +253,11 @@ export const getSchoolDetails = async (
         _count: { id: true },
         _sum: { capacity: true },
         where: { hostel: { branchId: branchId } },
+      }),
+      // FIX: Speaking the true name of the field to be summed.
+      prisma.libraryBook.aggregate({
+        _sum: { totalCopies: true },
+        where: { branchId: branchId },
       }),
       prisma.student.count({
         where: { branchId: branchId, transportRouteId: { not: null } },
@@ -291,14 +299,15 @@ export const getSchoolDetails = async (
         totalVehicles: transportData._count.id || 0,
         totalTransportCapacity: transportData._sum.capacity || 0,
         transportOccupancy: transportOccupancy,
-        totalRooms: hostelaData._count.id || 0,
-        totalHostelCapacity: hostelaData._sum.capacity || 0,
+        totalRooms: hostelData._count.id || 0,
+        totalHostelCapacity: hostelData._sum.capacity || 0,
         hostelOccupancy: hostelOccupancy,
+        // FIX: Accessing the correct, resiliently-guarded property.
+        totalLibraryBooks: libraryData._sum?.totalCopies ?? 0,
       },
       inventorySummary: {
-        totalCategories: inventoryData._count.id || 0,
-        // FIX: The property name is now aligned with the frontend's expectation.
-        totalQuantity: inventoryData._sum.quantity || 0,
+        totalItems: inventoryData._count.id || 0,
+        totalQuantity: inventoryData._sum?.quantity ?? 0,
       },
     };
 
@@ -307,6 +316,8 @@ export const getSchoolDetails = async (
     next(error);
   }
 };
+
+
 
 
 
