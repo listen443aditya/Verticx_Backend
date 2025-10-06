@@ -28,6 +28,7 @@ export const getRegistrationRequests = async (
   }
 };
 
+
 export const approveRequest = async (
   req: Request,
   res: Response,
@@ -52,26 +53,34 @@ export const approveRequest = async (
     const tempPassword = generatePassword();
     const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
+    // The crucible of creation, now with purpose.
     await prisma.$transaction(async (tx) => {
+      // The new Branch is born with its true, unique registrationId as its ID.
       const newBranch = await tx.branch.create({
         data: {
+          id: request.registrationId, // We bestow the true ID.
           name: request.schoolName,
           location: request.location,
           registrationId: request.registrationId,
           status: "active",
         },
       });
+
+      // The new Principal is born with their email as their true, unique ID.
       const principalUser = await tx.user.create({
         data: {
+          id: request.email, // We bestow the true ID.
           name: request.principalName,
           email: request.email,
           phone: request.phone,
-          passwordHash: hashedPassword,
+          passwordHash: hashedPassword, // The secret remains a secret.
           role: "Principal",
-          branchId: newBranch.id,
+          branchId: newBranch.id, // Linked to the newly born branch.
           status: "active",
         },
       });
+
+      // The final link in the chain of creation.
       await tx.branch.update({
         where: { id: newBranch.id },
         data: { principalId: principalUser.id },
@@ -92,6 +101,7 @@ export const approveRequest = async (
     next(error);
   }
 };
+
 
 export const denyRequest = async (
   req: Request,

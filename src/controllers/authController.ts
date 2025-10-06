@@ -161,7 +161,7 @@ export const verifyOtp = async (
   }
 };
 
-// in src/controllers/authController.ts
+
 
 export const registerSchool = async (
   req: Request,
