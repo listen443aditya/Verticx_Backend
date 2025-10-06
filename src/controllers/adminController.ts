@@ -818,12 +818,19 @@ export const getMasterConfig = async (
     });
 
     if (!masterConfig) {
-      console.error("CRITICAL: The global SystemSettings record is missing from the database.");
-      return res.status(500).json({ message: "Master configuration could not be found." });
+      console.error("CRITICAL: The global SystemSettings record is missing.");
+      return res
+        .status(500)
+        .json({ message: "Master configuration could not be found." });
     }
-    
-    res.status(200).json(masterConfig);
 
+    // THE HEALING RITUAL: If globalFeatureToggles is null, replace it with an empty object.
+    // This guarantees a safe, non-null object is always sent to the frontend.
+    if (masterConfig.globalFeatureToggles === null) {
+      masterConfig.globalFeatureToggles = {};
+    }
+
+    res.status(200).json(masterConfig);
   } catch (error) {
     next(error);
   }
