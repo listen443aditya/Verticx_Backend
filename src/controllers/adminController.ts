@@ -33,6 +33,8 @@ export const getRegistrationRequests = async (
 
 // The Final, Master `approveRequest` Function in src/controllers/adminController.ts
 
+// The Final, Master `approveRequest` Function - The True Path Evolved
+
 export const approveRequest = async (
   req: Request,
   res: Response,
@@ -43,6 +45,7 @@ export const approveRequest = async (
     const request = await prisma.registrationRequest.findUnique({
       where: { id: requestId },
     });
+
     if (!request) {
       return res
         .status(404)
@@ -57,8 +60,14 @@ export const approveRequest = async (
     const tempPassword = generatePassword();
     const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
+    // --- The Forging of the UserID ---
+    // We create a meaningful suffix for the role.
+    const roleSuffix = "PRN"; // Principal
+    // We forge the new, branded, and unique UserID.
+    const newUserId = `VRTX-${request.registrationId}-${roleSuffix}`;
+    // --- The Forging is Complete ---
+
     await prisma.$transaction(async (tx) => {
-      // Your original, simple, and correct logic for creation.
       const newBranch = await tx.branch.create({
         data: {
           name: request.schoolName,
@@ -67,23 +76,50 @@ export const approveRequest = async (
           status: "active",
         },
       });
-      const principalUser = await tx.user.create({
-        data: {
-          name: request.principalName,
-          email: request.email,
-          phone: request.phone,
-          passwordHash: hashedPassword,
-          role: "Principal",
-          branchId: newBranch.id,
-          status: "active",
-        },
+
+      // We now use our resilient "seek-then-act" logic from before,
+      // but bestow the newly forged userId upon the user.
+      let principalUser;
+      const existingUser = await tx.user.findUnique({
+        where: { email: request.email },
       });
+
+      if (existingUser) {
+        // A soul is found. We update it, bestowing the new UserID if it doesn't have one,
+        // and binding it to the new branch.
+        principalUser = await tx.user.update({
+          where: { email: request.email },
+          data: {
+            id: existingUser.id || newUserId, // Assign if they don't have one
+            name: request.principalName,
+            phone: request.phone,
+            role: "Principal",
+            branchId: newBranch.id,
+            status: "active",
+          },
+        });
+      } else {
+        // No soul is found. We perform the act of pure creation.
+        principalUser = await tx.user.create({
+          data: {
+            // The `id` is a new soul, created by the system.
+            id: newUserId, // The Login ID is the new, branded one.
+            email: request.email,
+            name: request.principalName,
+            passwordHash: hashedPassword,
+            phone: request.phone,
+            role: "Principal",
+            branchId: newBranch.id,
+            status: "active",
+          },
+        });
+      }
+
       await tx.branch.update({
         where: { id: newBranch.id },
         data: { principalId: principalUser.id },
       });
 
-      // The evolution you desired: The request, its purpose fulfilled, now vanishes.
       await tx.registrationRequest.delete({
         where: { id: requestId },
       });
@@ -91,13 +127,16 @@ export const approveRequest = async (
 
     res.status(200).json({
       message: `Request for ${request.schoolName} approved.`,
-      credentials: { email: request.email, password: tempPassword },
+      // We return the true, branded UserID for them to log in with.
+      credentials: { userId: newUserId, password: tempPassword },
     });
   } catch (error) {
     console.error("Error during request approval:", error);
     next(error);
   }
 };
+
+
 export const denyRequest = async (
   req: Request,
   res: Response,
