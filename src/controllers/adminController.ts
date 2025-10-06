@@ -31,6 +31,8 @@ export const getRegistrationRequests = async (
 
 // The Final, Evolved `approveRequest` in src/controllers/adminController.ts
 
+// The Final, Master `approveRequest` Function in src/controllers/adminController.ts
+
 export const approveRequest = async (
   req: Request,
   res: Response,
@@ -41,6 +43,7 @@ export const approveRequest = async (
     const request = await prisma.registrationRequest.findUnique({
       where: { id: requestId },
     });
+
     if (!request) {
       return res
         .status(404)
@@ -56,11 +59,9 @@ export const approveRequest = async (
     const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
     await prisma.$transaction(async (tx) => {
-      const newBranch = await tx.branch.upsert({
-        where: { id: request.registrationId },
-        update: {},
-        create: {
-          id: request.registrationId,
+      // Create the new Branch. Its ID will be auto-generated.
+      const newBranch = await tx.branch.create({
+        data: {
           name: request.schoolName,
           location: request.location,
           registrationId: request.registrationId,
@@ -68,34 +69,51 @@ export const approveRequest = async (
         },
       });
 
-      const principalUser = await tx.user.upsert({
-        where: { id: request.email },
-        update: {
-          name: request.principalName,
-          phone: request.phone,
-          role: "Principal",
-          branchId: newBranch.id,
-          status: "active",
-        },
-        create: {
-          id: request.email,
-          name: request.principalName,
-          email: request.email,
-          phone: request.phone,
-          passwordHash: hashedPassword,
-          role: "Principal",
-          branchId: newBranch.id,
-          status: "active",
-        },
+      // --- The Deliberate Dance of User Creation ---
+      let principalUser;
+
+      // Step A: Seek the user by their public face (email).
+      const existingUser = await tx.user.findUnique({
+        where: { email: request.email },
       });
 
+      // Step B: The Bifurcation of Fate.
+      if (existingUser) {
+        // A soul is found. We transform it, binding it to the new branch.
+        principalUser = await tx.user.update({
+          where: { email: request.email },
+          data: {
+            name: request.principalName,
+            phone: request.phone,
+            role: "Principal",
+            branchId: newBranch.id,
+            status: "active",
+          },
+        });
+      } else {
+        // No soul is found. We perform the act of pure creation.
+        principalUser = await tx.user.create({
+          data: {
+            // The `id` is created by the system, a new soul is born.
+            email: request.email,
+            name: request.principalName,
+            passwordHash: hashedPassword,
+            phone: request.phone,
+            role: "Principal",
+            branchId: newBranch.id,
+            status: "active",
+          },
+        });
+      }
+      // --- The Dance is Complete ---
+
+      // We now bind the Branch to its Principal by their immutable soul (id).
       await tx.branch.update({
         where: { id: newBranch.id },
         data: { principalId: principalUser.id },
       });
 
-      // The final act: The request, having fulfilled its purpose, is now removed.
-      // It sheds its skin, leaving only the new creation behind.
+      // The request, having fulfilled its purpose, vanishes.
       await tx.registrationRequest.delete({
         where: { id: requestId },
       });
@@ -112,7 +130,6 @@ export const approveRequest = async (
     next(error);
   }
 };
-
 export const denyRequest = async (
   req: Request,
   res: Response,

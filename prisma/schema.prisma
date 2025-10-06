@@ -74,7 +74,7 @@ enum ManualExpenseCategory {
 // CORE MODELS
 // ============================================================================
 model User {
-  id           String   @id // @default(uuid())
+  id           String   @id @default(uuid())
   name         String
   email        String   @unique
   passwordHash String
@@ -97,7 +97,7 @@ model User {
 }
 
 model Branch {
-  id                       String       @id 
+  id                       String       @id @default(cuid())
   registrationId           String       @unique
   name                     String
   location                 String
