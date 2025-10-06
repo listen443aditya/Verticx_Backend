@@ -805,6 +805,8 @@ export const getSuperAdminContactDetails = async (
 
 
 // --- Master Configuration ---
+// Add these two complete functions to src/controllers/adminController.ts
+
 export const getMasterConfig = async (
   req: AuthenticatedRequest,
   res: Response,
@@ -814,12 +816,14 @@ export const getMasterConfig = async (
     const masterConfig = await prisma.systemSettings.findUnique({
       where: { id: "global" },
     });
+
     if (!masterConfig) {
-      return res
-        .status(500)
-        .json({ message: "Master configuration could not be found." });
+      console.error("CRITICAL: The global SystemSettings record is missing from the database.");
+      return res.status(500).json({ message: "Master configuration could not be found." });
     }
+    
     res.status(200).json(masterConfig);
+
   } catch (error) {
     next(error);
   }
@@ -831,20 +835,14 @@ export const updateMasterConfig = async (
   next: NextFunction
 ) => {
   try {
-    // FIX: Destructure with the correct camelCase names that Prisma expects.
-    const { defaultErpPrice, globalFeatureToggles, loginPageAnnouncement } =
-      req.body;
+    const { defaultErpPrice, globalFeatureToggles, loginPageAnnouncement } = req.body;
 
-    // A simple validation
     if (defaultErpPrice === undefined || globalFeatureToggles === undefined) {
-      return res.status(400).json({
-        message: "Invalid request body. Required fields are missing.",
-      });
+      return res.status(400).json({ message: "Invalid request body. Required fields are missing." });
     }
 
     const updatedSettings = await prisma.systemSettings.update({
       where: { id: "global" },
-      // FIX: The 'data' object must use the camelCase properties defined by the Prisma client.
       data: {
         defaultErpPrice,
         globalFeatureToggles,
@@ -857,7 +855,6 @@ export const updateMasterConfig = async (
       settings: updatedSettings,
     });
   } catch (error) {
-    // Forward any potential errors to your error-handling middleware
     next(error);
   }
 };
