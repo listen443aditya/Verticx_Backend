@@ -156,7 +156,7 @@ model RegistrationRequest {
   submittedAt    DateTime @default(now())
   status         String   @default("pending")
 
-  branch         Branch? // <-- ADD THIS LINE
+  // branch         Branch? // <-- ADD THIS LINE
 }
 
 model Teacher {
