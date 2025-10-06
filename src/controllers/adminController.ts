@@ -128,7 +128,7 @@ export const approveRequest = async (
     res.status(200).json({
       message: `Request for ${request.schoolName} approved.`,
       // We return the true, branded UserID for them to log in with.
-      credentials: { email: request.email, userId: newUserId, password: tempPassword },
+      credentials: { userId: newUserId, password: tempPassword },
     });
   } catch (error) {
     console.error("Error during request approval:", error);
