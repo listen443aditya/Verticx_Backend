@@ -29,6 +29,8 @@ export const getRegistrationRequests = async (
 };
 
 
+// The Final, Evolved `approveRequest` in src/controllers/adminController.ts
+
 export const approveRequest = async (
   req: Request,
   res: Response,
@@ -54,13 +56,9 @@ export const approveRequest = async (
     const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
     await prisma.$transaction(async (tx) => {
-      // We no longer merely create. We command existence.
       const newBranch = await tx.branch.upsert({
         where: { id: request.registrationId },
-        update: {
-          // If the branch exists, perhaps it was created but not linked.
-          // We can ensure its data is correct. Here, we do nothing.
-        },
+        update: {},
         create: {
           id: request.registrationId,
           name: request.schoolName,
@@ -73,8 +71,6 @@ export const approveRequest = async (
       const principalUser = await tx.user.upsert({
         where: { id: request.email },
         update: {
-          // If the user already exists, we will ensure they are linked
-          // to the correct branch and have the correct role.
           name: request.principalName,
           phone: request.phone,
           role: "Principal",
@@ -93,23 +89,25 @@ export const approveRequest = async (
         },
       });
 
-      // The linking remains the same, a final seal on the creation.
       await tx.branch.update({
         where: { id: newBranch.id },
         data: { principalId: principalUser.id },
       });
-      await tx.registrationRequest.update({
+
+      // The final act: The request, having fulfilled its purpose, is now removed.
+      // It sheds its skin, leaving only the new creation behind.
+      await tx.registrationRequest.delete({
         where: { id: requestId },
-        data: { status: "approved" },
       });
     });
 
-    res.status(200).json({
-      message: `Request for ${request.schoolName} approved.`,
-      credentials: { email: request.email, password: tempPassword },
-    });
+    res
+      .status(200)
+      .json({
+        message: `Request for ${request.schoolName} approved.`,
+        credentials: { email: request.email, password: tempPassword },
+      });
   } catch (error) {
-    // We add a log to see the true nature of the server's cry.
     console.error("Error during request approval:", error);
     next(error);
   }
