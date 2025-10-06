@@ -626,11 +626,11 @@ model AuditLog {
 }
 
 model SystemSettings {
-  id                    String   @id @default("global")
-  defaultErpPrice       Float?
-  globalFeatureToggles  Json?
-  loginPageAnnouncement String?
-  updatedAt             DateTime @updatedAt
+  id                      String   @id @default("global")
+  defaultErpPrice         Float?
+  globalFeatureToggles    Json?
+  loginPageAnnouncement   String?
+  updatedAt               DateTime @updatedAt
 }
 
 model PrincipalQuery {

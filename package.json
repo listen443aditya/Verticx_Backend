@@ -12,6 +12,9 @@
     "prisma:migrate": "prisma migrate dev --name init",
     "db:seed": "ts-node src/script/seed.ts"
   },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
+  },
   "dependencies": {
     "@google/genai": "^1.21.0",
     "@prisma/client": "^6.16.3",
