@@ -53,12 +53,16 @@ export const approveRequest = async (
     const tempPassword = generatePassword();
     const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
-    // The crucible of creation, now with purpose.
     await prisma.$transaction(async (tx) => {
-      // The new Branch is born with its true, unique registrationId as its ID.
-      const newBranch = await tx.branch.create({
-        data: {
-          id: request.registrationId, // We bestow the true ID.
+      // We no longer merely create. We command existence.
+      const newBranch = await tx.branch.upsert({
+        where: { id: request.registrationId },
+        update: {
+          // If the branch exists, perhaps it was created but not linked.
+          // We can ensure its data is correct. Here, we do nothing.
+        },
+        create: {
+          id: request.registrationId,
           name: request.schoolName,
           location: request.location,
           registrationId: request.registrationId,
@@ -66,21 +70,30 @@ export const approveRequest = async (
         },
       });
 
-      // The new Principal is born with their email as their true, unique ID.
-      const principalUser = await tx.user.create({
-        data: {
-          id: request.email, // We bestow the true ID.
+      const principalUser = await tx.user.upsert({
+        where: { id: request.email },
+        update: {
+          // If the user already exists, we will ensure they are linked
+          // to the correct branch and have the correct role.
+          name: request.principalName,
+          phone: request.phone,
+          role: "Principal",
+          branchId: newBranch.id,
+          status: "active",
+        },
+        create: {
+          id: request.email,
           name: request.principalName,
           email: request.email,
           phone: request.phone,
-          passwordHash: hashedPassword, // The secret remains a secret.
+          passwordHash: hashedPassword,
           role: "Principal",
-          branchId: newBranch.id, // Linked to the newly born branch.
+          branchId: newBranch.id,
           status: "active",
         },
       });
 
-      // The final link in the chain of creation.
+      // The linking remains the same, a final seal on the creation.
       await tx.branch.update({
         where: { id: newBranch.id },
         data: { principalId: principalUser.id },
@@ -91,17 +104,16 @@ export const approveRequest = async (
       });
     });
 
-    res
-      .status(200)
-      .json({
-        message: `Request for ${request.schoolName} approved.`,
-        credentials: { email: request.email, password: tempPassword },
-      });
+    res.status(200).json({
+      message: `Request for ${request.schoolName} approved.`,
+      credentials: { email: request.email, password: tempPassword },
+    });
   } catch (error) {
+    // We add a log to see the true nature of the server's cry.
+    console.error("Error during request approval:", error);
     next(error);
   }
 };
-
 
 export const denyRequest = async (
   req: Request,
