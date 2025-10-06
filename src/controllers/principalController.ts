@@ -23,6 +23,18 @@ const getPrincipalBranchId = (req: Request): string | null => {
   return null;
 };
 
+
+// helper to resolve a branch when caller might pass either DB id or registrationId
+async function resolveBranchByIdOrRegistration(identifier: string | undefined) {
+  if (!identifier) return null;
+  // try id first
+  let branch = await prisma.branch.findUnique({ where: { id: identifier } });
+  if (branch) return branch;
+  // fallback to registrationId
+  branch = await prisma.branch.findUnique({ where: { registrationId: identifier } });
+  return branch;
+}
+
 // --- CONTROLLER FUNCTIONS ---
 
 export const getPrincipalDashboardData = async (
