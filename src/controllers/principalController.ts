@@ -14,7 +14,9 @@ import {
 } from "@prisma/client";
 import { generatePassword } from "../utils/helpers";
 import bcrypt from "bcryptjs";
+
 const principalApiService = new PrincipalApiService();
+
 // --- UTILITY: A guard to ensure the user is a Principal with a Branch ---
 const getPrincipalBranchId = (req: Request): string | null => {
   if (req.user?.role === "Principal" && req.user.branchId) {
@@ -521,20 +523,88 @@ export const getStaffByBranch = async (req: Request, res: Response) => {
 
 export const createStaffMember = async (req: Request, res: Response) => {
   try {
+    // Ensure authenticated principal with branch
     if (!req.user?.branchId) {
       return res
         .status(401)
         .json({ message: "Authentication required with a valid branch." });
     }
-    const credentials = await principalApiService.createStaffMember(
-      req.user.branchId,
-      req.body
-    );
-    res.status(201).json({ message: "Staff member created.", credentials });
+
+    const branchId = req.user.branchId;
+    const { name, email, phone, salary, role, designation } = req.body;
+
+    // Basic validation
+    if (!name || !email || !role) {
+      return res
+        .status(400)
+        .json({ message: "Missing required fields: name, email or role." });
+    }
+
+    // Map role to prefix for userId
+    const rolePrefixMap: Record<string, string> = {
+      Registrar: "REG",
+      Librarian: "LIB",
+      Teacher: "TCH",
+      Accountant: "ACC",
+      Clerk: "CLK",
+    };
+    const prefix = rolePrefixMap[role] || "STF";
+
+    // Generate a reasonably-unique userId based on role count + branch slice
+    const roleCount = await prisma.user.count({ where: { role } });
+    const seq = (roleCount + 1).toString().padStart(6, "0");
+    const userId = `VRTX-${prefix}-${seq}`;
+
+    // generate temporary password and hash it
+    const tempPassword = generatePassword();
+    const passwordHash = await bcrypt.hash(tempPassword, 10);
+
+    // Create the base user record
+    const newUser = await prisma.user.create({
+      data: {
+        userId,
+        name,
+        email,
+        phone,
+        branchId,
+        role,
+        designation: designation || null,
+        passwordHash,
+      },
+    });
+
+    // If the staff is a teacher, also create Teacher record linking to the user
+    if (role === "Teacher") {
+      await prisma.teacher.create({
+        data: {
+          user: { connect: { id: newUser.id } },
+          name,
+          email,
+          phone,
+          qualification: req.body.qualification || null,
+          branch: { connect: { id: branchId } },
+          salary: salary ?? null,
+        },
+      });
+    }
+
+    // Respond with credentials expected by frontend (email + generated password + userId)
+    res.status(201).json({
+      message: "Staff member created.",
+      credentials: { email: newUser.email, password: tempPassword, userId },
+    });
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    // handle unique constraint error (email/userId collision)
+    if (error?.code === "P2002") {
+      // Prisma unique constraint violation
+      return res
+        .status(409)
+        .json({ message: "A user with that email or userId already exists." });
+    }
+    res.status(500).json({ message: error?.message || "Server error." });
   }
 };
+
 
 export const suspendStaff = async (req: Request, res: Response) => {
   try {
