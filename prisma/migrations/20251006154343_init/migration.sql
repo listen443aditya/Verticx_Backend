@@ -87,6 +87,7 @@ CREATE TABLE "RegistrationRequest" (
 CREATE TABLE "Teacher" (
     "id" TEXT NOT NULL,
     "branchId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "email" TEXT NOT NULL,
     "phone" TEXT,
@@ -156,6 +157,7 @@ CREATE TABLE "Course" (
     "subjectId" TEXT NOT NULL,
     "teacherId" TEXT NOT NULL,
     "schoolClassId" TEXT,
+    "syllabusCompletion" DOUBLE PRECISION,
 
     CONSTRAINT "Course_pkey" PRIMARY KEY ("id")
 );
@@ -197,6 +199,7 @@ CREATE TABLE "ExamMark" (
     "examScheduleId" TEXT NOT NULL,
     "studentId" TEXT NOT NULL,
     "teacherId" TEXT NOT NULL,
+    "schoolClassId" TEXT NOT NULL,
     "score" INTEGER NOT NULL,
     "totalMarks" INTEGER NOT NULL,
     "enteredAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -543,6 +546,29 @@ CREATE TABLE "PrincipalQuery" (
     CONSTRAINT "PrincipalQuery_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "FacultyApplication" (
+    "id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "email" TEXT NOT NULL,
+    "phone" TEXT NOT NULL,
+    "qualification" TEXT NOT NULL,
+    "branchId" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'Pending',
+
+    CONSTRAINT "FacultyApplication_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "LeaveApplication" (
+    "id" TEXT NOT NULL,
+    "reason" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'Pending',
+    "teacherId" TEXT NOT NULL,
+
+    CONSTRAINT "LeaveApplication_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "User_userId_key" ON "User"("userId");
 
@@ -562,6 +588,9 @@ CREATE UNIQUE INDEX "RegistrationRequest_registrationId_key" ON "RegistrationReq
 CREATE UNIQUE INDEX "RegistrationRequest_email_key" ON "RegistrationRequest"("email");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "Teacher_userId_key" ON "Teacher"("userId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "Teacher_email_key" ON "Teacher"("email");
 
 -- AddForeignKey
@@ -572,6 +601,9 @@ ALTER TABLE "Branch" ADD CONSTRAINT "Branch_principalId_fkey" FOREIGN KEY ("prin
 
 -- AddForeignKey
 ALTER TABLE "Teacher" ADD CONSTRAINT "Teacher_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Teacher" ADD CONSTRAINT "Teacher_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Student" ADD CONSTRAINT "Student_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -641,6 +673,9 @@ ALTER TABLE "ExamMark" ADD CONSTRAINT "ExamMark_teacherId_fkey" FOREIGN KEY ("te
 
 -- AddForeignKey
 ALTER TABLE "ExamMark" ADD CONSTRAINT "ExamMark_courseId_fkey" FOREIGN KEY ("courseId") REFERENCES "Course"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ExamMark" ADD CONSTRAINT "ExamMark_schoolClassId_fkey" FOREIGN KEY ("schoolClassId") REFERENCES "SchoolClass"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "FeeTemplate" ADD CONSTRAINT "FeeTemplate_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -719,3 +754,9 @@ ALTER TABLE "TimetableConfig" ADD CONSTRAINT "TimetableConfig_branchId_fkey" FOR
 
 -- AddForeignKey
 ALTER TABLE "PrincipalQuery" ADD CONSTRAINT "PrincipalQuery_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "FacultyApplication" ADD CONSTRAINT "FacultyApplication_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "LeaveApplication" ADD CONSTRAINT "LeaveApplication_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "Teacher"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

@@ -1,28 +1,415 @@
-// src/controllers/principalController.ts
-import { Request, Response } from "express";
-import { principalApiService } from "../services";
+// The Final, Corrected `src/controllers/principalController.ts`
 
-// This controller has been corrected to import the instantiated service
-// and to perform necessary checks for `req.user` before using its properties.
+import { Request, Response, NextFunction } from "express";
+import { PrincipalApiService } from "../services/principalApiService";
+import prisma from "../prisma";
+import {
+  SchoolClass,
+  Teacher,
+  Student,
+  Course,
+  ExamMark,
+  FeeRecord,
+  Branch,
+} from "@prisma/client";
+import { generatePassword } from "../utils/helpers";
+import bcrypt from "bcryptjs";
+const principalApiService = new PrincipalApiService();
+// --- UTILITY: A guard to ensure the user is a Principal with a Branch ---
+const getPrincipalBranchId = (req: Request): string | null => {
+  if (req.user?.role === "Principal" && req.user.branchId) {
+    return req.user.branchId;
+  }
+  return null;
+};
+
+// --- CONTROLLER FUNCTIONS ---
 
 export const getPrincipalDashboardData = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ) => {
+  const branchId = getPrincipalBranchId(req);
+  if (!branchId) {
+    return res.status(401).json({
+      message: "Unauthorized: Principal must be associated with a branch.",
+    });
+  }
+
   try {
-    if (!req.user?.branchId) {
-      return res
-        .status(401)
-        .json({ message: "Authentication required with a valid branch." });
-    }
-    const data = await principalApiService.getPrincipalDashboardData(
-      req.user.branchId
+    const [
+      totalStudents,
+      totalTeachers,
+      totalClasses,
+      feesCollected,
+      classPerformance,
+      teacherPerformanceRaw,
+      topStudentsRaw,
+      syllabusProgress,
+      collectionsByGrade,
+      allEvents,
+      pendingStaffRequests,
+      allBranches,
+    ] = await prisma.$transaction([
+      prisma.student.count({ where: { branchId } }),
+      prisma.teacher.count({ where: { branchId } }),
+      prisma.schoolClass.count({ where: { branchId } }),
+      prisma.feePayment.aggregate({
+        _sum: { amount: true },
+        where: { student: { branchId } },
+      }),
+      prisma.schoolClass.findMany({
+        where: { branchId },
+        select: {
+          gradeLevel: true,
+          section: true,
+          examMarks: { select: { score: true } },
+        },
+      }),
+      prisma.teacher.findMany({
+        where: { branchId },
+        select: {
+          id: true,
+          name: true,
+          courses: { select: { syllabusCompletion: true } },
+          examMarks: { select: { score: true } },
+        },
+      }),
+      prisma.student.findMany({
+        where: { branchId },
+        select: {
+          id: true,
+          name: true,
+          class: { select: { gradeLevel: true, section: true } },
+          examMarks: { select: { score: true } },
+        },
+        take: 100,
+      }),
+      prisma.course.findMany({
+        where: { branchId },
+        select: {
+          subject: { select: { name: true } },
+          syllabusCompletion: true,
+        },
+      }),
+      prisma.schoolClass.findMany({
+        where: { branchId },
+        select: {
+          gradeLevel: true,
+          section: true,
+          students: {
+            select: {
+              feeRecords: { select: { totalAmount: true, paidAmount: true } },
+            },
+          },
+        },
+      }),
+      prisma.schoolEvent.findMany({ where: { branchId } }),
+      prisma.leaveApplication.count({
+        where: { teacher: { branchId }, status: "Pending" },
+      }),
+      prisma.branch.findMany({ select: { id: true, name: true, stats: true } }),
+    ]);
+
+    // --- Data Transformation with Explicit Types ---
+    const transformedClassPerformance = classPerformance.map(
+      (c: {
+        gradeLevel: number;
+        section: string;
+        examMarks: { score: number }[];
+      }) => {
+        const total = c.examMarks.length;
+        const sum = c.examMarks.reduce(
+          (acc: number, mark: { score: number }) => acc + mark.score,
+          0
+        );
+        return {
+          name: `Grade ${c.gradeLevel}-${c.section}`,
+          performance: total > 0 ? sum / total : 0,
+        };
+      }
     );
-    res.status(200).json(data);
-  } catch (error: any) {
-    res.status(500).json({ message: error.message });
+
+    const transformedTeacherPerformance = teacherPerformanceRaw
+      .map(
+        (t: {
+          id: string;
+          name: string;
+          courses?: { syllabusCompletion: number | null }[]; // optional & nullable
+          examMarks?: { score: number | null }[];
+        }) => {
+          const avgSyllabus = t.courses?.length
+            ? t.courses.reduce(
+                (acc, c) => acc + (c.syllabusCompletion ?? 0),
+                0
+              ) / t.courses.length
+            : 0;
+
+          const avgScore = t.examMarks?.length
+            ? t.examMarks.reduce((acc, m) => acc + (m.score ?? 0), 0) /
+              t.examMarks.length
+            : 0;
+
+          return {
+            teacherId: t.id,
+            teacherName: t.name,
+            avgStudentScore: avgScore,
+            syllabusCompletion: avgSyllabus,
+            performanceIndex: avgSyllabus * 0.4 + avgScore * 0.6,
+          };
+        }
+      )
+      .sort((a, b) => b.performanceIndex - a.performanceIndex)
+      .slice(0, 5);
+
+    const transformedTopStudents = topStudentsRaw
+      .map((s) => {
+        const totalMarks = s.examMarks.length;
+        const sumOfMarks = s.examMarks.reduce(
+          (acc: number, mark: { score: number }) => acc + mark.score,
+          0
+        );
+        return {
+          student: s,
+          avgScore: totalMarks > 0 ? sumOfMarks / totalMarks : 0,
+        };
+      })
+      .sort((a, b) => b.avgScore - a.avgScore)
+      .slice(0, 5)
+      .map((s, index) => ({
+        studentId: s.student.id,
+        studentName: s.student.name,
+        className: s.student.class
+          ? `Grade ${s.student.class.gradeLevel}-${s.student.class.section}`
+          : "N/A",
+        rank: index + 1,
+      }));
+
+  const allScores = allBranches
+    .map((b) => {
+      // stats is stored as JsonValue, so we need to safely cast/parse it
+      const stats = (b.stats as any) || {}; // fallback to empty object
+      const healthScore =
+        typeof stats.healthScore === "number" ? stats.healthScore : 70;
+      return {
+        id: b.id,
+        score: healthScore,
+      };
+    })
+    .sort((a, b) => b.score - a.score);
+
+
+    const myRank =
+      allScores.findIndex((s: { id: string }) => s.id === branchId) + 1;
+    const myScore =
+      allScores.find((s: { id: string }) => s.id === branchId)?.score || 70;
+    const averageScore =
+      allScores.reduce(
+        (acc: number, s: { score: number }) => acc + s.score,
+        0
+      ) / (allScores.length || 1);
+
+    const dashboardData = {
+      summary: {
+        totalStudents,
+        totalTeachers,
+        totalClasses,
+        feesCollected: feesCollected._sum.amount || 0,
+      },
+      classPerformance: transformedClassPerformance,
+      teacherPerformance: transformedTeacherPerformance,
+      topStudents: transformedTopStudents,
+      syllabusProgress: syllabusProgress.map(
+        (s: {
+          subject: { name: string };
+          syllabusCompletion: number | null;
+        }) => ({
+          name: s.subject.name,
+          progress: s.syllabusCompletion ?? 0, // default to 0 if null
+        })
+      ),
+
+      collectionsByGrade: collectionsByGrade.map(
+        (c: {
+          gradeLevel: number;
+          section: string;
+          students: {
+            feeRecords: { totalAmount: number; paidAmount: number }[];
+          }[];
+        }) => {
+          const totals = c.students
+            .flatMap((s) => s.feeRecords)
+            .reduce(
+              (acc, fr) => {
+                acc.due += fr.totalAmount;
+                acc.collected += fr.paidAmount;
+                return acc;
+              },
+              { due: 0, collected: 0 }
+            );
+          return {
+            name: `Grade ${c.gradeLevel}-${c.section}`,
+            ...totals,
+          };
+        }
+      ),
+
+      schoolRank: myRank || allBranches.length,
+      schoolScore: myScore,
+      averageSchoolScore: averageScore,
+      allEvents,
+      pendingStaffRequests: {
+        leave: pendingStaffRequests,
+        attendance: 0,
+        fees: 0,
+      },
+      classes: await prisma.schoolClass
+        .findMany({
+          where: { branchId },
+          select: { id: true, gradeLevel: true, section: true },
+        })
+        .then((classes) =>
+          classes.map(
+            (c: { id: string; gradeLevel: number; section: string }) => ({
+              id: c.id,
+              name: `Grade ${c.gradeLevel}-${c.section}`,
+            })
+          )
+        ),
+      subjectPerformanceByClass: {},
+    };
+
+    res.status(200).json(dashboardData);
+  } catch (error) {
+    next(error);
   }
 };
+
+export const getBranchDetails = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getPrincipalBranchId(req);
+  if (!branchId) {
+    return res.status(401).json({ message: "Unauthorized." });
+  }
+  try {
+    const branch = await prisma.branch.findUnique({ where: { id: branchId } });
+    if (!branch) {
+      return res.status(404).json({ message: "Branch not found." });
+    }
+    res.status(200).json(branch);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateBranchDetails = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getPrincipalBranchId(req);
+  if (!branchId) {
+    return res.status(401).json({ message: "Unauthorized." });
+  }
+  try {
+    const updatedBranch = await prisma.branch.update({
+      where: { id: branchId },
+      data: req.body,
+    });
+    res.status(200).json(updatedBranch);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getFacultyApplicationsByBranch = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getPrincipalBranchId(req);
+  if (!branchId) {
+    return res.status(401).json({ message: "Unauthorized." });
+  }
+  try {
+    const applications = await prisma.facultyApplication.findMany({
+      where: { branchId },
+    });
+    res.status(200).json(applications);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const approveFacultyApplication = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const { id } = req.params;
+  const { salary } = req.body;
+  const branchId = getPrincipalBranchId(req);
+
+  if (!branchId) {
+    return res.status(401).json({ message: "Unauthorized." });
+  }
+
+  try {
+    const application = await prisma.facultyApplication.findUnique({
+      where: { id },
+    });
+    if (!application || application.branchId !== branchId) {
+      return res.status(404).json({ message: "Application not found." });
+    }
+
+    const tempPassword = generatePassword();
+    const hashedPassword = await bcrypt.hash(tempPassword, 10);
+
+    const newTeacherUser = await prisma.user.create({
+      data: {
+        name: application.name,
+        email: application.email,
+        phone: application.phone,
+        branchId: branchId,
+        role: "Teacher",
+        passwordHash: hashedPassword,
+        userId: `VRTX-${branchId.substring(0, 4)}-TCH-${Date.now()
+          .toString()
+          .slice(-4)}`,
+      },
+    });
+
+    await prisma.teacher.create({
+      data: {
+        user: { connect: { id: newTeacherUser.id } },
+        name: application.name,
+        email: application.email,
+        phone: application.phone,
+        qualification: application.qualification,
+        branch: { connect: { id: branchId } },
+        salary: salary,
+      },
+    });
+
+    await prisma.facultyApplication.update({
+      where: { id },
+      data: { status: "Approved" },
+    });
+
+    res.status(200).json({
+      message: "Application approved.",
+      credentials: { userId: newTeacherUser.userId, password: tempPassword },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+// ... (The rest of the file uses principalApiService, which will now work with the import)
+// ... All subsequent functions remain the same, but with fixes for implicit 'any' types where applicable.
 
 export const requestProfileAccessOtp = async (req: Request, res: Response) => {
   try {
@@ -55,60 +442,6 @@ export const verifyProfileAccessOtp = async (req: Request, res: Response) => {
     } else {
       res.status(401).json({ success: false, message: "Invalid OTP." });
     }
-  } catch (error: any) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-export const updateBranchDetails = async (req: Request, res: Response) => {
-  try {
-    if (!req.user?.branchId) {
-      return res
-        .status(401)
-        .json({ message: "Authentication required with a valid branch." });
-    }
-    await principalApiService.updateBranchDetails(req.user.branchId, req.body);
-    res.status(200).json({ message: "Branch details updated." });
-  } catch (error: any) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-export const getFacultyApplicationsByBranch = async (
-  req: Request,
-  res: Response
-) => {
-  try {
-    if (!req.user?.branchId) {
-      return res
-        .status(401)
-        .json({ message: "Authentication required with a valid branch." });
-    }
-    const applications =
-      await principalApiService.getFacultyApplicationsByBranch(
-        req.user.branchId
-      );
-    res.status(200).json(applications);
-  } catch (error: any) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-export const approveFacultyApplication = async (
-  req: Request,
-  res: Response
-) => {
-  try {
-    if (!req.user) {
-      return res.status(401).json({ message: "Authentication required." });
-    }
-    const { salary } = req.body;
-    const credentials = await principalApiService.approveFacultyApplication(
-      req.params.id,
-      salary,
-      req.user.id
-    );
-    res.status(200).json({ message: "Application approved.", credentials });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
@@ -325,7 +658,8 @@ export const addFeeAdjustment = async (req: Request, res: Response) => {
       return res.status(401).json({ message: "Authentication required." });
     }
     const staff = await principalApiService.getStaffByBranch(req.user.branchId);
-    const principal = staff.find((u) => u.id === req.user!.id);
+    // FIX: Added explicit type for find parameter
+    const principal = staff.find((u: { id: string }) => u.id === req.user!.id);
 
     if (!principal || !principal.name) {
       return res
@@ -370,7 +704,8 @@ export const processPayroll = async (req: Request, res: Response) => {
       return res.status(401).json({ message: "Authentication required." });
     }
     const staff = await principalApiService.getStaffByBranch(req.user.branchId);
-    const principal = staff.find((u) => u.id === req.user!.id);
+    // FIX: Added explicit type for find parameter
+    const principal = staff.find((u: { id: string }) => u.id === req.user!.id);
 
     if (!principal || !principal.name) {
       return res
@@ -396,7 +731,8 @@ export const addManualSalaryAdjustment = async (
         .json({ message: "Authentication required with a valid branch." });
     }
     const staff = await principalApiService.getStaffByBranch(req.user.branchId);
-    const principal = staff.find((u) => u.id === req.user!.id);
+    // FIX: Added explicit type for find parameter
+    const principal = staff.find((u: { id: string }) => u.id === req.user!.id);
 
     if (!principal || !principal.name) {
       return res
@@ -481,7 +817,8 @@ export const addManualExpense = async (req: Request, res: Response) => {
         .json({ message: "Authentication required with a valid branch." });
     }
     const staff = await principalApiService.getStaffByBranch(req.user.branchId);
-    const principal = staff.find((u) => u.id === req.user!.id);
+    // FIX: Added explicit type for find parameter
+    const principal = staff.find((u: { id: string }) => u.id === req.user!.id);
 
     if (!principal || !principal.name) {
       return res
@@ -629,7 +966,8 @@ export const raiseComplaintAboutStudent = async (
         .json({ message: "Authentication required with a valid branch." });
     }
     const staff = await principalApiService.getStaffByBranch(req.user.branchId);
-    const principal = staff.find((u) => u.id === req.user!.id);
+    // FIX: Added explicit type for find parameter
+    const principal = staff.find((u: { id: string }) => u.id === req.user!.id);
 
     if (!principal || !principal.name) {
       return res
@@ -758,7 +1096,8 @@ export const sendSmsToStudents = async (req: Request, res: Response) => {
         .json({ message: "Authentication required with a valid branch." });
     }
     const staff = await principalApiService.getStaffByBranch(req.user.branchId);
-    const principal = staff.find((u) => u.id === req.user!.id);
+    // FIX: Added explicit type for find parameter
+    const principal = staff.find((u: { id: string }) => u.id === req.user!.id);
 
     if (!principal || !principal.name) {
       return res
@@ -828,7 +1167,8 @@ export const createSchoolEvent = async (req: Request, res: Response) => {
         .json({ message: "Authentication required with a valid branch." });
     }
     const staff = await principalApiService.getStaffByBranch(req.user.branchId);
-    const principal = staff.find((u) => u.id === req.user!.id);
+    // FIX: Added explicit type for find parameter
+    const principal = staff.find((u: { id: string }) => u.id === req.user!.id);
 
     if (!principal || !principal.name) {
       return res
@@ -877,7 +1217,8 @@ export const raiseQueryToAdmin = async (req: Request, res: Response) => {
         .json({ message: "Authentication required with a valid branch." });
     }
     const staff = await principalApiService.getStaffByBranch(req.user.branchId);
-    const principal = staff.find((u) => u.id === req.user!.id);
+    // FIX: Added explicit type for find parameter
+    const principal = staff.find((u: { id: string }) => u.id === req.user!.id);
 
     if (!principal || !principal.name) {
       return res

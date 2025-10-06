@@ -95,6 +95,7 @@ model User {
   principalOf Branch? @relation("BranchPrincipal")
 
   children Student[] @relation("ParentChildren")
+  teacher  Teacher?  @relation("UserTeacher")
 }
 
 model Branch {
@@ -126,29 +127,30 @@ model Branch {
   users User[] @relation("BranchUsers")
 
   // ... all other relations ...
-  feeTemplates      FeeTemplate[]
-  teachers          Teacher[]
-  students          Student[]
-  classes           SchoolClass[]
-  subjects          Subject[]
-  courses           Course[]
-  examinations      Examination[]
-  lectures          Lecture[]
-  expenses          ManualExpense[]
-  salaryAdjustments ManualSalaryAdjustment[]
-  payrolls          PayrollRecord[]
-  erpPayments       ErpPayment[]
-  transportRoutes   TransportRoute[]
-  hostels           Hostel[]
-  libraryBooks      LibraryBook[]
-  inventoryItems    InventoryItem[]
-  schoolEvents      SchoolEvent[]
-  announcements     Announcement[]
-  smsMessages       SmsMessage[]
-  timetables        TimetableConfig[]
-  ExamSchedule      ExamSchedule[]
-  ExamMark          ExamMark[]
-  principalQueries  PrincipalQuery[]
+  feeTemplates       FeeTemplate[]
+  teachers           Teacher[]
+  students           Student[]
+  classes            SchoolClass[]
+  subjects           Subject[]
+  courses            Course[]
+  examinations       Examination[]
+  lectures           Lecture[]
+  expenses           ManualExpense[]
+  salaryAdjustments  ManualSalaryAdjustment[]
+  payrolls           PayrollRecord[]
+  erpPayments        ErpPayment[]
+  transportRoutes    TransportRoute[]
+  hostels            Hostel[]
+  libraryBooks       LibraryBook[]
+  inventoryItems     InventoryItem[]
+  schoolEvents       SchoolEvent[]
+  announcements      Announcement[]
+  smsMessages        SmsMessage[]
+  timetables         TimetableConfig[]
+  ExamSchedule       ExamSchedule[]
+  ExamMark           ExamMark[]
+  principalQueries   PrincipalQuery[]
+  FacultyApplication FacultyApplication[]
 }
 
 model RegistrationRequest {
@@ -166,6 +168,7 @@ model RegistrationRequest {
 model Teacher {
   id               String    @id @default(uuid())
   branchId         String
+  userId           String    @unique // Added: link to User table
   name             String
   email            String    @unique
   phone            String?
@@ -181,12 +184,14 @@ model Teacher {
   busStopId        String?
 
   branch            Branch                    @relation(fields: [branchId], references: [id])
+  user              User                      @relation("UserTeacher", fields: [userId], references: [id]) 
   attendanceRecords TeacherAttendanceRecord[]
   lectures          Lecture[]
   courses           Course[]
   examMarks         ExamMark[]
-  SchoolClass       SchoolClass[]
-  Subject           Subject[]
+  schoolClasses     SchoolClass[]             // renamed to lowercase plural for clarity
+  subjects          Subject[]
+  leaveApplications LeaveApplication[]
 }
 
 model Student {
@@ -222,18 +227,19 @@ model Student {
 // ACADEMICS
 // ============================================================================
 model SchoolClass {
-  id         String  @id @default(uuid())
-  branchId   String
-  gradeLevel Int
-  section    String
-  mentorId   String?
+  id           String      @id @default(uuid())
+  branchId     String
+  gradeLevel   Int
+  section      String
+  mentorId     String?
 
-  branch        Branch         @relation(fields: [branchId], references: [id])
-  students      Student[]
-  subjects      Subject[]
-  mentor        Teacher?       @relation(fields: [mentorId], references: [id])
-  courses       Course[]
+  branch       Branch         @relation(fields: [branchId], references: [id])
+  students     Student[]
+  subjects     Subject[]
+  mentor       Teacher?       @relation(fields: [mentorId], references: [id])
+  courses      Course[]
   examSchedules ExamSchedule[]
+  examMarks    ExamMark[]     // Added: to fetch exam marks per class
 }
 
 model Subject {
@@ -251,18 +257,19 @@ model Subject {
 }
 
 model Course {
-  id        String @id @default(uuid())
-  name      String
-  branchId  String
-  subjectId String
-  teacherId String
+  id            String       @id @default(uuid())
+  name          String
+  branchId      String
+  subjectId     String
+  teacherId     String
+  schoolClassId String?      // optional relation to a class
 
   branch        Branch       @relation(fields: [branchId], references: [id])
   subject       Subject      @relation(fields: [subjectId], references: [id])
   teacher       Teacher      @relation(fields: [teacherId], references: [id])
   examMarks     ExamMark[]
-  SchoolClass   SchoolClass? @relation(fields: [schoolClassId], references: [id])
-  schoolClassId String?
+  schoolClass   SchoolClass? @relation(fields: [schoolClassId], references: [id])
+  syllabusCompletion Float?   // Added: so your controller can select syllabusCompletion
 }
 
 model Examination {
@@ -305,6 +312,7 @@ model ExamMark {
   examScheduleId String
   studentId      String
   teacherId      String
+  schoolClassId String 
   score          Int
   totalMarks     Int
   enteredAt      DateTime @default(now())
@@ -316,6 +324,7 @@ model ExamMark {
   teacher      Teacher      @relation(fields: [teacherId], references: [id])
   Course       Course?      @relation(fields: [courseId], references: [id])
   courseId     String?
+  schoolClass  SchoolClass  @relation(fields: [schoolClassId], references: [id])
 }
 
 // ============================================================================
@@ -646,4 +655,23 @@ model PrincipalQuery {
   resolved    Boolean   @default(false)
   resolvedAt  DateTime?
   branch      Branch    @relation(fields: [branchId], references: [id])
+}
+
+model FacultyApplication {
+  id            String @id @default(cuid())
+  name          String
+  email         String
+  phone         String
+  qualification String
+  branchId      String
+  status        String @default("Pending")
+  branch        Branch @relation(fields: [branchId], references: [id])
+}
+
+model LeaveApplication {
+  id        String  @id @default(cuid())
+  reason    String
+  status    String  @default("Pending")
+  teacherId String
+  teacher   Teacher @relation(fields: [teacherId], references: [id])
 }

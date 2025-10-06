@@ -1,3 +1,4 @@
+// src/routes/principal.ts
 import { Router } from 'express';
 import * as principalController from '../controllers/principalController';
 import { protect } from '../middlewares/auth';
