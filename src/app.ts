@@ -8,7 +8,7 @@ dotenv.config();
 // Import all routers
 import authRoutes from "./routes/auth";
 import adminRoutes from "./routes/admin";
-import superAdminRoutes from "./routes/superadmin"; // Import the new router
+// import superAdminRoutes from "./routes/superadmin"; // Import the new router
 import principalRoutes from "./routes/principal";
 import registrarRoutes from "./routes/registrar";
 import parentRoutes from "./routes/parent";
