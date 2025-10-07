@@ -622,7 +622,7 @@ export const createStaffMember = async (req: Request, res: Response) => {
     // Respond with credentials expected by frontend (email + generated password + userId)
     res.status(201).json({
       message: "Staff member created.",
-      credentials: { email: newUser.email, password: tempPassword, userId },
+      credentials: { email: newUser.email, password: tempPassword, userId: newUser.userId },
     });
   } catch (error: any) {
     // handle unique constraint error (email/userId collision)
