@@ -1002,6 +1002,35 @@ export const getErpFinancialsForBranch = async (
   }
 };
 
+export const getErpPaymentsForBranch = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getPrincipalBranchId(req);
+  if (!branchId) {
+    return res
+      .status(401)
+      .json({
+        message: "Unauthorized: Principal must be associated with a branch.",
+      });
+  }
+
+  try {
+    const payments = await prisma.erpPayment.findMany({
+      where: {
+        branchId: branchId,
+      },
+      orderBy: {
+        paymentDate: "desc",
+      },
+    });
+    res.status(200).json(payments);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const payErpBill = async (req: Request, res: Response) => {
   try {
     if (!req.user?.branchId) {

@@ -15,7 +15,7 @@ router.get('/dashboard', principalController.getPrincipalDashboardData);
 router.post('/profile/request-otp', principalController.requestProfileAccessOtp);
 router.post('/profile/verify-otp', principalController.verifyProfileAccessOtp);
 router.patch('/branch-details', principalController.updateBranchDetails);
-
+router.get("/branch", principalController.getBranchDetails);
 // Faculty & Staff Management
 router.get('/faculty-applications', principalController.getFacultyApplicationsByBranch);
 router.post('/faculty-applications/:id/approve', principalController.approveFacultyApplication);
