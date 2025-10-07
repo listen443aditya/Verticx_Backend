@@ -1334,35 +1334,32 @@ export const processLeaveApplication = async (req: Request, res: Response) => {
 
 export const raiseComplaintAboutStudent = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ) => {
+  const branchId = getPrincipalBranchId(req);
+  if (!branchId) {
+    return res.status(401).json({ message: "Unauthorized." });
+  }
+
+  const { studentId, raisedById, raisedByName, raisedByRole, complaintText } =
+    req.body;
+
   try {
-    if (!req.user?.branchId) {
-      return res
-        .status(401)
-        .json({ message: "Authentication required with a valid branch." });
-    }
-    const staff = await principalApiService.getStaffByBranch(req.user.branchId);
-    // FIX: Added explicit type for find parameter
-    const principal = staff.find((u: { id: string }) => u.id === req.user!.id);
-
-    if (!principal || !principal.name) {
-      return res
-        .status(404)
-        .json({ message: "Authenticated user not found or name is missing." });
-    }
-
-    const complaintData = {
-      ...req.body,
-      raisedById: req.user.id,
-      raisedByName: principal.name,
-      raisedByRole: "Principal",
-      branchId: req.user.branchId,
-    };
-    await principalApiService.raiseComplaintAboutStudent(complaintData);
-    res.status(201).json({ message: "Complaint raised." });
-  } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    const newComplaint = await prisma.complaint.create({
+      data: {
+        complaintText,
+        studentId,
+        raisedById,
+        raisedByName,
+        raisedByRole,
+        branchId,
+        // 'status' and 'submittedAt' will be set by default
+      },
+    });
+    res.status(201).json(newComplaint);
+  } catch (error) {
+    next(error);
   }
 };
 
@@ -1386,21 +1383,53 @@ export const getComplaintsAboutStudentsByBranch = async (
   }
 };
 
-export const getComplaintsForBranch = async (req: Request, res: Response) => {
+// export const getTeacherComplaints = async (
+//   req: Request,
+//   res: Response,
+//   next: NextFunction
+// ) => {
+//   const branchId = getPrincipalBranchId(req);
+//   if (!branchId) {
+//     return res.status(401).json({ message: "Unauthorized." });
+//   }
+
+//   try {
+//     const complaints = await prisma.teacherComplaint.findMany({
+//       where: { branchId: branchId },
+//       orderBy: { submittedAt: "desc" },
+//     });
+//     res.status(200).json(complaints);
+//   } catch (error) {
+//     next(error);
+//   }
+// };
+
+
+export const getComplaintsForBranch = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getPrincipalBranchId(req);
+  if (!branchId) {
+    return res.status(401).json({ message: "Unauthorized." });
+  }
+
   try {
-    if (!req.user?.branchId) {
-      return res
-        .status(401)
-        .json({ message: "Authentication required with a valid branch." });
-    }
-    const complaints = await principalApiService.getComplaintsForBranch(
-      req.user.branchId
-    );
+    // This will now work correctly!
+    const complaints = await prisma.complaint.findMany({
+      where: { branchId: branchId },
+      include: {
+        student: { select: { name: true } }, // Include the student's name
+      },
+      orderBy: { submittedAt: "desc" },
+    });
     res.status(200).json(complaints);
-  } catch (error: any) {
-    res.status(500).json({ message: error.message });
+  } catch (error) {
+    next(error);
   }
 };
+
 
 export const getSuspensionRecordsForBranch = async (
   req: Request,

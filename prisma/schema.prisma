@@ -94,8 +94,9 @@ model User {
   // A User can be the Principal of ONE Branch. This is the singular crown.
   principalOf Branch? @relation("BranchPrincipal")
 
-  children Student[] @relation("ParentChildren")
-  teacher  Teacher?  @relation("UserTeacher")
+  children         Student[]   @relation("ParentChildren")
+  teacher          Teacher?    @relation("UserTeacher")
+  complaintsRaised Complaint[] @relation("ComplaintsRaisedBy")
 }
 
 model Branch {
@@ -119,14 +120,10 @@ model Branch {
   createdAt                DateTime     @default(now())
   updatedAt                DateTime     @updatedAt
 
-  // The link to the User who is the Principal.
   principal User? @relation("BranchPrincipal", fields: [principalId], references: [id])
 
-  // The list of all Users who belong to this Branch.
-  // Registrars are found within this court, identified by their 'role'.
-  users User[] @relation("BranchUsers")
-
-  // ... all other relations ...
+  users              User[]                   @relation("BranchUsers")
+  complaints         Complaint[]
   feeTemplates       FeeTemplate[]
   teachers           Teacher[]
   students           Student[]
@@ -184,12 +181,12 @@ model Teacher {
   busStopId        String?
 
   branch            Branch                    @relation(fields: [branchId], references: [id])
-  user              User                      @relation("UserTeacher", fields: [userId], references: [id]) 
+  user              User                      @relation("UserTeacher", fields: [userId], references: [id])
   attendanceRecords TeacherAttendanceRecord[]
   lectures          Lecture[]
   courses           Course[]
   examMarks         ExamMark[]
-  schoolClasses     SchoolClass[]             // renamed to lowercase plural for clarity
+  schoolClasses     SchoolClass[] // renamed to lowercase plural for clarity
   subjects          Subject[]
   leaveApplications LeaveApplication[]
 }
@@ -215,33 +212,69 @@ model Student {
   attendanceRecords AttendanceRecord[]
   examMarks         ExamMark[]
 
-  parent           User?           @relation("ParentChildren", fields: [parentId], references: [id])
-  class            SchoolClass?    @relation(fields: [classId], references: [id])
-  FeeAdjustment    FeeAdjustment[]
-  transportRouteId String?
-  busStopId        String?
-  roomId           String?
+  parent            User?           @relation("ParentChildren", fields: [parentId], references: [id])
+  class             SchoolClass?    @relation(fields: [classId], references: [id])
+  FeeAdjustment     FeeAdjustment[]
+  transportRouteId  String?
+  busStopId         String?
+  roomId            String?
+  complaintsAboutMe Complaint[]
 }
 
 // ============================================================================
 // ACADEMICS
 // ============================================================================
-model SchoolClass {
-  id           String      @id @default(uuid())
-  branchId     String
-  gradeLevel   Int
-  section      String
-  mentorId     String?
 
-  branch       Branch         @relation(fields: [branchId], references: [id])
-  students     Student[]
-  subjects     Subject[]
-  mentor       Teacher?       @relation(fields: [mentorId], references: [id])
-  courses      Course[]
+enum ComplaintStatus {
+  Open
+  UnderReview
+  Resolved
+  Closed
+}
+
+// Add this entire model to your schema
+model Complaint {
+  id            String          @id @default(cuid())
+  complaintText String
+  status        ComplaintStatus @default(Open)
+  submittedAt   DateTime        @default(now())
+
+  // Who the complaint is ABOUT
+  // It's optional because a complaint could be general
+  studentId String?
+  student   Student? @relation(fields: [studentId], references: [id])
+
+  // Who RAISED the complaint
+  raisedById   String
+  raisedByName String // Storing the name for easy display
+  raisedByRole String // e.g., "Principal", "Teacher"
+  raisedBy     User   @relation("ComplaintsRaisedBy", fields: [raisedById], references: [id])
+
+  // Which BRANCH this complaint belongs to
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id])
+
+  @@index([studentId])
+  @@index([raisedById])
+  @@index([branchId])
+}
+
+model SchoolClass {
+  id         String  @id @default(uuid())
+  branchId   String
+  gradeLevel Int
+  section    String
+  mentorId   String?
+
+  branch        Branch         @relation(fields: [branchId], references: [id])
+  students      Student[]
+  subjects      Subject[]
+  mentor        Teacher?       @relation(fields: [mentorId], references: [id])
+  courses       Course[]
   examSchedules ExamSchedule[]
-  examMarks    ExamMark[]     // Added: to fetch exam marks per class
+  examMarks     ExamMark[] // Added: to fetch exam marks per class
   feeTemplateId String?
-  feeTemplate   FeeTemplate? @relation(fields: [feeTemplateId], references: [id])
+  feeTemplate   FeeTemplate?   @relation(fields: [feeTemplateId], references: [id])
 }
 
 model Subject {
@@ -259,19 +292,19 @@ model Subject {
 }
 
 model Course {
-  id            String       @id @default(uuid())
+  id            String  @id @default(uuid())
   name          String
   branchId      String
   subjectId     String
   teacherId     String
-  schoolClassId String?      // optional relation to a class
+  schoolClassId String? // optional relation to a class
 
-  branch        Branch       @relation(fields: [branchId], references: [id])
-  subject       Subject      @relation(fields: [subjectId], references: [id])
-  teacher       Teacher      @relation(fields: [teacherId], references: [id])
-  examMarks     ExamMark[]
-  schoolClass   SchoolClass? @relation(fields: [schoolClassId], references: [id])
-  syllabusCompletion Float?   // Added: so your controller can select syllabusCompletion
+  branch             Branch       @relation(fields: [branchId], references: [id])
+  subject            Subject      @relation(fields: [subjectId], references: [id])
+  teacher            Teacher      @relation(fields: [teacherId], references: [id])
+  examMarks          ExamMark[]
+  schoolClass        SchoolClass? @relation(fields: [schoolClassId], references: [id])
+  syllabusCompletion Float? // Added: so your controller can select syllabusCompletion
 }
 
 model Examination {
@@ -314,7 +347,7 @@ model ExamMark {
   examScheduleId String
   studentId      String
   teacherId      String
-  schoolClassId String 
+  schoolClassId  String
   score          Int
   totalMarks     Int
   enteredAt      DateTime @default(now())
@@ -333,14 +366,14 @@ model ExamMark {
 // FINANCE
 // ============================================================================
 model FeeTemplate {
-  id               String   @id @default(uuid())
+  id               String        @id @default(uuid())
   branchId         String
   name             String
   amount           Float
   gradeLevel       Int
   monthlyBreakdown Json?
-  createdAt        DateTime @default(now())
-  schoolClasses SchoolClass[]
+  createdAt        DateTime      @default(now())
+  schoolClasses    SchoolClass[]
 
   branch Branch @relation(fields: [branchId], references: [id])
 }

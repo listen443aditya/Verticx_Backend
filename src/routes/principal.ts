@@ -72,10 +72,12 @@ router.get('/requests/leave', principalController.getLeaveApplicationsForPrincip
 router.post('/requests/leave/:id/process', principalController.processLeaveApplication);
 
 // Grievances & Discipline
+router.get("/complaints", principalController.getComplaintsForBranch);
 router.post('/complaints/student', principalController.raiseComplaintAboutStudent);
 router.get('/complaints/student', principalController.getComplaintsAboutStudentsByBranch);
 router.get('/complaints/teacher', principalController.getComplaintsForBranch);
 router.get('/suspensions', principalController.getSuspensionRecordsForBranch);
+// router.get("/complaints/teacher", principalController.getTeacherComplaints);
 
 // Communication & Events
 router.get('/announcements', principalController.getAnnouncements);

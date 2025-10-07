@@ -25,6 +25,9 @@ CREATE TYPE "FeeAdjustmentType" AS ENUM ('concession', 'charge');
 -- CreateEnum
 CREATE TYPE "ManualExpenseCategory" AS ENUM ('Utilities', 'Supplies', 'Maintenance', 'Events', 'Miscellaneous');
 
+-- CreateEnum
+CREATE TYPE "ComplaintStatus" AS ENUM ('Open', 'UnderReview', 'Resolved', 'Closed');
+
 -- CreateTable
 CREATE TABLE "User" (
     "id" TEXT NOT NULL,
@@ -125,6 +128,21 @@ CREATE TABLE "Student" (
     "roomId" TEXT,
 
     CONSTRAINT "Student_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Complaint" (
+    "id" TEXT NOT NULL,
+    "complaintText" TEXT NOT NULL,
+    "status" "ComplaintStatus" NOT NULL DEFAULT 'Open',
+    "submittedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "studentId" TEXT,
+    "raisedById" TEXT NOT NULL,
+    "raisedByName" TEXT NOT NULL,
+    "raisedByRole" TEXT NOT NULL,
+    "branchId" TEXT NOT NULL,
+
+    CONSTRAINT "Complaint_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -594,6 +612,15 @@ CREATE UNIQUE INDEX "Teacher_userId_key" ON "Teacher"("userId");
 -- CreateIndex
 CREATE UNIQUE INDEX "Teacher_email_key" ON "Teacher"("email");
 
+-- CreateIndex
+CREATE INDEX "Complaint_studentId_idx" ON "Complaint"("studentId");
+
+-- CreateIndex
+CREATE INDEX "Complaint_raisedById_idx" ON "Complaint"("raisedById");
+
+-- CreateIndex
+CREATE INDEX "Complaint_branchId_idx" ON "Complaint"("branchId");
+
 -- AddForeignKey
 ALTER TABLE "User" ADD CONSTRAINT "User_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
@@ -614,6 +641,15 @@ ALTER TABLE "Student" ADD CONSTRAINT "Student_parentId_fkey" FOREIGN KEY ("paren
 
 -- AddForeignKey
 ALTER TABLE "Student" ADD CONSTRAINT "Student_classId_fkey" FOREIGN KEY ("classId") REFERENCES "SchoolClass"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Complaint" ADD CONSTRAINT "Complaint_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "Student"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Complaint" ADD CONSTRAINT "Complaint_raisedById_fkey" FOREIGN KEY ("raisedById") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Complaint" ADD CONSTRAINT "Complaint_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "SchoolClass" ADD CONSTRAINT "SchoolClass_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
