@@ -690,6 +690,7 @@ export const deleteStaff = async (
     next(error);
   }
 };
+
 export const getTeacherProfileDetails = async (
   req: Request,
   res: Response,
@@ -703,6 +704,56 @@ export const getTeacherProfileDetails = async (
   } catch (error: any) {
     if (error.code === "NOT_FOUND")
       return res.status(404).json({ message: error.message });
+    next(error);
+  }
+};
+
+
+export const getSchoolEvents = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getPrincipalBranchId(req);
+  if (!branchId) {
+    return res.status(401).json({ message: "Unauthorized." });
+  }
+  try {
+    const events = await prisma.schoolEvent.findMany({
+      where: { branchId },
+      orderBy: { date: "desc" },
+    });
+    res.status(200).json(events);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deleteSchoolEvent = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getPrincipalBranchId(req);
+  const { eventId } = req.params;
+  if (!branchId) {
+    return res.status(401).json({ message: "Unauthorized." });
+  }
+  try {
+    // Security check: ensure the event belongs to the principal's branch before deleting
+    const eventToDelete = await prisma.schoolEvent.findFirst({
+      where: { id: eventId, branchId: branchId },
+    });
+
+    if (!eventToDelete) {
+      return res
+        .status(404)
+        .json({ message: "Event not found in your branch." });
+    }
+
+    await prisma.schoolEvent.delete({ where: { id: eventId } });
+    res.status(204).send();
+  } catch (error) {
     next(error);
   }
 };

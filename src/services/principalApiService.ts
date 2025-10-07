@@ -1422,6 +1422,19 @@ export class PrincipalApiService extends BaseApiService {
       (c) => c.branchId === branchId
     );
   }
+  async getSchoolEventsByBranch(branchId: string): Promise<SchoolEvent[]> {
+    await this.delay(200);
+    return (db.schoolEvents as SchoolEvent[])
+      .filter((e) => e.branchId === branchId)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }
+  async deleteSchoolEvent(eventId: string): Promise<void> {
+    await this.delay(300);
+    db.schoolEvents = (db.schoolEvents as SchoolEvent[]).filter(
+      (e) => e.id !== eventId
+    );
+    saveDb();
+  }
 
   async addFeeAdjustment(
     studentId: string,

@@ -88,6 +88,15 @@ router.post('/events', principalController.createSchoolEvent);
 router.patch('/events/:id', principalController.updateSchoolEvent);
 router.patch('/events/:id/status', principalController.updateSchoolEventStatus);
 
+router.get("/events", principalController.getSchoolEvents);
+// router.post("/events", principalController.createSchoolEvent);
+router.patch("/events/:eventId", principalController.updateSchoolEvent);
+router.delete("/events/:eventId", principalController.deleteSchoolEvent); // ADD THIS
+router.patch(
+  "/events/:eventId/status",
+  principalController.updateSchoolEventStatus
+);
+
 // Admin Communication
 router.post('/queries/admin', principalController.raiseQueryToAdmin);
 router.get('/queries', principalController.getQueriesByPrincipal);
