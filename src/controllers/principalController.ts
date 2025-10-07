@@ -521,6 +521,37 @@ export const getStaffByBranch = async (req: Request, res: Response) => {
   }
 };
 
+export const getFaculty = async (req: Request, res: Response) => {
+  try {
+    if (!req.user?.branchId) {
+      return res.status(401).json({ message: "Unauthorized access." });
+    }
+
+    const staff = await prisma.user.findMany({
+      where: {
+        branchId: req.user.branchId,
+        role: {
+          in: ["Teacher", "Registrar", "Librarian"],
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        role: true,
+        status: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    res.status(200).json(staff);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
 export const createStaffMember = async (req: Request, res: Response) => {
   try {
     // Ensure authenticated principal with branch

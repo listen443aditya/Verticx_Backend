@@ -20,7 +20,7 @@ router.patch('/branch-details', principalController.updateBranchDetails);
 router.get('/faculty-applications', principalController.getFacultyApplicationsByBranch);
 router.post('/faculty-applications/:id/approve', principalController.approveFacultyApplication);
 router.post('/faculty-applications/:id/reject', principalController.rejectFacultyApplication);
-router.get('/staff', principalController.getStaffByBranch);
+router.get("/staff", protect, principalController.getFaculty); // ✅ this endpoint must exist
 router.post('/staff', principalController.createStaffMember);
 router.patch('/staff/:id/suspend', principalController.suspendStaff);
 router.patch('/staff/:id/reinstate', principalController.reinstateStaff);
