@@ -240,6 +240,8 @@ model SchoolClass {
   courses      Course[]
   examSchedules ExamSchedule[]
   examMarks    ExamMark[]     // Added: to fetch exam marks per class
+  feeTemplateId String?
+  feeTemplate   FeeTemplate? @relation(fields: [feeTemplateId], references: [id])
 }
 
 model Subject {
@@ -338,6 +340,7 @@ model FeeTemplate {
   gradeLevel       Int
   monthlyBreakdown Json?
   createdAt        DateTime @default(now())
+  schoolClasses SchoolClass[]
 
   branch Branch @relation(fields: [branchId], references: [id])
 }

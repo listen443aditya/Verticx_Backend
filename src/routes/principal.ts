@@ -104,6 +104,11 @@ router.get('/queries', principalController.getQueriesByPrincipal);
 // System Actions
 router.post('/new-session', principalController.startNewAcademicSession);
 router.patch('/users/:id', principalController.updateUser);
-
+router.get("/classes/:classId/details", principalController.getClassDetails);
+router.patch("/classes/:classId/mentor", principalController.assignClassMentor);
+router.patch(
+  "/classes/:classId/fee-template",
+  principalController.assignFeeTemplateToClass
+);
 
 export default router;

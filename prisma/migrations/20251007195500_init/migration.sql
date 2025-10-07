@@ -134,6 +134,7 @@ CREATE TABLE "SchoolClass" (
     "gradeLevel" INTEGER NOT NULL,
     "section" TEXT NOT NULL,
     "mentorId" TEXT,
+    "feeTemplateId" TEXT,
 
     CONSTRAINT "SchoolClass_pkey" PRIMARY KEY ("id")
 );
@@ -619,6 +620,9 @@ ALTER TABLE "SchoolClass" ADD CONSTRAINT "SchoolClass_branchId_fkey" FOREIGN KEY
 
 -- AddForeignKey
 ALTER TABLE "SchoolClass" ADD CONSTRAINT "SchoolClass_mentorId_fkey" FOREIGN KEY ("mentorId") REFERENCES "Teacher"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SchoolClass" ADD CONSTRAINT "SchoolClass_feeTemplateId_fkey" FOREIGN KEY ("feeTemplateId") REFERENCES "FeeTemplate"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Subject" ADD CONSTRAINT "Subject_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

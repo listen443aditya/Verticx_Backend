@@ -26,6 +26,126 @@ const getPrincipalBranchId = (req: Request): string | null => {
 };
 
 
+
+export const getClassDetails = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getPrincipalBranchId(req);
+  const { classId } = req.params;
+  if (!branchId) return res.status(401).json({ message: "Unauthorized." });
+
+  try {
+    const classInfo = await prisma.schoolClass.findFirst({
+      where: { id: classId, branchId },
+    });
+
+    if (!classInfo) {
+      return res
+        .status(404)
+        .json({ message: "Class not found in your branch." });
+    }
+
+    const students = await prisma.student.findMany({ where: { classId } });
+    const courses = await prisma.course.findMany({
+      where: { schoolClassId: classId },
+      include: { subject: true, teacher: true },
+    });
+
+    const performance = courses.map((c) => ({
+      subjectId: c.subjectId,
+      subjectName: c.subject.name,
+      averageScore: 70 + Math.random() * 25, // Mock data for now
+    }));
+
+    const feeRecords = await prisma.feeRecord.findMany({
+      where: { student: { classId } },
+    });
+
+    const totalPending = feeRecords.reduce(
+      (sum, r) => sum + (r.totalAmount - r.paidAmount),
+      0
+    );
+    const defaulters = feeRecords
+      .filter((r) => r.totalAmount > r.paidAmount)
+      .map((r) => {
+        const student = students.find((s) => s.id === r.studentId);
+        return {
+          studentId: r.studentId,
+          studentName: student?.name || "Unknown",
+          pendingAmount: r.totalAmount - r.paidAmount,
+        };
+      });
+
+    const details: any = {
+      classInfo,
+      students,
+      subjects: courses.map((c) => ({
+        subjectId: c.subjectId,
+        subjectName: c.subject.name,
+        teacherName: c.teacher?.name || "N/A",
+        // CORRECTED: Use the correct field name from your schema
+        syllabusCompletion: c.syllabusCompletion,
+      })),
+      performance,
+      fees: {
+        totalPending,
+        defaulters,
+      },
+    };
+
+    res.status(200).json(details);
+  } catch (error) {
+    next(error);
+  }
+};
+
+
+
+export const assignClassMentor = async (req: Request, res: Response, next: NextFunction) => {
+    const branchId = getPrincipalBranchId(req);
+    const { classId } = req.params;
+    const { teacherId } = req.body; // teacherId can be string or null
+
+    if (!branchId) return res.status(401).json({ message: "Unauthorized." });
+
+    try {
+        await prisma.schoolClass.updateMany({
+            where: { id: classId, branchId }, // Security check
+            data: { mentorId: teacherId },
+        });
+        res.status(200).json({ message: "Mentor updated successfully." });
+    } catch (error) {
+        next(error);
+    }
+};
+
+
+export const assignFeeTemplateToClass = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getPrincipalBranchId(req);
+  const { classId } = req.params;
+  const { feeTemplateId } = req.body;
+
+  if (!branchId) return res.status(401).json({ message: "Unauthorized." });
+
+  try {
+    // This code is now correct AFTER you update your schema.prisma
+    await prisma.schoolClass.updateMany({
+      where: { id: classId, branchId },
+      data: { feeTemplateId: feeTemplateId },
+    });
+    res.status(200).json({ message: "Fee template assigned successfully." });
+  } catch (error) {
+    next(error);
+  }
+};
+
+
 // helper to resolve a branch when caller might pass either DB id or registrationId
 async function resolveBranchByIdOrRegistration(identifier: string | undefined) {
   if (!identifier) return null;
