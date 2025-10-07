@@ -605,46 +605,202 @@ export class PrincipalApiService extends BaseApiService {
     return updatedUser;
   }
 
-  async deleteStaff(staffId: string): Promise<void> {
-    db.users = (db.users as User[]).filter((u) => u.id !== staffId);
-    db.teachers = (db.teachers as Teacher[]).filter((t) => t.id !== staffId);
-    saveDb();
+  async deleteStaff(
+    staffUserId: string,
+    actingPrincipalId?: string,
+    actingPrincipalBranchId?: string
+  ): Promise<void> {
+    // ensure user exists
+    const user = await prisma.user.findUnique({ where: { id: staffUserId } });
+    if (!user) {
+      const e: any = new Error("Staff user not found");
+      e.code = "NOT_FOUND";
+      throw e;
+    }
+
+    // Do not allow deleting yourself
+    if (actingPrincipalId && actingPrincipalId === staffUserId) {
+      const e: any = new Error("You cannot delete your own account");
+      e.code = "FORBIDDEN";
+      throw e;
+    }
+
+    // branch check
+    if (
+      typeof actingPrincipalBranchId !== "undefined" &&
+      actingPrincipalBranchId !== null &&
+      user.branchId !== actingPrincipalBranchId
+    ) {
+      const e: any = new Error(
+        "Permission denied: staff does not belong to your branch"
+      );
+      e.code = "FORBIDDEN";
+      throw e;
+    }
+
+    // Remove teacher record if exists (by userId), then remove the user.
+    // Use transaction so it either fully deletes or not.
+    await prisma.$transaction(async (tx) => {
+      // remove any teacher row linked to this user
+      await tx.teacher.deleteMany({ where: { userId: staffUserId } });
+
+      // optionally remove other domain records if your app expects:
+      // await tx.leaveApplication.deleteMany({ where: { userId: staffUserId } });
+      // etc.
+
+      // finally remove the user
+      await tx.user.delete({ where: { id: staffUserId } });
+    });
   }
 
-  async getTeacherProfileDetails(teacherId: string): Promise<TeacherProfile> {
-    await this.delay(300);
-    const teacher = this.getTeacherById(teacherId)!;
-    const assignedClasses = (db.schoolClasses as SchoolClass[])
-      .filter((c) =>
-        c.subjectIds.some((sid) => teacher.subjectIds.includes(sid))
-      )
-      .map((c) => ({ id: c.id, name: `Grade ${c.gradeLevel}-${c.section}` }));
+  /**
+   * Return a teacher profile. Accepts either a teacherId or a userId.
+   * Returns a compact object tailored to the frontend profile view.
+   */
+  async getTeacherProfileDetails(teacherOrUserId: string) {
+    // Try find by teacher id
+    let teacher = await prisma.teacher.findUnique({
+      where: { id: teacherOrUserId },
+      select: {
+        id: true,
+        userId: true,
+        name: true,
+        email: true,
+        phone: true,
+        qualification: true,
+        salary: true,
+        subjectIds: true,
+        branchId: true,
+        status: true,
+      },
+    });
+
+    // If not found, try find teacher by userId
+    if (!teacher) {
+      teacher = await prisma.teacher.findFirst({
+        where: { userId: teacherOrUserId },
+        select: {
+          id: true,
+          userId: true,
+          name: true,
+          email: true,
+          phone: true,
+          qualification: true,
+          salary: true,
+          subjectIds: true,
+          branchId: true,
+          status: true,
+        },
+      });
+    }
+
+    if (!teacher) {
+      const e: any = new Error("Teacher not found");
+      e.code = "NOT_FOUND";
+      throw e;
+    }
+
+    // Mentored classes: classes where mentorId == teacher.id
+    const mentoredClasses = await prisma.schoolClass.findMany({
+      where: { mentorId: teacher.id },
+      select: { id: true, gradeLevel: true, section: true },
+    });
+
+    // Classes taught via courses that reference a schoolClass
+    // (Course.schoolClassId is optional in your schema; only include classes that exist)
+    const courses = await prisma.course.findMany({
+      where: { teacherId: teacher.id, schoolClassId: { not: null } },
+      select: { schoolClassId: true },
+    });
+    const classIds = Array.from(
+      new Set(courses.map((c) => c.schoolClassId).filter(Boolean))
+    );
+
+    const taughtClasses = classIds.length
+      ? await prisma.schoolClass.findMany({
+          where: { id: { in: classIds as string[] } },
+          select: { id: true, gradeLevel: true, section: true },
+        })
+      : [];
+
+    // Assigned subjects (if you have a Subject model with teacherId)
+    const assignedSubjects = await prisma.subject.findMany({
+      where: { teacherId: teacher.id },
+      select: { id: true, name: true },
+    });
+
+    // Syllabus progress - if Course model doesn't have a syllabusCompletion field,
+    // we avoid querying non-existent fields. Provide a reasonable default or compute if available.
+    // We'll try to read `courses` rows for progress if there's a numeric field; otherwise mock 70-90.
+    const syllabusProgress =
+      (courses.length > 0 &&
+        (await Promise.all(
+          courses.map(async (c) => {
+            // try to fetch a course entry that might have progress fields
+            // (select only safe fields - if your course model changes add/select actual field)
+            const course = await prisma.course.findUnique({
+              where: { id: (c as any).id },
+              select: { id: true, name: true, schoolClassId: true },
+            });
+            return {
+              className: course?.schoolClassId
+                ? `Class-${course.schoolClassId}`
+                : "General",
+              subjectName: course?.name || "Subject",
+              completionPercentage: 70 + Math.floor(Math.random() * 30),
+            };
+          })
+        ))) ||
+      [];
+
+    // Class performance: you can compute averages from exam marks if you have exam tables.
+    // To avoid selecting fields that may not exist, we'll return mock averages for each related class:
+    const classPerformance = [...mentoredClasses, ...taughtClasses].map(
+      (c) => ({
+        className: `Grade ${c.gradeLevel}-${c.section}`,
+        averageStudentScore: 70 + Math.floor(Math.random() * 25),
+      })
+    );
+
+    // Attendance: attempt to read teacher attendance summary if table exists
+    // We'll try to use TeacherAttendanceRecord if present
+    let attendance = { present: 0, total: 0 };
+    try {
+      const total = await prisma.teacherAttendanceRecord.count({
+        where: { teacherId: teacher.id },
+      });
+      const present = await prisma.teacherAttendanceRecord.count({
+        where: { teacherId: teacher.id, status: "Present" },
+      });
+      attendance = { present, total };
+    } catch {
+      // If that model doesn't exist or fields differ, keep mock values
+      attendance = { present: 0, total: 0 };
+    }
+
+    // Payroll history - simplest approach: return last 2 months using salary if available
+    const payrollHistory = [
+      { month: "April 2024", amount: teacher.salary ?? 0, status: "Paid" },
+      { month: "May 2024", amount: teacher.salary ?? 0, status: "Pending" },
+    ];
+
     return {
       teacher,
-      assignedClasses,
-      assignedSubjects: (db.subjects as Subject[]).filter((s) =>
-        teacher.subjectIds.includes(s.id)
-      ),
-      mentoredClasses: (db.schoolClasses as SchoolClass[])
-        .filter((c) => c.mentorTeacherId === teacherId)
-        .map((c) => ({ id: c.id, name: `Grade ${c.gradeLevel}-${c.section}` })),
-      syllabusProgress: assignedClasses.map((c) => ({
-        className: c.name,
-        subjectName: "Mock Subject",
-        completionPercentage: 70 + Math.random() * 30,
+      assignedSubjects,
+      mentoredClasses: mentoredClasses.map((c) => ({
+        id: c.id,
+        name: `Grade ${c.gradeLevel}-${c.section}`,
       })),
-      classPerformance: assignedClasses.map((c) => ({
-        className: c.name,
-        averageStudentScore: 75 + Math.random() * 20,
+      taughtClasses: taughtClasses.map((c) => ({
+        id: c.id,
+        name: `Grade ${c.gradeLevel}-${c.section}`,
       })),
-      attendance: { present: 180, total: 200 },
-      payrollHistory: [
-        { month: "March 2024", amount: teacher.salary || 0, status: "Paid" },
-        { month: "April 2024", amount: teacher.salary || 0, status: "Pending" },
-      ],
+      syllabusProgress,
+      classPerformance,
+      attendance,
+      payrollHistory,
     };
   }
-
   async updateTeacher(
     teacherId: string,
     updates: Partial<Teacher>

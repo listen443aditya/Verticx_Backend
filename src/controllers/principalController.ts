@@ -655,25 +655,58 @@ export const reinstateStaff = async (req: Request, res: Response) => {
   }
 };
 
-export const deleteStaff = async (req: Request, res: Response) => {
+export const deleteStaff = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
-    await principalApiService.deleteStaff(req.params.id);
+    if (!req.user || !req.user.branchId) {
+      return res
+        .status(401)
+        .json({ message: "Authentication required with a valid branch." });
+    }
+
+    const staffId = req.params.id;
+
+    // Prevent deleting yourself in controller too (extra guard)
+    if (req.user.id === staffId) {
+      return res
+        .status(403)
+        .json({ message: "You cannot delete your own account." });
+    }
+
+    await principalApiService.deleteStaff(
+      staffId,
+      req.user.id,
+      req.user.branchId
+    );
     res.status(204).send();
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    if (error.code === "NOT_FOUND")
+      return res.status(404).json({ message: error.message });
+    if (error.code === "FORBIDDEN")
+      return res.status(403).json({ message: error.message });
+    next(error);
   }
 };
-
-export const getTeacherProfileDetails = async (req: Request, res: Response) => {
+export const getTeacherProfileDetails = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
     const profile = await principalApiService.getTeacherProfileDetails(
       req.params.id
     );
     res.status(200).json(profile);
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    if (error.code === "NOT_FOUND")
+      return res.status(404).json({ message: error.message });
+    next(error);
   }
 };
+
 
 export const updateTeacher = async (req: Request, res: Response) => {
   try {
