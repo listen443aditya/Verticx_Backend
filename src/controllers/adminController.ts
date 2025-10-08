@@ -802,41 +802,47 @@ export const getSystemWideErpFinancials = async (
   res: Response,
   next: NextFunction
 ) => {
+  // FIX 1: Corrected syntax from 'try:' to 'try {'
   try {
-    // Helper function to count months between two dates
+    // Helper to count months between dates
     const countMonths = (startDate: Date, endDate: Date): number => {
       let months = (endDate.getFullYear() - startDate.getFullYear()) * 12;
       months -= startDate.getMonth();
       months += endDate.getMonth();
-      return months <= 0 ? 0 : months + 1; // +1 to include the starting month
+      return months < 0 ? 0 : months + 1; // +1 to include the starting month
     };
 
     const today = new Date();
+    // A reasonable default session start if not specified on a branch
+    const defaultSessionStart = new Date(`${today.getFullYear()}-04-01`);
 
-    // 1. Fetch all essential data in parallel
-    const [branches, allPayments, systemSettings] = await prisma.$transaction([
-      prisma.branch.findMany({
-        select: {
-          id: true,
-          name: true,
-          erpPricePerStudent: true,
-          academicSessionStartDate: true,
-          _count: { select: { students: true } },
-        },
-      }),
-      prisma.erpPayment.findMany(),
-      prisma.systemSettings.findUnique({ where: { id: "global" } }),
-    ]);
+    // --- Step 1: Fetch all raw data in parallel for efficiency ---
+    const [branches, allPayments, totalStudentCount, systemSettings] =
+      await prisma.$transaction([
+        prisma.branch.findMany({
+          select: {
+            id: true,
+            name: true,
+            erpPricePerStudent: true,
+            academicSessionStartDate: true,
+            _count: { select: { students: true } },
+          },
+        }),
+        prisma.erpPayment.findMany({
+          select: { branchId: true, amount: true, paymentDate: true },
+        }),
+        prisma.student.count(),
+        prisma.systemSettings.findUnique({ where: { id: "global" } }),
+      ]);
 
-    const defaultErpPrice = systemSettings?.defaultErpPrice || 10; // Default price if not set
+    const defaultErpPrice = systemSettings?.defaultErpPrice || 10;
 
-    // 2. Process data for each branch
-    const billingBySchool = branches.map((branch) => {
+    // --- Step 2: Calculate billing status for each school ---
+    const billingStatusBySchool = branches.map((branch) => {
       const studentCount = branch._count.students;
       const erpPrice = branch.erpPricePerStudent ?? defaultErpPrice;
       const sessionStart =
-        branch.academicSessionStartDate ||
-        new Date(`${today.getFullYear()}-04-01`);
+        branch.academicSessionStartDate || defaultSessionStart;
 
       const monthsPassed = countMonths(sessionStart, today);
       const totalBilled = monthsPassed * studentCount * erpPrice;
@@ -858,27 +864,67 @@ export const getSystemWideErpFinancials = async (
       };
     });
 
-    // 3. Aggregate for the system-wide summary
-    const summary = billingBySchool.reduce(
+    // --- Step 3: Calculate the monthly billing trend ---
+    // FIX 2: Removed reference to non-existent 'systemSettings.academicSessionStartDate'
+    // We will use the 'defaultSessionStart' variable defined at the top of the function.
+    const sessionStartDate = defaultSessionStart;
+    const billingTrend: { month: string; billed: number; paid: number }[] = [];
+
+    // Group all payments by month for easy lookup
+    const paymentsByMonth = allPayments.reduce((acc, payment) => {
+      const month = payment.paymentDate.toISOString().slice(0, 7); // "YYYY-MM"
+      acc[month] = (acc[month] || 0) + payment.amount;
+      return acc;
+    }, {} as Record<string, number>);
+
+    // Iterate from the session start to the current month
+    let currentDate = new Date(sessionStartDate);
+    while (currentDate <= today) {
+      const monthKey = currentDate.toISOString().slice(0, 7);
+      const monthName = currentDate.toLocaleString("default", {
+        month: "short",
+        year: "2-digit",
+      });
+
+      billingTrend.push({
+        month: monthName,
+        billed: totalStudentCount * defaultErpPrice, // Approximation for trend graph
+        paid: paymentsByMonth[monthKey] || 0,
+      });
+      currentDate.setMonth(currentDate.getMonth() + 1);
+    }
+
+    // --- Step 4: Assemble the final summary object ---
+    const summary = billingStatusBySchool.reduce(
       (acc, school) => {
         acc.totalBilled += school.totalBilled;
         acc.totalPaid += school.totalPaid;
-        acc.pendingAmount += school.pendingAmount; // Use 'pendingAmount'
+        acc.pendingAmount += school.pendingAmount;
+        if (school.pendingAmount > 0) {
+          acc.pendingSchoolsCount += 1;
+        }
         return acc;
       },
-      { totalBilled: 0, totalPaid: 0, pendingAmount: 0 } // Initialize with 'pendingAmount'
+      {
+        totalBilled: 0,
+        totalPaid: 0,
+        pendingAmount: 0,
+        totalSchools: branches.length,
+        totalStudents: totalStudentCount,
+        pendingSchoolsCount: 0,
+      }
     );
 
-    // The rest of the function remains the same
+    // --- Step 5: Send the complete response ---
     res.status(200).json({
       summary,
-      billingBySchool,
+      billingTrend,
+      billingStatusBySchool,
     });
   } catch (error) {
     next(error);
   }
 };
-
 export const getAuditLogs = async (
   req: Request,
   res: Response,

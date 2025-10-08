@@ -893,6 +893,8 @@ export interface AdminSms {
     sentAt: Date;
 }
 
+
+
 export interface AdminEmail {
     id: string;
     target: CommunicationTarget;
@@ -1412,16 +1414,16 @@ export interface ErpBillingStatus {
 }
 
 export interface SystemWideErpFinancials {
-    summary: {
-        totalBilled: number;
-        totalPaid: number;
-        pendingAmount: number;
-        totalSchools: number;
-        totalStudents: number;
-        pendingSchoolsCount: number;
-    };
-    billingTrend: { month: string; billed: number; paid: number }[];
-    billingStatusBySchool: ErpBillingStatus[];
+  summary: {
+    totalBilled: number;
+    totalPaid: number;
+    pendingAmount: number;
+    totalSchools: number;
+    totalStudents: number;
+    pendingSchoolsCount: number;
+  };
+  billingTrend: { month: string; billed: number; paid: number }[];
+  billingStatusBySchool: ErpBillingStatus[];
 }
 
 
