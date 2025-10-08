@@ -126,6 +126,56 @@ export const approveRequest = async (
   }
 };
 
+export const assignBranchToUser = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { id: userId } = req.params;
+    const { branchId } = req.body;
+
+    if (!branchId) {
+      return res.status(400).json({ message: "A branchId must be provided." });
+    }
+
+    // A decree must be validated. We ensure both the subject and the land exist.
+    const [user, branch] = await prisma.$transaction([
+      prisma.user.findUnique({ where: { id: userId } }),
+      prisma.branch.findUnique({ where: { id: branchId } }),
+    ]);
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
+    }
+    if (!branch) {
+      return res.status(404).json({ message: "Branch not found." });
+    }
+
+    // The decree is enacted. The user is bound to their new lands.
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: { branchId: branch.id },
+    });
+
+    // If the user is a Principal, we complete the circle and bind the land to its king.
+    if (updatedUser.role === "Principal") {
+      await prisma.branch.update({
+        where: { id: branch.id },
+        data: { principalId: updatedUser.id },
+      });
+    }
+
+    res
+      .status(200)
+      .json({
+        message: `User ${user.name} has been successfully assigned to branch ${branch.name}.`,
+      });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const denyRequest = async (
   req: Request,
   res: Response,

@@ -1140,7 +1140,7 @@ export const getErpPaymentsForBranch = async (
   try {
     const branchId = getPrincipalBranchId(req);
 
-   
+    // --- THE FORTIFICATION ---
     if (!branchId) {
       return res
         .status(404)
@@ -1154,7 +1154,6 @@ export const getErpPaymentsForBranch = async (
     }
     // --- End of Fortification ---
 
-    // Now, and only now, do we query for the payments.
     const payments = await prisma.erpPayment.findMany({
       where: { branchId: branchId },
       orderBy: { paymentDate: "desc" },

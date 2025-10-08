@@ -29,7 +29,7 @@ router.post(
   "/principal-queries/:id/resolve",
   adminController.resolvePrincipalQuery
 );
-
+router.patch("/users/:id/assign-branch", adminController.assignBranchToUser);
 // --- SUPERADMIN EXCLUSIVE ROUTES ---
 // The 'restrictTo' middleware here adds a second, inner guard. Only a SuperAdmin can pass.
 router.get(
