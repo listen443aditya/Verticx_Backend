@@ -1137,24 +1137,29 @@ export const getErpPaymentsForBranch = async (
   res: Response,
   next: NextFunction
 ) => {
-  const branchId = getPrincipalBranchId(req);
-  if (!branchId) {
-    return res
-      .status(401)
-      .json({
-        message: "Unauthorized: Principal must be associated with a branch.",
-      });
-  }
-
   try {
+    const branchId = getPrincipalBranchId(req);
+
+   
+    if (!branchId) {
+      return res
+        .status(404)
+        .json({ message: "Principal is not associated with a branch." });
+    }
+    const branch = await prisma.branch.findUnique({ where: { id: branchId } });
+    if (!branch) {
+      return res
+        .status(404)
+        .json({ message: "The branch for this account could not be found." });
+    }
+    // --- End of Fortification ---
+
+    // Now, and only now, do we query for the payments.
     const payments = await prisma.erpPayment.findMany({
-      where: {
-        branchId: branchId,
-      },
-      orderBy: {
-        paymentDate: "desc",
-      },
+      where: { branchId: branchId },
+      orderBy: { paymentDate: "desc" },
     });
+
     res.status(200).json(payments);
   } catch (error) {
     next(error);
