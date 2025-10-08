@@ -14,7 +14,10 @@ import {
 } from "@prisma/client";
 import { generatePassword } from "../utils/helpers";
 import bcrypt from "bcryptjs";
-
+type GraphDataPoint = {
+  name: string; 
+  value: number; 
+};
 const principalApiService = new PrincipalApiService();
 
 // --- UTILITY: A guard to ensure the user is a Principal with a Branch ---
