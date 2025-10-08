@@ -665,12 +665,24 @@ model TimetableConfig {
 // SYSTEM
 // ============================================================================
 model AuditLog {
-  id        String   @id @default(uuid())
-  userId    String?
-  userName  String?
-  action    String
+  id        String   @id @default(cuid())
   timestamp DateTime @default(now())
-  meta      Json?
+  
+  // Who performed the action
+  actorId   String?  // Who did it? (e.g., a user's ID)
+  actorName String   // What was their name?
+  actorRole String   // What was their role?
+
+  // What was the action
+  action    String   // e.g., "USER_CREATE", "BRANCH_STATUS_UPDATE" or simply the HTTP method "POST"
+  
+  // What was the target of the action
+  targetId  String?  // The ID of the thing that was changed (e.g., a branch's ID)
+  targetType String? // The type of thing that was changed (e.g., "Branch")
+
+  // The result
+  statusCode Int      // Was it successful? (200, 201, 404, etc.)
+  details   Json?    // Any extra details, like the request body
 }
 
 model SystemSettings {

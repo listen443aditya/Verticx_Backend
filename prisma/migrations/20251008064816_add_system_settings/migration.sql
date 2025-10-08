@@ -532,11 +532,15 @@ CREATE TABLE "TimetableConfig" (
 -- CreateTable
 CREATE TABLE "AuditLog" (
     "id" TEXT NOT NULL,
-    "userId" TEXT,
-    "userName" TEXT,
-    "action" TEXT NOT NULL,
     "timestamp" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "meta" JSONB,
+    "actorId" TEXT,
+    "actorName" TEXT NOT NULL,
+    "actorRole" TEXT NOT NULL,
+    "action" TEXT NOT NULL,
+    "targetId" TEXT,
+    "targetType" TEXT,
+    "statusCode" INTEGER NOT NULL,
+    "details" JSONB,
 
     CONSTRAINT "AuditLog_pkey" PRIMARY KEY ("id")
 );

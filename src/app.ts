@@ -4,7 +4,7 @@ import express, { Express, Request, Response, NextFunction } from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 dotenv.config();
-
+import { auditLogMiddleware } from "../src/middlewares/auditLogMiddleware"; 
 // Import all routers
 import authRoutes from "./routes/auth";
 import adminRoutes from "./routes/admin";
@@ -37,6 +37,8 @@ const corsOptions: cors.CorsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+app.use("/api", auditLogMiddleware);
 
 // --- API Test Route ---
 app.get("/api/ping", (req, res) => res.status(200).json({ message: "Pong!" }));
