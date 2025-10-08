@@ -4,7 +4,7 @@
   "description": "Verticx ERP backend (TypeScript, Express)",
   "main": "dist/server.js",
   "scripts": {
-    "dev": "NODE_ENV=development ts-node-dev src/server.ts",
+    "dev": "NODE_ENV=development nodemon --exec ts-node src/server.ts",
     "build": "prisma migrate deploy && prisma generate && tsc",
     "start": "NODE_ENV=production npm run build && node dist/server.js",
     "lint": "eslint . --ext .ts",
@@ -39,9 +39,9 @@
     "@types/express": "^5.0.3",
     "@types/jsonwebtoken": "^9.0.2",
     "@types/morgan": "^1.9.10",
+    "nodemon": "^3.1.10",
     "prisma": "^6.16.3",
     "ts-node": "^10.9.2",
-    "ts-node-dev": "^2.0.0",
     "typescript": "^5.5.6"
   },
   "overrides": {
