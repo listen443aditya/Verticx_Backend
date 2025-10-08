@@ -863,12 +863,13 @@ export const getSystemWideErpFinancials = async (
       (acc, school) => {
         acc.totalBilled += school.totalBilled;
         acc.totalPaid += school.totalPaid;
-        acc.totalPending += school.pendingAmount;
+        acc.pendingAmount += school.pendingAmount; // Use 'pendingAmount'
         return acc;
       },
-      { totalBilled: 0, totalPaid: 0, totalPending: 0 }
+      { totalBilled: 0, totalPaid: 0, pendingAmount: 0 } // Initialize with 'pendingAmount'
     );
 
+    // The rest of the function remains the same
     res.status(200).json({
       summary,
       billingBySchool,
