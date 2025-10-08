@@ -726,7 +726,35 @@ export const getAdminCommunicationHistory = async (
   req: Request,
   res: Response,
   next: NextFunction
-) => res.status(501).json({ message: "Not implemented." });
+) => {
+  try {
+    // Fetch all SMS and Announcement history in parallel for efficiency
+    const [smsHistory, announcements] = await prisma.$transaction([
+      prisma.smsMessage.findMany({
+        orderBy: { sentAt: "desc" },
+        include: {
+          branch: { select: { name: true } }, // Include branch name for context
+        },
+      }),
+      prisma.announcement.findMany({
+        orderBy: { sentAt: "desc" },
+        include: {
+          branch: { select: { name: true } }, // Include branch name for context
+        },
+      }),
+    ]);
+
+    // Your frontend expects an object with sms, email, and notification arrays.
+    // We will provide the data we have and an empty array for what we don't.
+    res.status(200).json({
+      sms: smsHistory,
+      notifications: announcements, // Announcements serve as notifications
+      emails: [], // This is empty as there is no Email model in the schema yet
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 export const sendBulkSms = async (
   req: Request,
   res: Response,
