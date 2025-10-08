@@ -1,4 +1,4 @@
-// The Final, Corrected `src/controllers/principalController.ts`
+//`src/controllers/principalController.ts`
 
 import { Request, Response, NextFunction } from "express";
 import { PrincipalApiService } from "../services/principalApiService";
@@ -1105,7 +1105,8 @@ export const addManualSalaryAdjustment = async (
 
 export const getErpFinancialsForBranch = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ) => {
   try {
     if (!req.user?.branchId) {
@@ -1118,7 +1119,16 @@ export const getErpFinancialsForBranch = async (
     );
     res.status(200).json(financials);
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+ 
+    if (error.message.includes("Branch not found")) {
+      return res
+        .status(404)
+        .json({
+          message:
+            "The branch associated with your account could not be found. Please contact support.",
+        });
+    }
+    next(error);
   }
 };
 
