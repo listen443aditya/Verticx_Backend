@@ -510,11 +510,11 @@ CREATE TABLE "Announcement" (
 -- CreateTable
 CREATE TABLE "SmsMessage" (
     "id" TEXT NOT NULL,
-    "branchId" TEXT NOT NULL,
     "message" TEXT NOT NULL,
     "recipientCount" INTEGER NOT NULL,
     "sentAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "sentBy" TEXT NOT NULL,
+    "branchId" TEXT,
 
     CONSTRAINT "SmsMessage_pkey" PRIMARY KEY ("id")
 );
@@ -787,7 +787,7 @@ ALTER TABLE "SchoolEvent" ADD CONSTRAINT "SchoolEvent_branchId_fkey" FOREIGN KEY
 ALTER TABLE "Announcement" ADD CONSTRAINT "Announcement_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "SmsMessage" ADD CONSTRAINT "SmsMessage_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "SmsMessage" ADD CONSTRAINT "SmsMessage_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "TimetableConfig" ADD CONSTRAINT "TimetableConfig_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE SET NULL ON UPDATE CASCADE;

@@ -645,13 +645,12 @@ model Announcement {
 
 model SmsMessage {
   id             String   @id @default(uuid())
-  branchId       String
   message        String
   recipientCount Int
   sentAt         DateTime @default(now())
   sentBy         String
-
-  branch Branch @relation(fields: [branchId], references: [id])
+  branchId       String?
+  branch         Branch?  @relation(fields: [branchId], references: [id])
 }
 
 model TimetableConfig {

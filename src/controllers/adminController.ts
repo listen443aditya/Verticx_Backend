@@ -754,20 +754,201 @@ export const getAdminCommunicationHistory = async (
   }
 };
 export const sendBulkSms = async (
-  req: Request,
+  req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
-) => res.status(200).json({ message: "SMS sent (simulation)." });
+) => {
+  try {
+    const { target, message } = req.body;
+    const sentBy = req.user?.name || "SuperAdmin";
+
+    if (!target || !target.roles || !message) {
+      return res
+        .status(400)
+        .json({
+          message: "Invalid payload. Target, roles, and message are required.",
+        });
+    }
+
+    // 1. Build the query to find the target users
+    const whereClause: any = {
+      role: { in: target.roles },
+      phone: { not: null }, // Only select users with a phone number
+    };
+
+    if (target.scope === "BRANCH_SPECIFIC" && target.branchIds?.length > 0) {
+      whereClause.branchId = { in: target.branchIds };
+    }
+
+    const users = await prisma.user.findMany({
+      where: whereClause,
+      select: { phone: true },
+    });
+
+    const phoneNumbers = users.map((u) => u.phone!);
+    if (phoneNumbers.length === 0) {
+      return res
+        .status(404)
+        .json({
+          message: "No users with phone numbers found for the selected target.",
+        });
+    }
+
+    // 2. **SIMULATE** sending the SMS.
+    // In a real application, you would integrate an SMS gateway like Twilio here.
+    // For example: await twilioClient.messages.create({ body: message, to: phoneNumber, from: ... })
+    console.log(
+      `[SMS Simulation] Sending message: "${message}" to ${phoneNumbers.length} recipients.`
+    );
+
+    // 3. Record the action in the database history
+    await prisma.smsMessage.create({
+      data: {
+        message,
+        sentBy,
+        recipientCount: phoneNumbers.length,
+        // branchId is null for system-wide messages, thanks to our schema fix
+        branchId:
+          target.scope === "BRANCH_SPECIFIC" ? target.branchIds[0] : null,
+      },
+    });
+
+    res
+      .status(200)
+      .json({
+        message: `SMS successfully sent (simulated) to ${phoneNumbers.length} recipients.`,
+      });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// REPLACE the old sendBulkEmail with this
 export const sendBulkEmail = async (
-  req: Request,
+  req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
-) => res.status(200).json({ message: "Email sent (simulation)." });
+) => {
+  try {
+    const { target, subject, body } = req.body;
+    const sentBy = req.user?.name || "SuperAdmin";
+
+    if (!target || !target.roles || !subject || !body) {
+      return res
+        .status(400)
+        .json({
+          message:
+            "Invalid payload. Target, roles, subject, and body are required.",
+        });
+    }
+
+    // 1. Build the query to find the target users
+    const whereClause: any = {
+      role: { in: target.roles },
+      email: { not: null },
+    };
+
+    if (target.scope === "BRANCH_SPECIFIC" && target.branchIds?.length > 0) {
+      whereClause.branchId = { in: target.branchIds };
+    }
+
+    const users = await prisma.user.findMany({
+      where: whereClause,
+      select: { email: true },
+    });
+
+    const emails = users.map((u) => u.email!);
+    if (emails.length === 0) {
+      return res
+        .status(404)
+        .json({
+          message: "No users with emails found for the selected target.",
+        });
+    }
+
+    // 2. **SIMULATE** sending the email.
+    // In a real application, you would use a service like Nodemailer, SendGrid, or AWS SES.
+    // For example: await sendgrid.send({ to: emails, from: ..., subject, html: body })
+    console.log(
+      `[Email Simulation] Sending email with subject: "${subject}" to ${emails.length} recipients.`
+    );
+
+    // NOTE: No history is recorded as there is no 'EmailMessage' model in your schema.
+    // You could add one in the future if needed.
+
+    res
+      .status(200)
+      .json({
+        message: `Email successfully sent (simulated) to ${emails.length} recipients.`,
+      });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// REPLACE the old sendBulkNotification with this
 export const sendBulkNotification = async (
-  req: Request,
+  req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
-) => res.status(200).json({ message: "Notification sent (simulation)." });
+) => {
+  try {
+    const { target, title, message } = req.body;
+    const sentBy = req.user?.name || "SuperAdmin";
+
+    if (!target || !target.roles || !title || !message) {
+      return res
+        .status(400)
+        .json({
+          message:
+            "Invalid payload. Target, roles, title, and message are required.",
+        });
+    }
+
+    let targetBranchIds: string[] = [];
+
+    // 1. Determine which branches to send the announcement to
+    if (target.scope === "SYSTEM_WIDE") {
+      const allBranches = await prisma.branch.findMany({
+        select: { id: true },
+      });
+      targetBranchIds = allBranches.map((b) => b.id);
+    } else if (
+      target.scope === "BRANCH_SPECIFIC" &&
+      target.branchIds?.length > 0
+    ) {
+      targetBranchIds = target.branchIds;
+    }
+
+    if (targetBranchIds.length === 0) {
+      return res.status(404).json({ message: "No target branches found." });
+    }
+
+    // 2. Create an Announcement record for each targeted branch
+    const announcementsToCreate = targetBranchIds.map((branchId) => ({
+      title,
+      message,
+      sentBy,
+      audience: target.roles.join(", "), // Store roles as a string
+      branchId: branchId,
+    }));
+
+    const result = await prisma.announcement.createMany({
+      data: announcementsToCreate,
+    });
+
+    res
+      .status(200)
+      .json({
+        message: `Notification sent as an announcement to ${result.count} branches.`,
+      });
+  } catch (error) {
+    next(error);
+  }
+};
+
+
+
 
 // --- SuperAdmin / System Settings ---
 export const getErpPayments = async (
