@@ -1,4 +1,4 @@
-// src/services/api.ts
+// api.ts
 import axios from "axios";
 
 // Remove custom ImportMeta and ImportMetaEnv interfaces, as Vite provides types automatically.

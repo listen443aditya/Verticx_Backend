@@ -95,7 +95,7 @@ router.get(
 );
 router.get(
   "/contact-details",
-  restrictTo("SuperAdmin"),
+  restrictTo("SuperAdmin"), // Correctly protected
   adminController.getSuperAdminContactDetails
 );
 
