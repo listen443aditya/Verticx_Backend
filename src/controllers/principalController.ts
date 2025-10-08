@@ -423,6 +423,9 @@ export const getPrincipalDashboardData = async (
   }
 };
 
+
+
+
 export const getBranchDetails = async (
   req: Request,
   res: Response,
@@ -444,32 +447,6 @@ export const getBranchDetails = async (
 };
 
 
-// export const getBranchDetails = async (
-//   req: Request,
-//   res: Response,
-//   next: NextFunction
-// ) => {
-//   const idOrReg = req.params.id;
-
-//   try {
-//     const branch = await prisma.branch.findFirst({
-//       where: {
-//         OR: [
-//           { id: idOrReg },
-//           { registrationId: idOrReg }, // fallback when frontend sent registrationId
-//         ],
-//       },
-//     });
-
-//     if (!branch) {
-//       return res.status(404).json({ error: "Branch not found" });
-//     }
-
-//     res.status(200).json(branch);
-//   } catch (err) {
-//     next(err);
-//   }
-// };
 
 
 
@@ -576,8 +553,7 @@ export const approveFacultyApplication = async (
     next(error);
   }
 };
-// ... (The rest of the file uses principalApiService, which will now work with the import)
-// ... All subsequent functions remain the same, but with fixes for implicit 'any' types where applicable.
+
 
 export const requestProfileAccessOtp = async (req: Request, res: Response) => {
   try {
@@ -1400,26 +1376,6 @@ export const getComplaintsAboutStudentsByBranch = async (
   }
 };
 
-// export const getTeacherComplaints = async (
-//   req: Request,
-//   res: Response,
-//   next: NextFunction
-// ) => {
-//   const branchId = getPrincipalBranchId(req);
-//   if (!branchId) {
-//     return res.status(401).json({ message: "Unauthorized." });
-//   }
-
-//   try {
-//     const complaints = await prisma.teacherComplaint.findMany({
-//       where: { branchId: branchId },
-//       orderBy: { submittedAt: "desc" },
-//     });
-//     res.status(200).json(complaints);
-//   } catch (error) {
-//     next(error);
-//   }
-// };
 
 
 export const getComplaintsForBranch = async (
