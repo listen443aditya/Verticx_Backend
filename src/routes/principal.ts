@@ -56,11 +56,7 @@ router.get(
 router.post("/erp/pay", protect, principalController.payErpBill);
 
 // Optional alias for frontend if it expects /erp/payments
-router.get(
-  "/erp/payments",
-  protect,
-  principalController.getErpFinancialsForBranch
-);
+router.get("/erp/payments", principalController.getErpPaymentsForBranch);
 
 
 // Staff Requests
