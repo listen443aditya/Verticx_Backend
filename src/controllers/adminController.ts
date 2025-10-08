@@ -801,7 +801,82 @@ export const getSystemWideErpFinancials = async (
   req: Request,
   res: Response,
   next: NextFunction
-) => res.status(501).json({ message: "Not implemented." });
+) => {
+  try {
+    // Helper function to count months between two dates
+    const countMonths = (startDate: Date, endDate: Date): number => {
+      let months = (endDate.getFullYear() - startDate.getFullYear()) * 12;
+      months -= startDate.getMonth();
+      months += endDate.getMonth();
+      return months <= 0 ? 0 : months + 1; // +1 to include the starting month
+    };
+
+    const today = new Date();
+
+    // 1. Fetch all essential data in parallel
+    const [branches, allPayments, systemSettings] = await prisma.$transaction([
+      prisma.branch.findMany({
+        select: {
+          id: true,
+          name: true,
+          erpPricePerStudent: true,
+          academicSessionStartDate: true,
+          _count: { select: { students: true } },
+        },
+      }),
+      prisma.erpPayment.findMany(),
+      prisma.systemSettings.findUnique({ where: { id: "global" } }),
+    ]);
+
+    const defaultErpPrice = systemSettings?.defaultErpPrice || 10; // Default price if not set
+
+    // 2. Process data for each branch
+    const billingBySchool = branches.map((branch) => {
+      const studentCount = branch._count.students;
+      const erpPrice = branch.erpPricePerStudent ?? defaultErpPrice;
+      const sessionStart =
+        branch.academicSessionStartDate ||
+        new Date(`${today.getFullYear()}-04-01`);
+
+      const monthsPassed = countMonths(sessionStart, today);
+      const totalBilled = monthsPassed * studentCount * erpPrice;
+
+      const totalPaid = allPayments
+        .filter((p) => p.branchId === branch.id)
+        .reduce((sum, p) => sum + p.amount, 0);
+
+      const pendingAmount = Math.max(0, totalBilled - totalPaid);
+
+      return {
+        id: branch.id,
+        name: branch.name,
+        studentCount,
+        erpPrice,
+        totalBilled,
+        totalPaid,
+        pendingAmount,
+      };
+    });
+
+    // 3. Aggregate for the system-wide summary
+    const summary = billingBySchool.reduce(
+      (acc, school) => {
+        acc.totalBilled += school.totalBilled;
+        acc.totalPaid += school.totalPaid;
+        acc.totalPending += school.pendingAmount;
+        return acc;
+      },
+      { totalBilled: 0, totalPaid: 0, totalPending: 0 }
+    );
+
+    res.status(200).json({
+      summary,
+      billingBySchool,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 
 export const getAuditLogs = async (
   req: Request,
