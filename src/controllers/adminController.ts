@@ -744,12 +744,10 @@ export const getAdminCommunicationHistory = async (
       }),
     ]);
 
-    // Your frontend expects an object with sms, email, and notification arrays.
-    // We will provide the data we have and an empty array for what we don't.
     res.status(200).json({
       sms: smsHistory,
-      notifications: announcements, // Announcements serve as notifications
-      emails: [], // This is empty as there is no Email model in the schema yet
+      notifications: announcements,
+      emails: [], 
     });
   } catch (error) {
     next(error);
