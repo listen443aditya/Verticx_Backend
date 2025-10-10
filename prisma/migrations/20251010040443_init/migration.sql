@@ -146,6 +146,18 @@ CREATE TABLE "Complaint" (
 );
 
 -- CreateTable
+CREATE TABLE "SuspensionRecord" (
+    "id" TEXT NOT NULL,
+    "studentId" TEXT NOT NULL,
+    "reason" TEXT NOT NULL,
+    "startDate" TIMESTAMP(3) NOT NULL,
+    "endDate" TIMESTAMP(3) NOT NULL,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+
+    CONSTRAINT "SuspensionRecord_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "SchoolClass" (
     "id" TEXT NOT NULL,
     "branchId" TEXT NOT NULL,
@@ -625,6 +637,9 @@ CREATE INDEX "Complaint_raisedById_idx" ON "Complaint"("raisedById");
 -- CreateIndex
 CREATE INDEX "Complaint_branchId_idx" ON "Complaint"("branchId");
 
+-- CreateIndex
+CREATE INDEX "SuspensionRecord_studentId_idx" ON "SuspensionRecord"("studentId");
+
 -- AddForeignKey
 ALTER TABLE "User" ADD CONSTRAINT "User_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
@@ -654,6 +669,9 @@ ALTER TABLE "Complaint" ADD CONSTRAINT "Complaint_raisedById_fkey" FOREIGN KEY (
 
 -- AddForeignKey
 ALTER TABLE "Complaint" ADD CONSTRAINT "Complaint_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SuspensionRecord" ADD CONSTRAINT "SuspensionRecord_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "Student"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "SchoolClass" ADD CONSTRAINT "SchoolClass_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

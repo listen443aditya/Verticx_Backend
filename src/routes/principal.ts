@@ -28,7 +28,16 @@ router.delete('/staff/:id', principalController.deleteStaff);
 router.get('/teachers/:id/profile', principalController.getTeacherProfileDetails);
 router.patch('/teachers/:id', principalController.updateTeacher);
 router.get("/students", principalController.getStudentsForPrincipal);
-
+router.get("/classes", principalController.getSchoolClassesForPrincipal);
+router.get(
+  "/suspension-records",
+  principalController.getSuspensionRecordsForPrincipal
+);
+router.get("/fee-records", principalController.getFeeRecordsForPrincipal);
+router.get(
+  "/attendance-records",
+  principalController.getAttendanceRecordsForPrincipal
+);
 // Academic Overview
 router.get('/class-view', principalController.getPrincipalClassView);
 router.get('/attendance-overview', principalController.getAttendanceOverview);

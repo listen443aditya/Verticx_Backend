@@ -220,6 +220,7 @@ model Student {
   busStopId         String?
   roomId            String?
   complaintsAboutMe Complaint[]
+  suspensionRecords SuspensionRecord[] 
 }
 
 // ============================================================================
@@ -258,6 +259,19 @@ model Complaint {
   @@index([studentId])
   @@index([raisedById])
   @@index([branchId])
+}
+
+model SuspensionRecord {
+  id        String   @id @default(cuid())
+  studentId String
+  reason    String
+  startDate DateTime
+  endDate   DateTime
+  isActive  Boolean  @default(true)
+
+  student   Student  @relation(fields: [studentId], references: [id])
+  
+  @@index([studentId])
 }
 
 model SchoolClass {

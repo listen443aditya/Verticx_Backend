@@ -857,38 +857,124 @@ export const deleteSchoolEvent = async (
   }
 };
 
+const getValidatedBranchId = async (req: Request) => {
+  const branchId = getPrincipalBranchId(req);
+  if (
+    !branchId ||
+    !(await prisma.branch.findUnique({ where: { id: branchId } }))
+  ) {
+    return null;
+  }
+  return branchId;
+};
+
 export const getStudentsForPrincipal = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    const branchId = getPrincipalBranchId(req);
-
-    // The guard's vigil: We do not serve ghosts.
-    if (!branchId) {
-      return res
-        .status(401)
-        .json({ message: "Principal is not associated with a branch." });
-    }
-    const branch = await prisma.branch.findUnique({ where: { id: branchId } });
-    if (!branch) {
+    const branchId = await getValidatedBranchId(req);
+    if (!branchId)
       return res
         .status(404)
-        .json({ message: "The branch for this account could not be found." });
-    }
-
-    // The summoning: We consult the grand ledger for all students of this land.
+        .json({ message: "Branch not found for this principal." });
     const students = await prisma.student.findMany({
-      where: { branchId: branchId },
-      orderBy: { name: "asc" }, // A decree of order. The list shall be alphabetized.
+      where: { branchId },
+      orderBy: { name: "asc" },
     });
-
     res.status(200).json(students);
   } catch (error) {
     next(error);
   }
 };
+
+export const getSchoolClassesForPrincipal = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const branchId = await getValidatedBranchId(req);
+    if (!branchId)
+      return res
+        .status(404)
+        .json({ message: "Branch not found for this principal." });
+    const classes = await prisma.schoolClass.findMany({
+      where: { branchId },
+      orderBy: [{ gradeLevel: "asc" }, { section: "asc" }],
+    });
+    res.status(200).json(classes);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getSuspensionRecordsForPrincipal = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const branchId = await getValidatedBranchId(req);
+    if (!branchId)
+      return res
+        .status(404)
+        .json({ message: "Branch not found for this principal." });
+
+    // THE TRUE NAME IS SPOKEN: The scribe now calls the chronicle by its correct name.
+    const records = await prisma.suspensionrecord.findMany({
+      where: { student: { branchId } },
+    });
+
+    res.status(200).json(records);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getFeeRecordsForPrincipal = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const branchId = await getValidatedBranchId(req);
+    if (!branchId)
+      return res
+        .status(404)
+        .json({ message: "Branch not found for this principal." });
+    const records = await prisma.feeRecord.findMany({
+      where: { student: { branchId } },
+    });
+    res.status(200).json(records);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getAttendanceRecordsForPrincipal = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const branchId = await getValidatedBranchId(req);
+    if (!branchId)
+      return res
+        .status(404)
+        .json({ message: "Branch not found for this principal." });
+    const records = await prisma.attendanceRecord.findMany({
+      where: { student: { branchId } },
+    });
+    res.status(200).json(records);
+  } catch (error) {
+    next(error);
+  }
+};
+
+
+
 
 export const updateTeacher = async (req: Request, res: Response) => {
   try {
@@ -898,6 +984,9 @@ export const updateTeacher = async (req: Request, res: Response) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+
+
 
 export const getPrincipalClassView = async (req: Request, res: Response) => {
   try {
