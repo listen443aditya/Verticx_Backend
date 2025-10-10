@@ -923,7 +923,7 @@ export const getSuspensionRecordsForPrincipal = async (
         .json({ message: "Branch not found for this principal." });
 
     // THE TRUE NAME IS SPOKEN: The scribe now calls the chronicle by its correct name.
-    const records = await prisma.suspensionrecord.findMany({
+    const records = await prisma.suspensionRecord.findMany({
       where: { student: { branchId } },
     });
 
