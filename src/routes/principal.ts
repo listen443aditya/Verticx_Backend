@@ -27,6 +27,7 @@ router.patch('/staff/:id/reinstate', principalController.reinstateStaff);
 router.delete('/staff/:id', principalController.deleteStaff);
 router.get('/teachers/:id/profile', principalController.getTeacherProfileDetails);
 router.patch('/teachers/:id', principalController.updateTeacher);
+router.get("/students", principalController.getStudentsForPrincipal);
 
 // Academic Overview
 router.get('/class-view', principalController.getPrincipalClassView);

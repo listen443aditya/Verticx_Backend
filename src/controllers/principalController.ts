@@ -857,6 +857,38 @@ export const deleteSchoolEvent = async (
   }
 };
 
+export const getStudentsForPrincipal = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const branchId = getPrincipalBranchId(req);
+
+    // The guard's vigil: We do not serve ghosts.
+    if (!branchId) {
+      return res
+        .status(401)
+        .json({ message: "Principal is not associated with a branch." });
+    }
+    const branch = await prisma.branch.findUnique({ where: { id: branchId } });
+    if (!branch) {
+      return res
+        .status(404)
+        .json({ message: "The branch for this account could not be found." });
+    }
+
+    // The summoning: We consult the grand ledger for all students of this land.
+    const students = await prisma.student.findMany({
+      where: { branchId: branchId },
+      orderBy: { name: "asc" }, // A decree of order. The list shall be alphabetized.
+    });
+
+    res.status(200).json(students);
+  } catch (error) {
+    next(error);
+  }
+};
 
 export const updateTeacher = async (req: Request, res: Response) => {
   try {
