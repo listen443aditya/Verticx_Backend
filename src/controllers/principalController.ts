@@ -1779,3 +1779,61 @@ export const updateUser = async (req: Request, res: Response) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+
+export const getTeachersByBranch = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { branchId } = req.params;
+    // The Guard's Vigil: We ensure the land is true before we summon its people.
+    const branch = await prisma.branch.findUnique({ where: { id: branchId } });
+    if (!branch) {
+      return res.status(404).json({ message: "Branch not found." });
+    }
+    const teachers = await prisma.teacher.findMany({ where: { branchId } });
+    res.status(200).json(teachers);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getStudentsByBranch = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { branchId } = req.params;
+    const branch = await prisma.branch.findUnique({ where: { id: branchId } });
+    if (!branch) {
+      return res.status(404).json({ message: "Branch not found." });
+    }
+    const students = await prisma.student.findMany({ where: { branchId } });
+    res.status(200).json(students);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getFeeTemplatesByBranch = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { branchId } = req.params;
+    const branch = await prisma.branch.findUnique({ where: { id: branchId } });
+    if (!branch) {
+      return res.status(404).json({ message: "Branch not found." });
+    }
+    const feeTemplates = await prisma.feeTemplate.findMany({
+      where: { branchId },
+    });
+    res.status(200).json(feeTemplates);
+  } catch (error) {
+    next(error);
+  }
+};

@@ -119,4 +119,18 @@ router.patch(
   principalController.assignFeeTemplateToClass
 );
 
+
+router.get(
+  "/branches/:branchId/teachers",
+  principalController.getTeachersByBranch
+);
+router.get(
+  "/branches/:branchId/students",
+  principalController.getStudentsByBranch
+);
+router.get(
+  "/branches/:branchId/fee-templates",
+  principalController.getFeeTemplatesByBranch
+);
+
 export default router;
