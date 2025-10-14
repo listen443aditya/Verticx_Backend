@@ -1084,19 +1084,128 @@ export const sendResultsSms = async (req: Request, res: Response) => {
   }
 };
 
-export const getFinancialsOverview = async (req: Request, res: Response) => {
+
+export const getFinancialsOverview = async (req: Request, res: Response, next: NextFunction) => {
+  const branchId = getPrincipalBranchId(req);
+  if (!branchId) {
+    return res.status(401).json({ message: "Unauthorized: Principal must be associated with a branch." });
+  }
+
   try {
-    if (!req.user?.branchId) {
-      return res
-        .status(401)
-        .json({ message: "Authentication required with a valid branch." });
+    const today = new Date();
+    const currentMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+
+    // --- 1. Fetch Core Data, Scoped by Branch ---
+    const [branch, feePaymentsThisMonth, allPayroll, manualExpenses, erpPayments] = await prisma.$transaction([
+      prisma.branch.findUnique({ where: { id: branchId } }),
+      prisma.feePayment.findMany({
+        where: {
+          student: { branchId: branchId },
+          paidDate: { gte: currentMonthStart }
+        }
+      }),
+      prisma.payrollRecord.findMany({ where: { branchId: branchId, status: 'Paid' } }),
+      prisma.manualExpense.findMany({ where: { branchId: branchId } }),
+      prisma.erpPayment.findMany({ where: { branchId: branchId } })
+    ]);
+
+    if (!branch) {
+        return res.status(404).json({ message: "Branch not found." });
     }
-    const overview = await principalApiService.getFinancialsOverview(
-      req.user.branchId
+
+    const sessionStart = new Date(branch.academicSessionStartDate || `${today.getFullYear()}-04-01`);
+
+    // --- 2. Calculate Monthly & Session Figures ---
+    const monthlyTuitionRevenue = feePaymentsThisMonth.reduce((sum, p) => sum + p.amount, 0);
+
+    const monthlyPayroll = allPayroll
+      .filter(p => p.paidAt && new Date(p.paidAt) >= currentMonthStart)
+      .reduce((sum, p) => sum + (p.netPayable || 0), 0);
+
+    const monthlyManualExpenses = manualExpenses
+      .filter(e => new Date(e.date) >= currentMonthStart)
+      .reduce((sum, e) => sum + e.amount, 0);
+
+    const sessionPayroll = allPayroll
+        .filter(p => p.paidAt && new Date(p.paidAt) >= sessionStart)
+        .reduce((sum, p) => sum + (p.netPayable || 0), 0);
+
+    const sessionManualExpenses = manualExpenses
+        .filter(e => new Date(e.date) >= sessionStart)
+        .reduce((sum, e) => sum + e.amount, 0);
+
+    const sessionErpPayments = erpPayments
+        .filter(p => new Date(p.paymentDate) >= sessionStart)
+        .reduce((sum, p) => sum + p.amount, 0);
+        
+    const monthlyExpenditure = monthlyPayroll + monthlyManualExpenses;
+    const sessionExpenditure = sessionPayroll + sessionManualExpenses + sessionErpPayments;
+
+    // --- 3. Calculate Total Pending Fees ---
+    const feeRecordAggregates = await prisma.feeRecord.aggregate({
+        _sum: { totalAmount: true, paidAmount: true },
+        where: { student: { branchId: branchId } },
+    });
+    const totalPending = (feeRecordAggregates._sum.totalAmount || 0) - (feeRecordAggregates._sum.paidAmount || 0);
+
+
+    // --- 4. Get Class-wise Fee Summaries ---
+    const classes = await prisma.schoolClass.findMany({
+        where: { branchId },
+        include: { _count: { select: { students: true } } }
+    });
+
+    const classFeeSummaries = await Promise.all(
+        classes.map(async (c) => {
+            const defaulterAggregate = await prisma.feeRecord.aggregate({
+                _sum: { totalAmount: true, paidAmount: true },
+                _count: { studentId: true},
+                where: { 
+                    student: { classId: c.id },
+                    paidAmount: { lt: prisma.feeRecord.fields.totalAmount }
+                },
+            });
+            return {
+                classId: c.id,
+                className: `Grade ${c.gradeLevel} - ${c.section}`,
+                studentCount: c._count.students,
+                defaulterCount: defaulterAggregate._count.studentId,
+                pendingAmount: (defaulterAggregate._sum.totalAmount || 0) - (defaulterAggregate._sum.paidAmount || 0),
+            };
+        })
     );
+    
+    // --- 5. Assemble the Overview Object ---
+    const overview = {
+      monthly: {
+        revenue: monthlyTuitionRevenue,
+        expenditure: monthlyExpenditure,
+        net: monthlyTuitionRevenue - monthlyExpenditure,
+        revenueBreakdown: [{ name: "Tuition Fees", value: monthlyTuitionRevenue }],
+        expenditureBreakdown: [
+          { name: "Staff Payroll", value: monthlyPayroll },
+          { name: "Other Expenses", value: monthlyManualExpenses },
+        ].filter((item) => item.value > 0),
+      },
+      session: {
+        revenue: (feeRecordAggregates._sum.paidAmount || 0),
+        expenditure: sessionExpenditure,
+        net: (feeRecordAggregates._sum.paidAmount || 0) - sessionExpenditure,
+      },
+      summary: {
+        totalPending,
+        // FIX APPLIED HERE: Use the nullish coalescing operator '??' to provide a default value of 0.
+        erpBillAmountForCycle: (branch.erpPricePerStudent ?? 0) * (await prisma.student.count({ where: { branchId } })),
+        erpNextDueDate: branch.nextDueDate,
+        erpBillingCycle: branch.billingCycle,
+        isErpBillPaid: branch.nextDueDate ? new Date(branch.nextDueDate) > today : false,
+      },
+      classFeeSummaries,
+    };
+
     res.status(200).json(overview);
-  } catch (error: any) {
-    res.status(500).json({ message: error.message });
+  } catch (error) {
+    next(error); 
   }
 };
 
