@@ -137,13 +137,16 @@ router.get(
   "/complaints/student",
   principalController.getComplaintsAboutStudentsByBranch
 );
-
+router.get("/complaints/teacher", principalController.getComplaintsForBranch);
 // --- FIX: Change "/suspensions" to "/suspension-records" to match the frontend ---
 router.get(
   "/suspension-records",
   principalController.getSuspensionRecordsForPrincipal
 );
-
+router.get(
+  "/suspensions",
+  principalController.getSuspensionRecordsForPrincipal
+);
 // --- Communication & Events ---
 router.get("/announcements", principalController.getAnnouncements);
 router.post("/announcements", principalController.sendAnnouncement);
