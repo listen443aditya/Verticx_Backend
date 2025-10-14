@@ -1,3 +1,5 @@
+// src/routes/principal.ts
+
 import { Router } from "express";
 import * as principalController from "../controllers/principalController";
 import { protect } from "../middlewares/auth";
@@ -59,6 +61,10 @@ router.get(
 
 // --- Academic Overview ---
 router.get("/class-view", principalController.getPrincipalClassView);
+
+// --- FIX: Add the /classes route the frontend is calling ---
+router.get("/classes", principalController.getSchoolClassesForPrincipal);
+
 router.get("/classes/:classId/details", principalController.getClassDetails);
 router.patch("/classes/:classId/mentor", principalController.assignClassMentor);
 router.patch(
@@ -131,8 +137,10 @@ router.get(
   "/complaints/student",
   principalController.getComplaintsAboutStudentsByBranch
 );
+
+// --- FIX: Change "/suspensions" to "/suspension-records" to match the frontend ---
 router.get(
-  "/suspensions",
+  "/suspension-records",
   principalController.getSuspensionRecordsForPrincipal
 );
 
@@ -153,5 +161,12 @@ router.patch(
 // --- Admin Communication ---
 router.post("/queries/admin", principalController.raiseQueryToAdmin);
 router.get("/queries", principalController.getQueriesByPrincipal);
+
+// --- FIX: Add missing record routes ---
+router.get("/fee-records", principalController.getFeeRecordsForPrincipal);
+router.get(
+  "/attendance-records",
+  principalController.getAttendanceRecordsForPrincipal
+);
 
 export default router;
