@@ -629,6 +629,7 @@ export const verifyProfileAccessOtp = async (
   }
 };
 
+
 export const rejectFacultyApplication = async (req: Request, res: Response) => {
   try {
     if (!req.user) {
