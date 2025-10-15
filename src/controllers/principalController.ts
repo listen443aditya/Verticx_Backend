@@ -585,25 +585,47 @@ export const requestProfileAccessOtp = async (
   }
 };
 
-export const verifyProfileAccessOtp = async (req: Request, res: Response) => {
+export const verifyProfileAccessOtp = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
     if (!req.user) {
       return res.status(401).json({ message: "Authentication required." });
     }
     const { otp } = req.body;
-    const isValid = await principalApiService.verifyProfileAccessOtp(
-      req.user.id,
-      otp
-    );
-    if (isValid) {
+
+    if (!otp) {
+      return res.status(400).json({ message: "OTP is required." });
+    }
+
+    // Find the user to get the stored OTP
+    const userWithOtp = await prisma.user.findUnique({
+      where: { id: req.user.id },
+    });
+
+    if (!userWithOtp || !userWithOtp.profileAccessOtp) {
+      return res
+        .status(400)
+        .json({ message: "No OTP was requested or it has expired." });
+    }
+
+    if (userWithOtp.profileAccessOtp === otp) {
+      // OTP is correct. Clear the OTP from the database to prevent reuse.
+      await prisma.user.update({
+        where: { id: req.user.id },
+        data: { profileAccessOtp: null },
+      });
       res
         .status(200)
         .json({ success: true, message: "OTP verified successfully." });
     } else {
+      // OTP is incorrect
       res.status(401).json({ success: false, message: "Invalid OTP." });
     }
-  } catch (error: any) {
-    res.status(500).json({ message: error.message });
+  } catch (error) {
+    next(error);
   }
 };
 

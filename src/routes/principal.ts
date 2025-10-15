@@ -19,6 +19,7 @@ router.post(
   "/profile/request-otp",
   principalController.requestProfileAccessOtp
 );
+router.post("/profile/verify-otp", principalController.verifyProfileAccessOtp);
 
 // --- Faculty & Staff Management ---
 router.get(
