@@ -736,4 +736,6 @@ model LeaveApplication {
   status    String  @default("Pending")
   teacherId String
   teacher   Teacher @relation(fields: [teacherId], references: [id])
+  fromDate     String 
+  toDate       String 
 }

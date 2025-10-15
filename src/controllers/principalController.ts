@@ -1946,3 +1946,61 @@ export const getFeeTemplatesByBranch = async (
     next(error);
   }
 };
+
+
+
+export const getStaffMemberAttendance = async (req: Request, res: Response, next: NextFunction) => {
+  const branchId = getPrincipalBranchId(req);
+  if (!branchId) {
+    return res.status(401).json({ message: "Unauthorized." });
+  }
+
+  const { staffId, year, month } = req.params;
+
+  try {
+    // Security Check
+    const staffMember = await prisma.user.findFirst({
+      where: { id: staffId, branchId: branchId },
+    });
+
+    if (!staffMember) {
+      return res.status(404).json({ message: "Staff member not found in your branch." });
+    }
+
+    const yearNum = parseInt(year, 10);
+    const monthNum = parseInt(month, 10);
+
+    const startDate = new Date(yearNum, monthNum, 1);
+    const endDate = new Date(yearNum, monthNum + 1, 0);
+
+    const startDateString = startDate.toISOString().split('T')[0];
+    const endDateString = endDate.toISOString().split('T')[0];
+
+    const [attendance, leaves] = await prisma.$transaction([
+      prisma.teacherAttendanceRecord.findMany({
+        where: {
+          teacherId: staffId,
+          date: {
+            gte: startDateString,
+            lte: endDateString,
+          },
+        },
+      }),
+      prisma.leaveApplication.findMany({
+        where: {
+          // FIX: Use 'teacherId' as confirmed in your schema
+          teacherId: staffId,
+          status: "Approved",
+          AND: [
+            { fromDate: { lte: endDateString } },
+            { toDate: { gte: startDateString } },
+          ],
+        },
+      }),
+    ]);
+
+    res.status(200).json({ attendance, leaves });
+  } catch (error) {
+    next(error);
+  }
+};

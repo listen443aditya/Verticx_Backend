@@ -39,6 +39,11 @@ router.get(
   principalController.getTeacherProfileDetails
 );
 router.patch("/teachers/:id", principalController.updateTeacher);
+router.get(
+  "/staff/:staffId/attendance/:year/:month",
+  principalController.getStaffMemberAttendance
+);
+
 
 // --- Student Management ---
 router.get("/students", principalController.getStudentsForPrincipal);

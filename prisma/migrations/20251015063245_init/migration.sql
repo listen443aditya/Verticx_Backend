@@ -600,6 +600,8 @@ CREATE TABLE "LeaveApplication" (
     "reason" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'Pending',
     "teacherId" TEXT NOT NULL,
+    "fromDate" TEXT NOT NULL,
+    "toDate" TEXT NOT NULL,
 
     CONSTRAINT "LeaveApplication_pkey" PRIMARY KEY ("id")
 );
