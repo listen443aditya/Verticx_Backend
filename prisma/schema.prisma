@@ -156,6 +156,9 @@ model Branch {
   rectificationRequests                RectificationRequest[]
   syllabusChangeRequests               SyllabusChangeRequest[]
   examMarkRectificationRequests          ExamMarkRectificationRequest[]
+  timetableSlots TimetableSlot[]
+  leaveSettings LeaveSettings?
+
 }
 
 model RegistrationRequest {
@@ -200,6 +203,7 @@ model Teacher {
   rectificationRequests                RectificationRequest[]
   syllabusChangeRequests               SyllabusChangeRequest[]
   examMarkRectificationRequests          ExamMarkRectificationRequest[]
+  timetableSlots TimetableSlot[]
 }
 
 model Student {
@@ -232,6 +236,7 @@ model Student {
   complaintsAboutMe Complaint[]
   suspensionRecords SuspensionRecord[]
   rectificationRequests RectificationRequest[]
+  room                Room?     @relation(fields: [roomId], references: [id])
 }
 
 // ============================================================================
@@ -301,6 +306,8 @@ model SchoolClass {
   examMarks     ExamMark[] // Added: to fetch exam marks per class
   feeTemplateId String?
   feeTemplate   FeeTemplate?   @relation(fields: [feeTemplateId], references: [id])
+  timetableSlots TimetableSlot[]
+
 }
 
 model Subject {
@@ -316,6 +323,7 @@ model Subject {
   SchoolClass   SchoolClass?   @relation(fields: [schoolClassId], references: [id])
   schoolClassId String?
   syllabusChangeRequests SyllabusChangeRequest[]
+  timetableSlots TimetableSlot[]
 }
 
 model Course {
@@ -528,6 +536,8 @@ model TeacherAttendanceRecord {
   teacher   Teacher  @relation(fields: [teacherId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@unique([teacherId, date]) 
+
 }
 
 model Lecture {
@@ -591,6 +601,7 @@ model Room {
   roomType   String
 
   hostel Hostel @relation(fields: [hostelId], references: [id])
+  occupants Student[] // Add this line
 }
 
 model LibraryBook {
@@ -687,6 +698,7 @@ model TimetableConfig {
   timeSlots Json
   Branch    Branch? @relation(fields: [branchId], references: [id])
   branchId  String?
+  @@unique([classId, branchId])
 }
 
 // ============================================================================
@@ -842,4 +854,38 @@ model ExamMarkRectificationRequest {
   branch     Branch   @relation(fields: [branchId], references: [id])
   teacher    Teacher  @relation(fields: [teacherId], references: [id])
   examMark   ExamMark @relation(fields: [examMarkId], references: [id])
+}
+
+model TimetableSlot {
+  id        String @id @default(uuid())
+  branchId  String
+  classId   String
+  day       String // e.g., "Monday", "Tuesday"
+  startTime String // e.g., "09:00"
+  endTime   String // e.g., "10:00"
+  subjectId String
+  teacherId String
+  room      String?
+
+  branch    Branch      @relation(fields: [branchId], references: [id])
+  class     SchoolClass @relation(fields: [classId], references: [id])
+  subject   Subject     @relation(fields: [subjectId], references: [id])
+  teacher   Teacher     @relation(fields: [teacherId], references: [id])
+
+  @@unique([branchId, classId, day, startTime], name: "class_slot_unique")
+  @@unique([branchId, teacherId, day, startTime], name: "teacher_slot_unique")
+}
+
+
+model LeaveSettings {
+  id                     String  @id @default(cuid())
+  branchId               String  @unique // Each branch has one set of settings
+  defaultStudentSick     Int     @default(10)
+  defaultStudentCasual   Int     @default(5)
+  defaultTeacherSick     Int     @default(12)
+  defaultTeacherCasual   Int     @default(10)
+  defaultStaffSick       Int     @default(12)
+  defaultStaffCasual     Int     @default(7)
+
+  branch                 Branch  @relation(fields: [branchId], references: [id])
 }

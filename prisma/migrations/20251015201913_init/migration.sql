@@ -693,6 +693,35 @@ CREATE TABLE "ExamMarkRectificationRequest" (
     CONSTRAINT "ExamMarkRectificationRequest_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "TimetableSlot" (
+    "id" TEXT NOT NULL,
+    "branchId" TEXT NOT NULL,
+    "classId" TEXT NOT NULL,
+    "day" TEXT NOT NULL,
+    "startTime" TEXT NOT NULL,
+    "endTime" TEXT NOT NULL,
+    "subjectId" TEXT NOT NULL,
+    "teacherId" TEXT NOT NULL,
+    "room" TEXT,
+
+    CONSTRAINT "TimetableSlot_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "LeaveSettings" (
+    "id" TEXT NOT NULL,
+    "branchId" TEXT NOT NULL,
+    "defaultStudentSick" INTEGER NOT NULL DEFAULT 10,
+    "defaultStudentCasual" INTEGER NOT NULL DEFAULT 5,
+    "defaultTeacherSick" INTEGER NOT NULL DEFAULT 12,
+    "defaultTeacherCasual" INTEGER NOT NULL DEFAULT 10,
+    "defaultStaffSick" INTEGER NOT NULL DEFAULT 12,
+    "defaultStaffCasual" INTEGER NOT NULL DEFAULT 7,
+
+    CONSTRAINT "LeaveSettings_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "User_userId_key" ON "User"("userId");
 
@@ -729,6 +758,21 @@ CREATE INDEX "Complaint_branchId_idx" ON "Complaint"("branchId");
 -- CreateIndex
 CREATE INDEX "SuspensionRecord_studentId_idx" ON "SuspensionRecord"("studentId");
 
+-- CreateIndex
+CREATE UNIQUE INDEX "TeacherAttendanceRecord_teacherId_date_key" ON "TeacherAttendanceRecord"("teacherId", "date");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "TimetableConfig_classId_branchId_key" ON "TimetableConfig"("classId", "branchId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "TimetableSlot_branchId_classId_day_startTime_key" ON "TimetableSlot"("branchId", "classId", "day", "startTime");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "TimetableSlot_branchId_teacherId_day_startTime_key" ON "TimetableSlot"("branchId", "teacherId", "day", "startTime");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "LeaveSettings_branchId_key" ON "LeaveSettings"("branchId");
+
 -- AddForeignKey
 ALTER TABLE "User" ADD CONSTRAINT "User_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
@@ -749,6 +793,9 @@ ALTER TABLE "Student" ADD CONSTRAINT "Student_parentId_fkey" FOREIGN KEY ("paren
 
 -- AddForeignKey
 ALTER TABLE "Student" ADD CONSTRAINT "Student_classId_fkey" FOREIGN KEY ("classId") REFERENCES "SchoolClass"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Student" ADD CONSTRAINT "Student_roomId_fkey" FOREIGN KEY ("roomId") REFERENCES "Room"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Complaint" ADD CONSTRAINT "Complaint_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "Student"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -950,3 +997,18 @@ ALTER TABLE "ExamMarkRectificationRequest" ADD CONSTRAINT "ExamMarkRectification
 
 -- AddForeignKey
 ALTER TABLE "ExamMarkRectificationRequest" ADD CONSTRAINT "ExamMarkRectificationRequest_examMarkId_fkey" FOREIGN KEY ("examMarkId") REFERENCES "ExamMark"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "TimetableSlot" ADD CONSTRAINT "TimetableSlot_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "TimetableSlot" ADD CONSTRAINT "TimetableSlot_classId_fkey" FOREIGN KEY ("classId") REFERENCES "SchoolClass"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "TimetableSlot" ADD CONSTRAINT "TimetableSlot_subjectId_fkey" FOREIGN KEY ("subjectId") REFERENCES "Subject"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "TimetableSlot" ADD CONSTRAINT "TimetableSlot_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "Teacher"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "LeaveSettings" ADD CONSTRAINT "LeaveSettings_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

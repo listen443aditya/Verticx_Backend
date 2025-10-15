@@ -716,6 +716,9 @@ export const createStaffMember = async (req: Request, res: Response) => {
       Teacher: "TCH",
       Accountant: "ACC",
       Clerk: "CLK",
+      Student:"STU",
+      SupportStaff: "STF",
+      Parent: "PRT"
     };
     const prefix = rolePrefixMap[role] || "STF";
 
