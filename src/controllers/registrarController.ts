@@ -14,6 +14,8 @@ const getRegistrarBranchId = (req: Request): string | null => {
   return null;
 };
 
+// src/controllers/registrarController.ts
+
 export const getRegistrarDashboardData = async (
   req: Request,
   res: Response,
@@ -23,89 +25,125 @@ export const getRegistrarDashboardData = async (
   if (!branchId) {
     return res
       .status(401)
-      .json({
-        message: "Unauthorized: Registrar not associated with a branch.",
-      });
+      .json({ message: "Unauthorized: Registrar not associated with a branch." });
   }
 
   try {
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
 
-    type RecentPayment = FeePayment & { student: { name: string } };
-    type StudentWithName = Pick<Student, "name" | "id">;
-
-    // NOTE: pendingApplications and activeInquiries are set to 0 as their models are missing from schema.prisma.
+    // Comprehensive data fetching transaction
     const [
-      totalStudents,
-      totalTeachers,
-      totalClasses,
-      recentAdmissions,
-      // prisma.AdmissionApplication.count(...), // This model does not exist in your schema.
-      recentFeePayments,
-      studentsWithPendingFees,
-      // prisma.Enquiry.count(...), // This model does not exist in your schema.
+      pendingAdmissions,
+      pendingAcademicRequests,
+      feesPendingAggregate,
+      unassignedFaculty,
+      pendingEvents,
+      admissionRequests,
+      classFeeSummaries,
+      teacherAttendanceStatus,
     ] = await prisma.$transaction([
-      prisma.student.count({ where: { branchId } }),
-      prisma.teacher.count({ where: { branchId } }),
-      prisma.schoolClass.count({ where: { branchId } }),
-      prisma.student.count({
-        where: { branchId, createdAt: { gte: sevenDaysAgo } },
+      prisma.admissionApplication.count({ where: { branchId, status: "Pending" } }),
+      prisma.rectificationRequest.count({ where: { branchId, status: "Pending" } }),
+      prisma.feeRecord.aggregate({
+        _sum: { totalAmount: true, paidAmount: true },
+        where: { student: { branchId } },
       }),
-      prisma.feePayment.findMany({
-        where: {
-          student: { branchId },
-          paidDate: { gte: new Date(sevenDaysAgo.toISOString().split("T")[0]) },
-        },
-        include: { student: { select: { name: true } } },
-        orderBy: { paidDate: "desc" },
-        take: 10,
+      prisma.teacher.count({ where: { branchId, subjectIds: { isEmpty: true } } }),
+      prisma.schoolEvent.findMany({ where: { branchId, status: "Pending" }, take: 5 }),
+      prisma.admissionApplication.findMany({
+        where: { branchId, status: "Pending" },
+        take: 5,
+        select: { id: true, applicantName: true, gradeLevel: true }
       }),
-      prisma.student.findMany({
-        where: {
-          branchId,
-          feeRecords: {
-            some: { paidAmount: { lt: prisma.feeRecord.fields.totalAmount } },
+      prisma.schoolClass.findMany({
+        where: { branchId },
+        select: {
+          id: true,
+          gradeLevel: true,
+          section: true,
+          students: {
+            select: {
+              feeRecords: {
+                where: { paidAmount: { lt: prisma.feeRecord.fields.totalAmount } }
+              }
+            }
+          }
+        }
+      }),
+      prisma.teacherAttendanceRecord.findMany({
+          where: {
+              branchId,
+              date: {
+                  gte: new Date(now.setHours(0, 0, 0, 0)),
+                  lt: new Date(now.setHours(23, 59, 59, 999))
+              },
+              status: { in: ['Absent', 'HalfDay'] }
           },
-        },
-        select: { name: true, id: true },
-        take: 10,
-      }),
+          include: { teacher: { select: { name: true } } }
+      })
     ]);
 
-    const pendingApplications = 0; // Placeholder value
-    const activeInquiries = 0; // Placeholder value
+    // Constructing fee overview for the last 6 months
+    const feeOverviewPromises = Array.from({ length: 6 }).map(async (_, i) => {
+        const month = (currentMonth - i + 12) % 12;
+        const year = currentMonth - i < 0 ? currentYear - 1 : currentYear;
+        const monthStart = new Date(year, month, 1);
+        const monthEnd = new Date(year, month + 1, 0);
 
-    const denominator = totalStudents - recentAdmissions;
-    const growthRate =
-      denominator > 0
-        ? (recentAdmissions / denominator) * 100
-        : recentAdmissions > 0
-        ? 100
-        : 0;
+        const payments = await prisma.feePayment.aggregate({
+            _sum: { amount: true },
+            where: { student: { branchId }, paidDate: { gte: monthStart, lte: monthEnd } },
+        });
+        const records = await prisma.feeRecord.aggregate({
+            _sum: { totalAmount: true },
+            where: { student: { branchId }, dueDate: { gte: monthStart, lte: monthEnd } }
+        });
+        
+        const paid = payments._sum.amount || 0;
+        const totalDue = records._sum.totalAmount || 0;
 
+        return {
+            month: monthStart.toLocaleString('default', { month: 'short' }),
+            paid,
+            pending: Math.max(0, totalDue - paid),
+        };
+    });
+    const feeOverview = (await Promise.all(feeOverviewPromises)).reverse();
+
+    // Final data shaping
     const dashboardData = {
       summary: {
-        totalStudents,
-        totalTeachers,
-        totalClasses,
-        activeInquiries,
+        pendingAdmissions,
+        pendingAcademicRequests,
+        feesPending: (feesPendingAggregate._sum.totalAmount || 0) - (feesPendingAggregate._sum.paidAmount || 0),
+        unassignedFaculty,
       },
-      admissionStats: {
-        recentAdmissions,
-        totalAdmissions: totalStudents,
-        pendingApplications,
-        growthRate: isNaN(growthRate) || !isFinite(growthRate) ? 0 : growthRate,
-      },
-      recentFeePayments: (recentFeePayments as RecentPayment[]).map(
-        (p: RecentPayment) => ({
-          studentName: p.student.name,
-          amount: p.amount,
-          date: p.paidDate,
-        })
-      ),
-      studentsWithPendingFees: (
-        studentsWithPendingFees as StudentWithName[]
-      ).map((s: StudentWithName) => s.name),
+      admissionRequests: admissionRequests.map(app => ({...app, type: 'Student', subject: ''})), // Shaping to match frontend type
+      feeOverview,
+      pendingEvents,
+      classFeeSummaries: classFeeSummaries.map(c => {
+        const defaulters = c.students.filter(s => s.feeRecords.length > 0);
+        const pendingAmount = defaulters.reduce((sum, s) => 
+            sum + s.feeRecords.reduce((recSum, rec) => recSum + (rec.totalAmount - rec.paidAmount), 0), 0);
+        return {
+            classId: c.id,
+            className: `Grade ${c.gradeLevel}-${c.section}`,
+            defaulterCount: defaulters.length,
+            pendingAmount,
+        };
+      }),
+      teacherAttendanceStatus: teacherAttendanceStatus.map(att => ({
+          teacherId: att.teacherId,
+          teacherName: att.teacher.name,
+          status: att.status
+      })),
+      academicRequests: {
+          count: pendingAcademicRequests,
+          requests: [], // This can be populated with a more detailed query if needed
+      }
     };
 
     res.status(200).json(dashboardData);
