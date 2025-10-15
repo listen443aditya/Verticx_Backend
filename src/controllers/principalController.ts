@@ -162,6 +162,8 @@ async function resolveBranchByIdOrRegistration(identifier: string | undefined) {
 
 // --- CONTROLLER FUNCTIONS ---
 
+// src/controllers/principalController.ts
+
 export const getPrincipalDashboardData = async (
   req: Request,
   res: Response,
@@ -243,13 +245,20 @@ export const getPrincipalDashboardData = async (
         },
       }),
       prisma.schoolEvent.findMany({ where: { branchId } }),
+      // --- FIX: Use the correct 'applicant' relation to filter by branch and role ---
       prisma.leaveApplication.count({
-        where: { teacher: { branchId }, status: "Pending" },
+        where: {
+          status: "Pending",
+          applicant: {
+            branchId: branchId,
+            role: { in: ['Teacher', 'Registrar', 'Librarian', 'SupportStaff'] }
+          }
+        },
       }),
       prisma.branch.findMany({ select: { id: true, name: true, stats: true } }),
     ]);
 
-    // --- Data Transformation with Explicit Types ---
+    // --- All data transformation logic below remains the same and is correct ---
     const transformedClassPerformance = classPerformance.map(
       (c: {
         gradeLevel: number;
@@ -273,7 +282,7 @@ export const getPrincipalDashboardData = async (
         (t: {
           id: string;
           name: string;
-          courses?: { syllabusCompletion: number | null }[]; // optional & nullable
+          courses?: { syllabusCompletion: number | null }[];
           examMarks?: { score: number | null }[];
         }) => {
           const avgSyllabus = t.courses?.length
@@ -323,10 +332,9 @@ export const getPrincipalDashboardData = async (
         rank: index + 1,
       }));
 
-  const allScores = allBranches
+    const allScores = allBranches
     .map((b) => {
-      // stats is stored as JsonValue, so we need to safely cast/parse it
-      const stats = (b.stats as any) || {}; // fallback to empty object
+      const stats = (b.stats as any) || {};
       const healthScore =
         typeof stats.healthScore === "number" ? stats.healthScore : 70;
       return {
@@ -363,7 +371,7 @@ export const getPrincipalDashboardData = async (
           syllabusCompletion: number | null;
         }) => ({
           name: s.subject.name,
-          progress: s.syllabusCompletion ?? 0, // default to 0 if null
+          progress: s.syllabusCompletion ?? 0,
         })
       ),
 
@@ -422,7 +430,6 @@ export const getPrincipalDashboardData = async (
     next(error);
   }
 };
-
 
 
 
@@ -1520,23 +1527,36 @@ export const processTeacherAttendanceRectificationRequest = async (
 
 export const getLeaveApplicationsForPrincipal = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction // Added next for error handling
 ) => {
+  const branchId = getPrincipalBranchId(req);
+  if (!branchId) {
+    return res.status(401).json({ message: "Unauthorized." });
+  }
+
   try {
-    if (!req.user?.branchId) {
-      return res
-        .status(401)
-        .json({ message: "Authentication required with a valid branch." });
-    }
-    const applications =
-      await principalApiService.getLeaveApplicationsForPrincipal(
-        req.user.branchId
-      );
+    const applications = await prisma.leaveApplication.findMany({
+      where: {
+        // FIX: Query through the 'applicant' relation to filter by branchId and role
+        applicant: {
+          branchId: branchId,
+          role: { in: ["Teacher", "Registrar", "Librarian", "SupportStaff"] }, // Filter for staff roles
+        },
+      },
+      include: {
+        applicant: {
+          select: { name: true, role: true }, // Include applicant's name and role
+        },
+      },
+      orderBy: { fromDate: "desc" },
+    });
     res.status(200).json(applications);
-  } catch (error: any) {
-    res.status(500).json({ message: error.message });
+  } catch (error) {
+    next(error);
   }
 };
+
 
 export const processLeaveApplication = async (req: Request, res: Response) => {
   try {
@@ -1949,7 +1969,11 @@ export const getFeeTemplatesByBranch = async (
 
 
 
-export const getStaffMemberAttendance = async (req: Request, res: Response, next: NextFunction) => {
+export const getStaffMemberAttendance = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   const branchId = getPrincipalBranchId(req);
   if (!branchId) {
     return res.status(401).json({ message: "Unauthorized." });
@@ -1958,13 +1982,14 @@ export const getStaffMemberAttendance = async (req: Request, res: Response, next
   const { staffId, year, month } = req.params;
 
   try {
-    // Security Check
     const staffMember = await prisma.user.findFirst({
       where: { id: staffId, branchId: branchId },
     });
 
     if (!staffMember) {
-      return res.status(404).json({ message: "Staff member not found in your branch." });
+      return res
+        .status(404)
+        .json({ message: "Staff member not found in your branch." });
     }
 
     const yearNum = parseInt(year, 10);
@@ -1973,23 +1998,23 @@ export const getStaffMemberAttendance = async (req: Request, res: Response, next
     const startDate = new Date(yearNum, monthNum, 1);
     const endDate = new Date(yearNum, monthNum + 1, 0);
 
-    const startDateString = startDate.toISOString().split('T')[0];
-    const endDateString = endDate.toISOString().split('T')[0];
+    const startDateString = startDate.toISOString().split("T")[0];
+    const endDateString = endDate.toISOString().split("T")[0];
 
     const [attendance, leaves] = await prisma.$transaction([
       prisma.teacherAttendanceRecord.findMany({
         where: {
           teacherId: staffId,
           date: {
-            gte: startDateString,
-            lte: endDateString,
+            gte: new Date(startDateString),
+            lte: new Date(endDateString),
           },
         },
       }),
       prisma.leaveApplication.findMany({
         where: {
-          // FIX: Use 'teacherId' as confirmed in your schema
-          teacherId: staffId,
+          // FIX: Use the correct 'applicantId' field from the refactored schema
+          applicantId: staffId,
           status: "Approved",
           AND: [
             { fromDate: { lte: endDateString } },
