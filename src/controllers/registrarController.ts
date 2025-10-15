@@ -1157,17 +1157,17 @@ export const getStudentLeaveApplications = async (
     return res.status(401).json({ message: "Unauthorized." });
   }
   try {
-    // Your current schema links LeaveApplication to Teacher, not Student.
-    // We will adapt by fetching all leave applications for the branch.
-    // To fully implement this, you would need to adjust the LeaveApplication model in schema.prisma.
     const applications = await prisma.leaveApplication.findMany({
       where: {
-        teacher: {
+        // FIX: Query through the 'applicant' relation to filter by branch and role.
+        applicant: {
           branchId: branchId,
+          role: "Student", // Specifically find applications from students
         },
       },
       include: {
-        teacher: {
+        // FIX: Include the 'applicant's' details instead of the old 'teacher' relation.
+        applicant: {
           select: { name: true },
         },
       },
