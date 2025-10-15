@@ -114,6 +114,48 @@ export const getRegistrarDashboardData = async (
   }
 };
 
+export const getUserDetails = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req); // Assumes getRegistrarBranchId helper exists
+  if (!branchId) {
+    return res.status(401).json({ message: "Unauthorized." });
+  }
+
+  const { userId } = req.params;
+
+  try {
+    // Security Check: Only find the user if they are in the same branch.
+    const user = await prisma.user.findFirst({
+      where: {
+        id: userId,
+        branchId: branchId,
+      },
+      select: {
+        // Only return non-sensitive, necessary information
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        role: true,
+      },
+    });
+
+    if (!user) {
+      return res
+        .status(404)
+        .json({ message: "User not found in your branch." });
+    }
+
+    res.status(200).json(user);
+  } catch (error) {
+    next(error);
+  }
+};
+
+
 export const getApplications = async (req: Request, res: Response) => {
   try {
     if (!req.user?.branchId) {

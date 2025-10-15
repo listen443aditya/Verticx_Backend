@@ -10,7 +10,7 @@ router.use(restrictTo('Registrar'));
 
 // Dashboard
 router.get('/dashboard', registrarController.getRegistrarDashboardData);
-
+router.get("/user-details/:userId", registrarController.getUserDetails);
 // Admissions
 router.get('/applications', registrarController.getApplications);
 router.patch('/applications/:id/status', registrarController.updateApplicationStatus);
