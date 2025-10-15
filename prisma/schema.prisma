@@ -74,29 +74,29 @@ enum ManualExpenseCategory {
 // CORE MODELS
 // ============================================================================
 model User {
-  id               String    @id @default(cuid())
-  userId           String    @unique
-  email            String    @unique
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  email            String   @unique
   passwordHash     String
   role             UserRole
   phone            String?
-  branchId         String?   // This field will be set to NULL automatically
+  branchId         String? // This field will be set to NULL automatically
   status           String?
   designation      String?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
   currentOtp       String?
   profileAccessOtp String?
   name             String
 
   // CORRECTED RELATIONSHIP
-  branch           Branch?   @relation("BranchUsers", fields: [branchId], references: [id], onDelete: SetNull)
+  branch Branch? @relation("BranchUsers", fields: [branchId], references: [id], onDelete: SetNull)
 
   // A User can be the Principal of ONE Branch. This is the singular crown.
-  principalOf      Branch?   @relation("BranchPrincipal")
+  principalOf Branch? @relation("BranchPrincipal")
 
-  children         Student[] @relation("ParentChildren")
-  teacher          Teacher?  @relation("UserTeacher")
+  children         Student[]   @relation("ParentChildren")
+  teacher          Teacher?    @relation("UserTeacher")
   complaintsRaised Complaint[] @relation("ComplaintsRaisedBy")
 }
 
@@ -121,34 +121,36 @@ model Branch {
   createdAt                DateTime     @default(now())
   updatedAt                DateTime     @updatedAt
 
-  principal   User?   @relation("BranchPrincipal", fields: [principalId], references: [id], onDelete: SetNull)
+  principal User? @relation("BranchPrincipal", fields: [principalId], references: [id], onDelete: SetNull)
 
-  users              User[]                   @relation("BranchUsers")
-  complaints         Complaint[]
-  feeTemplates       FeeTemplate[]
-  teachers           Teacher[]
-  students           Student[]
-  classes            SchoolClass[]
-  subjects           Subject[]
-  courses            Course[]
-  examinations       Examination[]
-  lectures           Lecture[]
-  expenses           ManualExpense[]
-  salaryAdjustments  ManualSalaryAdjustment[]
-  payrolls           PayrollRecord[]
-  erpPayments        ErpPayment[]
-  transportRoutes    TransportRoute[]
-  hostels            Hostel[]
-  libraryBooks       LibraryBook[]
-  inventoryItems     InventoryItem[]
-  schoolEvents       SchoolEvent[]
-  announcements      Announcement[]
-  smsMessages        SmsMessage[]
-  timetables         TimetableConfig[]
-  ExamSchedule       ExamSchedule[]
-  ExamMark           ExamMark[]
-  principalQueries   PrincipalQuery[]
-  FacultyApplication FacultyApplication[]
+  users                 User[]                   @relation("BranchUsers")
+  complaints            Complaint[]
+  feeTemplates          FeeTemplate[]
+  teachers              Teacher[]
+  students              Student[]
+  classes               SchoolClass[]
+  subjects              Subject[]
+  courses               Course[]
+  examinations          Examination[]
+  lectures              Lecture[]
+  expenses              ManualExpense[]
+  salaryAdjustments     ManualSalaryAdjustment[]
+  payrolls              PayrollRecord[]
+  erpPayments           ErpPayment[]
+  transportRoutes       TransportRoute[]
+  hostels               Hostel[]
+  libraryBooks          LibraryBook[]
+  inventoryItems        InventoryItem[]
+  schoolEvents          SchoolEvent[]
+  announcements         Announcement[]
+  smsMessages           SmsMessage[]
+  timetables            TimetableConfig[]
+  ExamSchedule          ExamSchedule[]
+  ExamMark              ExamMark[]
+  principalQueries      PrincipalQuery[]
+  FacultyApplication    FacultyApplication[]
+  admissionApplications AdmissionApplication[]
+  enquiries             Enquiry[]
 }
 
 model RegistrationRequest {
@@ -213,14 +215,14 @@ model Student {
   attendanceRecords AttendanceRecord[]
   examMarks         ExamMark[]
 
-  parent            User?           @relation("ParentChildren", fields: [parentId], references: [id])
-  class             SchoolClass?    @relation(fields: [classId], references: [id])
+  parent            User?              @relation("ParentChildren", fields: [parentId], references: [id])
+  class             SchoolClass?       @relation(fields: [classId], references: [id])
   FeeAdjustment     FeeAdjustment[]
   transportRouteId  String?
   busStopId         String?
   roomId            String?
   complaintsAboutMe Complaint[]
-  suspensionRecords SuspensionRecord[] 
+  suspensionRecords SuspensionRecord[]
 }
 
 // ============================================================================
@@ -269,8 +271,8 @@ model SuspensionRecord {
   endDate   DateTime
   isActive  Boolean  @default(true)
 
-  student   Student  @relation(fields: [studentId], references: [id])
-  
+  student Student @relation(fields: [studentId], references: [id])
+
   @@index([studentId])
 }
 
@@ -682,22 +684,22 @@ model TimetableConfig {
 model AuditLog {
   id        String   @id @default(cuid())
   timestamp DateTime @default(now())
-  
+
   // Who performed the action
-  actorId   String?  // Who did it? (e.g., a user's ID)
-  actorName String   // What was their name?
-  actorRole String   // What was their role?
+  actorId   String? // Who did it? (e.g., a user's ID)
+  actorName String // What was their name?
+  actorRole String // What was their role?
 
   // What was the action
-  action    String   // e.g., "USER_CREATE", "BRANCH_STATUS_UPDATE" or simply the HTTP method "POST"
-  
+  action String // e.g., "USER_CREATE", "BRANCH_STATUS_UPDATE" or simply the HTTP method "POST"
+
   // What was the target of the action
-  targetId  String?  // The ID of the thing that was changed (e.g., a branch's ID)
+  targetId   String? // The ID of the thing that was changed (e.g., a branch's ID)
   targetType String? // The type of thing that was changed (e.g., "Branch")
 
   // The result
-  statusCode Int      // Was it successful? (200, 201, 404, etc.)
-  details   Json?    // Any extra details, like the request body
+  statusCode Int // Was it successful? (200, 201, 404, etc.)
+  details    Json? // Any extra details, like the request body
 }
 
 model SystemSettings {
@@ -736,6 +738,30 @@ model LeaveApplication {
   status    String  @default("Pending")
   teacherId String
   teacher   Teacher @relation(fields: [teacherId], references: [id])
-  fromDate     String 
-  toDate       String 
+  fromDate  String
+  toDate    String
+}
+
+model AdmissionApplication {
+  id            String   @id @default(cuid())
+  applicantName String
+  gradeLevel    Int
+  status        String   @default("Pending")
+  branchId      String
+  createdAt     DateTime @default(now())
+
+  branch Branch @relation(fields: [branchId], references: [id])
+}
+
+model Enquiry {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String
+  email     String?
+  message   String
+  status    String   @default("Active") // e.g., Active, Contacted, Closed
+  branchId  String
+  createdAt DateTime @default(now())
+
+  branch Branch @relation(fields: [branchId], references: [id])
 }

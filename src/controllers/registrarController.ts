@@ -1,26 +1,116 @@
 // src/controllers/registrarController.ts
-import { Request, Response } from "express";
+import { Request, Response, NextFunction} from "express";
 import { registrarApiService } from "../services";
+import prisma from "../prisma";
+import { FeePayment, Student } from "@prisma/client"; // Import needed types
 
 // This controller has been corrected to import the instantiated service
 // and to perform necessary checks for `req.user` before using its properties.
 
+const getRegistrarBranchId = (req: Request): string | null => {
+  if (req.user?.role === "Registrar" && req.user.branchId) {
+    return req.user.branchId;
+  }
+  return null;
+};
+
 export const getRegistrarDashboardData = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ) => {
+  const branchId = getRegistrarBranchId(req);
+  if (!branchId) {
+    return res
+      .status(401)
+      .json({
+        message: "Unauthorized: Registrar not associated with a branch.",
+      });
+  }
+
   try {
-    if (!req.user?.branchId) {
-      return res
-        .status(401)
-        .json({ message: "Authentication required with a valid branch." });
-    }
-    const data = await registrarApiService.getRegistrarDashboardData(
-      req.user.branchId
-    );
-    res.status(200).json(data);
-  } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    type RecentPayment = FeePayment & { student: { name: string } };
+    type StudentWithName = Pick<Student, "name" | "id">;
+
+    // NOTE: pendingApplications and activeInquiries are set to 0 as their models are missing from schema.prisma.
+    const [
+      totalStudents,
+      totalTeachers,
+      totalClasses,
+      recentAdmissions,
+      // prisma.AdmissionApplication.count(...), // This model does not exist in your schema.
+      recentFeePayments,
+      studentsWithPendingFees,
+      // prisma.Enquiry.count(...), // This model does not exist in your schema.
+    ] = await prisma.$transaction([
+      prisma.student.count({ where: { branchId } }),
+      prisma.teacher.count({ where: { branchId } }),
+      prisma.schoolClass.count({ where: { branchId } }),
+      prisma.student.count({
+        where: { branchId, createdAt: { gte: sevenDaysAgo } },
+      }),
+      prisma.feePayment.findMany({
+        where: {
+          student: { branchId },
+          paidDate: { gte: new Date(sevenDaysAgo.toISOString().split("T")[0]) },
+        },
+        include: { student: { select: { name: true } } },
+        orderBy: { paidDate: "desc" },
+        take: 10,
+      }),
+      prisma.student.findMany({
+        where: {
+          branchId,
+          feeRecords: {
+            some: { paidAmount: { lt: prisma.feeRecord.fields.totalAmount } },
+          },
+        },
+        select: { name: true, id: true },
+        take: 10,
+      }),
+    ]);
+
+    const pendingApplications = 0; // Placeholder value
+    const activeInquiries = 0; // Placeholder value
+
+    const denominator = totalStudents - recentAdmissions;
+    const growthRate =
+      denominator > 0
+        ? (recentAdmissions / denominator) * 100
+        : recentAdmissions > 0
+        ? 100
+        : 0;
+
+    const dashboardData = {
+      summary: {
+        totalStudents,
+        totalTeachers,
+        totalClasses,
+        activeInquiries,
+      },
+      admissionStats: {
+        recentAdmissions,
+        totalAdmissions: totalStudents,
+        pendingApplications,
+        growthRate: isNaN(growthRate) || !isFinite(growthRate) ? 0 : growthRate,
+      },
+      recentFeePayments: (recentFeePayments as RecentPayment[]).map(
+        (p: RecentPayment) => ({
+          studentName: p.student.name,
+          amount: p.amount,
+          date: p.paidDate,
+        })
+      ),
+      studentsWithPendingFees: (
+        studentsWithPendingFees as StudentWithName[]
+      ).map((s: StudentWithName) => s.name),
+    };
+
+    res.status(200).json(dashboardData);
+  } catch (error) {
+    next(error);
   }
 };
 
