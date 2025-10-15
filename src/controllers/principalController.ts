@@ -20,7 +20,6 @@ type GraphDataPoint = {
 };
 const principalApiService = new PrincipalApiService();
 
-// --- UTILITY: A guard to ensure the user is a Principal with a Branch ---
 const getPrincipalBranchId = (req: Request): string | null => {
   if (req.user?.role === "Principal" && req.user.branchId) {
     return req.user.branchId;
@@ -149,7 +148,6 @@ export const assignFeeTemplateToClass = async (
 };
 
 
-// helper to resolve a branch when caller might pass either DB id or registrationId
 async function resolveBranchByIdOrRegistration(identifier: string | undefined) {
   if (!identifier) return null;
   // try id first
@@ -159,10 +157,6 @@ async function resolveBranchByIdOrRegistration(identifier: string | undefined) {
   branch = await prisma.branch.findUnique({ where: { registrationId: identifier } });
   return branch;
 }
-
-// --- CONTROLLER FUNCTIONS ---
-
-// src/controllers/principalController.ts
 
 export const getPrincipalDashboardData = async (
   req: Request,
@@ -455,9 +449,6 @@ export const getBranchDetails = async (
 
 
 
-
-
-
 export const updateBranchDetails = async (
   req: Request,
   res: Response,
@@ -562,17 +553,35 @@ export const approveFacultyApplication = async (
 };
 
 
-export const requestProfileAccessOtp = async (req: Request, res: Response) => {
+export const requestProfileAccessOtp = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
     if (!req.user) {
       return res.status(401).json({ message: "Authentication required." });
     }
-    await principalApiService.requestProfileAccessOtp(req.user.id);
+    // In a real application, you would generate a random OTP, save it to the user's record with an expiry,
+    // and then use an SMS service to send it to the user's phone number.
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    await prisma.user.update({
+      where: { id: req.user.id },
+      data: { profileAccessOtp: otp },
+    });
+
+    // This log simulates the SMS sending process for development.
+    // In production, you would replace this with a call to an SMS gateway API (like Twilio, Vonage, etc.).
+    console.log(
+      `[SIMULATED SMS] OTP for user ${req.user.name} (${req.user.id}): ${otp}`
+    );
+
     res
       .status(200)
       .json({ message: "OTP sent to your registered mobile number." });
-  } catch (error: any) {
-    res.status(500).json({ message: error.message });
+  } catch (error) {
+    next(error);
   }
 };
 

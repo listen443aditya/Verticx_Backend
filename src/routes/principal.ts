@@ -15,6 +15,10 @@ router.use(restrictTo("Principal"));
 router.get("/dashboard", principalController.getPrincipalDashboardData);
 router.get("/branch", principalController.getBranchDetails);
 router.patch("/branch-details", principalController.updateBranchDetails);
+router.post(
+  "/profile/request-otp",
+  principalController.requestProfileAccessOtp
+);
 
 // --- Faculty & Staff Management ---
 router.get(
