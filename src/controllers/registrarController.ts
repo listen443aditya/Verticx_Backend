@@ -1127,3 +1127,54 @@ export const getSubjectsForBranch = async (req: Request, res: Response, next: Ne
         next(error);
     }
 };
+
+// src/controllers/registrarController.ts
+
+export const getTeacherAttendanceRequests = async (req: Request, res: Response, next: NextFunction) => {
+    const branchId = getRegistrarBranchId(req);
+    if (!branchId) {
+        return res.status(401).json({ message: "Unauthorized." });
+    }
+    try {
+        const requests = await prisma.teacherAttendanceRectificationRequest.findMany({
+            where: { branchId },
+            orderBy: { requestedAt: 'desc' }
+        });
+        res.status(200).json(requests);
+    } catch (error) {
+        next(error);
+    }
+};
+
+
+export const getStudentLeaveApplications = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  if (!branchId) {
+    return res.status(401).json({ message: "Unauthorized." });
+  }
+  try {
+    // Your current schema links LeaveApplication to Teacher, not Student.
+    // We will adapt by fetching all leave applications for the branch.
+    // To fully implement this, you would need to adjust the LeaveApplication model in schema.prisma.
+    const applications = await prisma.leaveApplication.findMany({
+      where: {
+        teacher: {
+          branchId: branchId,
+        },
+      },
+      include: {
+        teacher: {
+          select: { name: true },
+        },
+      },
+      orderBy: { fromDate: "desc" },
+    });
+    res.status(200).json(applications);
+  } catch (error) {
+    next(error);
+  }
+};

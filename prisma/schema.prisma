@@ -98,6 +98,7 @@ model User {
   children         Student[]   @relation("ParentChildren")
   teacher          Teacher?    @relation("UserTeacher")
   complaintsRaised Complaint[] @relation("ComplaintsRaisedBy")
+  leaveApplications  LeaveApplication[]
 }
 
 model Branch {
@@ -151,6 +152,10 @@ model Branch {
   FacultyApplication    FacultyApplication[]
   admissionApplications AdmissionApplication[]
   enquiries             Enquiry[]
+  teacherAttendanceRectificationRequests TeacherAttendanceRectificationRequest[]
+  rectificationRequests                RectificationRequest[]
+  syllabusChangeRequests               SyllabusChangeRequest[]
+  examMarkRectificationRequests          ExamMarkRectificationRequest[]
 }
 
 model RegistrationRequest {
@@ -191,7 +196,10 @@ model Teacher {
   examMarks         ExamMark[]
   schoolClasses     SchoolClass[] // renamed to lowercase plural for clarity
   subjects          Subject[]
-  leaveApplications LeaveApplication[]
+  teacherAttendanceRectificationRequests TeacherAttendanceRectificationRequest[]
+  rectificationRequests                RectificationRequest[]
+  syllabusChangeRequests               SyllabusChangeRequest[]
+  examMarkRectificationRequests          ExamMarkRectificationRequest[]
 }
 
 model Student {
@@ -223,6 +231,7 @@ model Student {
   roomId            String?
   complaintsAboutMe Complaint[]
   suspensionRecords SuspensionRecord[]
+  rectificationRequests RectificationRequest[]
 }
 
 // ============================================================================
@@ -306,6 +315,7 @@ model Subject {
   examSchedules ExamSchedule[]
   SchoolClass   SchoolClass?   @relation(fields: [schoolClassId], references: [id])
   schoolClassId String?
+  syllabusChangeRequests SyllabusChangeRequest[]
 }
 
 model Course {
@@ -377,6 +387,7 @@ model ExamMark {
   Course       Course?      @relation(fields: [courseId], references: [id])
   courseId     String?
   schoolClass  SchoolClass  @relation(fields: [schoolClassId], references: [id])
+  rectificationRequests ExamMarkRectificationRequest[]
 }
 
 // ============================================================================
@@ -733,13 +744,15 @@ model FacultyApplication {
 }
 
 model LeaveApplication {
-  id        String  @id @default(cuid())
+  id        String   @id @default(cuid())
   reason    String
-  status    String  @default("Pending")
-  teacherId String
-  teacher   Teacher @relation(fields: [teacherId], references: [id])
+  status    String   @default("Pending")
   fromDate  String
   toDate    String
+
+  // This is the single, required relation to the User who applied for leave.
+  applicantId String
+  applicant   User     @relation(fields: [applicantId], references: [id])
 }
 
 model AdmissionApplication {
@@ -764,4 +777,69 @@ model Enquiry {
   createdAt DateTime @default(now())
 
   branch Branch @relation(fields: [branchId], references: [id])
+}
+
+
+model TeacherAttendanceRectificationRequest {
+  id          String    @id @default(cuid())
+  branchId    String
+  teacherId   String
+  teacherName String
+  date        DateTime
+  fromStatus  String
+  toStatus    String
+  reason      String
+  status      String    @default("Pending")
+  requestedAt DateTime  @default(now())
+  reviewedBy  String?
+  reviewedAt  DateTime?
+
+  branch      Branch    @relation(fields: [branchId], references: [id])
+  teacher     Teacher   @relation(fields: [teacherId], references: [id])
+}
+
+model RectificationRequest {
+  id          String    @id @default(cuid())
+  branchId    String
+  studentId   String
+  teacherId   String
+  requestType String
+  description String
+  status      String    @default("Pending")
+  createdAt   DateTime  @default(now())
+  reviewedBy  String?
+  reviewedAt  DateTime?
+
+  branch      Branch    @relation(fields: [branchId], references: [id])
+  student     Student   @relation(fields: [studentId], references: [id])
+  teacher     Teacher   @relation(fields: [teacherId], references: [id])
+}
+
+model SyllabusChangeRequest {
+  id          String    @id @default(cuid())
+  branchId    String
+  teacherId   String
+  subjectId   String
+  description String
+  status      String    @default("Pending")
+  createdAt   DateTime  @default(now())
+
+  branch      Branch    @relation(fields: [branchId], references: [id])
+  teacher     Teacher   @relation(fields: [teacherId], references: [id])
+  subject     Subject   @relation(fields: [subjectId], references: [id])
+}
+
+model ExamMarkRectificationRequest {
+  id         String   @id @default(cuid())
+  branchId   String
+  teacherId  String
+  examMarkId String
+  reason     String
+  newScore   Int
+  status     String   @default("Pending")
+  createdAt  DateTime @default(now())
+
+  branch     Branch   @relation(fields: [branchId], references: [id])
+  teacher    Teacher  @relation(fields: [teacherId], references: [id])
+  examMark   ExamMark @relation(fields: [examMarkId], references: [id])
 }

@@ -599,9 +599,9 @@ CREATE TABLE "LeaveApplication" (
     "id" TEXT NOT NULL,
     "reason" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'Pending',
-    "teacherId" TEXT NOT NULL,
     "fromDate" TEXT NOT NULL,
     "toDate" TEXT NOT NULL,
+    "applicantId" TEXT NOT NULL,
 
     CONSTRAINT "LeaveApplication_pkey" PRIMARY KEY ("id")
 );
@@ -630,6 +630,67 @@ CREATE TABLE "Enquiry" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Enquiry_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "TeacherAttendanceRectificationRequest" (
+    "id" TEXT NOT NULL,
+    "branchId" TEXT NOT NULL,
+    "teacherId" TEXT NOT NULL,
+    "teacherName" TEXT NOT NULL,
+    "date" TIMESTAMP(3) NOT NULL,
+    "fromStatus" TEXT NOT NULL,
+    "toStatus" TEXT NOT NULL,
+    "reason" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'Pending',
+    "requestedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "reviewedBy" TEXT,
+    "reviewedAt" TIMESTAMP(3),
+
+    CONSTRAINT "TeacherAttendanceRectificationRequest_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "RectificationRequest" (
+    "id" TEXT NOT NULL,
+    "branchId" TEXT NOT NULL,
+    "studentId" TEXT NOT NULL,
+    "teacherId" TEXT NOT NULL,
+    "requestType" TEXT NOT NULL,
+    "description" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'Pending',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "reviewedBy" TEXT,
+    "reviewedAt" TIMESTAMP(3),
+
+    CONSTRAINT "RectificationRequest_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "SyllabusChangeRequest" (
+    "id" TEXT NOT NULL,
+    "branchId" TEXT NOT NULL,
+    "teacherId" TEXT NOT NULL,
+    "subjectId" TEXT NOT NULL,
+    "description" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'Pending',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "SyllabusChangeRequest_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "ExamMarkRectificationRequest" (
+    "id" TEXT NOT NULL,
+    "branchId" TEXT NOT NULL,
+    "teacherId" TEXT NOT NULL,
+    "examMarkId" TEXT NOT NULL,
+    "reason" TEXT NOT NULL,
+    "newScore" INTEGER NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'Pending',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "ExamMarkRectificationRequest_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateIndex
@@ -849,10 +910,43 @@ ALTER TABLE "PrincipalQuery" ADD CONSTRAINT "PrincipalQuery_branchId_fkey" FOREI
 ALTER TABLE "FacultyApplication" ADD CONSTRAINT "FacultyApplication_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "LeaveApplication" ADD CONSTRAINT "LeaveApplication_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "Teacher"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "LeaveApplication" ADD CONSTRAINT "LeaveApplication_applicantId_fkey" FOREIGN KEY ("applicantId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "AdmissionApplication" ADD CONSTRAINT "AdmissionApplication_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Enquiry" ADD CONSTRAINT "Enquiry_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "TeacherAttendanceRectificationRequest" ADD CONSTRAINT "TeacherAttendanceRectificationRequest_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "TeacherAttendanceRectificationRequest" ADD CONSTRAINT "TeacherAttendanceRectificationRequest_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "Teacher"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "RectificationRequest" ADD CONSTRAINT "RectificationRequest_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "RectificationRequest" ADD CONSTRAINT "RectificationRequest_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "Student"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "RectificationRequest" ADD CONSTRAINT "RectificationRequest_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "Teacher"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SyllabusChangeRequest" ADD CONSTRAINT "SyllabusChangeRequest_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SyllabusChangeRequest" ADD CONSTRAINT "SyllabusChangeRequest_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "Teacher"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SyllabusChangeRequest" ADD CONSTRAINT "SyllabusChangeRequest_subjectId_fkey" FOREIGN KEY ("subjectId") REFERENCES "Subject"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ExamMarkRectificationRequest" ADD CONSTRAINT "ExamMarkRectificationRequest_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ExamMarkRectificationRequest" ADD CONSTRAINT "ExamMarkRectificationRequest_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "Teacher"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ExamMarkRectificationRequest" ADD CONSTRAINT "ExamMarkRectificationRequest_examMarkId_fkey" FOREIGN KEY ("examMarkId") REFERENCES "ExamMark"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

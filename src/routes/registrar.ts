@@ -57,6 +57,10 @@ router.get('/requests/syllabus', registrarController.getSyllabusChangeRequestsBy
 router.patch('/requests/syllabus/:id/process', registrarController.processSyllabusChangeRequest);
 router.get('/requests/exam-marks', registrarController.getExamMarkRectificationRequestsByBranch);
 router.patch('/requests/exam-marks/:id/process', registrarController.processExamMarkRectificationRequest);
+router.get(
+  "/requests/grade-attendance",
+  registrarController.getTeacherAttendanceRequests
+);
 
 
 // Fees
@@ -84,6 +88,11 @@ router.get('/leave-settings', registrarController.getLeaveSettingsForBranch);
 router.put('/leave-settings', registrarController.updateLeaveSettingsForBranch);
 router.get('/leave-applications', registrarController.getLeaveApplicationsForRegistrar);
 router.patch('/leave-applications/:id/process', registrarController.processLeaveApplication);
+router.get(
+  "/leaves/student-applications",
+  registrarController.getStudentLeaveApplications
+);
+
 
 // Infrastructure
 router.get('/hostels', registrarController.getHostels);
