@@ -1108,4 +1108,22 @@ export const deleteInventoryItem = async (req: Request, res: Response) => {
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
+  
+};
+
+
+export const getSubjectsForBranch = async (req: Request, res: Response, next: NextFunction) => {
+    const branchId = getRegistrarBranchId(req);
+    if (!branchId) {
+        return res.status(401).json({ message: "Unauthorized." });
+    }
+    try {
+        const subjects = await prisma.subject.findMany({
+            where: { branchId },
+            orderBy: { name: 'asc' }
+        });
+        res.status(200).json(subjects);
+    } catch (error) {
+        next(error);
+    }
 };

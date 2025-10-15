@@ -13,6 +13,7 @@ router.get('/dashboard', registrarController.getRegistrarDashboardData);
 router.get("/user-details/:userId", registrarController.getUserDetails);
 // Admissions
 router.get('/applications', registrarController.getApplications);
+router.get("/admissions/applications", registrarController.getApplications);
 router.patch('/applications/:id/status', registrarController.updateApplicationStatus);
 router.post('/admit-student', registrarController.admitStudent);
 router.post('/faculty-application', registrarController.submitFacultyApplication);
@@ -27,6 +28,7 @@ router.patch('/students/:id/suspend', registrarController.suspendStudent);
 router.patch('/students/:id/remove-suspension', registrarController.removeSuspension);
 router.patch('/students/:id', registrarController.updateStudent);
 router.post('/students/:id/reset-password', registrarController.resetStudentAndParentPasswords);
+router.get("/subjects", registrarController.getSubjectsForBranch);
 
 router.get('/classes', registrarController.getSchoolClassesByBranch);
 router.post('/classes', registrarController.createSchoolClass);
