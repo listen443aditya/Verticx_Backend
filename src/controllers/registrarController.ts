@@ -1166,7 +1166,6 @@ export const getSubjectsForBranch = async (req: Request, res: Response, next: Ne
     }
 };
 
-// src/controllers/registrarController.ts
 
 export const getTeacherAttendanceRequests = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
@@ -1215,4 +1214,69 @@ export const getStudentLeaveApplications = async (
   } catch (error) {
     next(error);
   }
+};
+
+
+export const getStudentsForBranch = async (req: Request, res: Response, next: NextFunction) => {
+    const branchId = getRegistrarBranchId(req);
+    if (!branchId) {
+        return res.status(401).json({ message: "Unauthorized." });
+    }
+    try {
+        const students = await prisma.student.findMany({
+            where: { branchId },
+            orderBy: { name: 'asc' }
+        });
+        res.status(200).json(students);
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const getAttendanceRecordsForBranch = async (req: Request, res: Response, next: NextFunction) => {
+    const branchId = getRegistrarBranchId(req);
+    if (!branchId) {
+        return res.status(401).json({ message: "Unauthorized." });
+    }
+    try {
+        const records = await prisma.attendanceRecord.findMany({
+            where: { student: { branchId: branchId } },
+            orderBy: { date: 'desc' }
+        });
+        res.status(200).json(records);
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const getSuspensionRecordsForBranch = async (req: Request, res: Response, next: NextFunction) => {
+    const branchId = getRegistrarBranchId(req);
+    if (!branchId) {
+        return res.status(401).json({ message: "Unauthorized." });
+    }
+    try {
+        const records = await prisma.suspensionRecord.findMany({
+            where: { student: { branchId: branchId } },
+            orderBy: { startDate: 'desc' }
+        });
+        res.status(200).json(records);
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const getFeeRecordsForBranch = async (req: Request, res: Response, next: NextFunction) => {
+    const branchId = getRegistrarBranchId(req);
+    if (!branchId) {
+        return res.status(401).json({ message: "Unauthorized." });
+    }
+    try {
+        const records = await prisma.feeRecord.findMany({
+            where: { student: { branchId: branchId } },
+            orderBy: { createdAt: 'desc' }
+        });
+        res.status(200).json(records);
+    } catch (error) {
+        next(error);
+    }
 };

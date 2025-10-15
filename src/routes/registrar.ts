@@ -40,6 +40,16 @@ router.post('/classes/:classId/remove-student/:studentId', registrarController.r
 router.patch('/classes/:id/assign-mentor', registrarController.assignClassMentor);
 router.patch('/classes/:id/assign-fee-template', registrarController.assignFeeTemplateToClass);
 
+router.get("/students", registrarController.getStudentsForBranch);
+router.get(
+  "/attendance-records",
+  registrarController.getAttendanceRecordsForBranch
+);
+router.get(
+  "/suspension-records",
+  registrarController.getSuspensionRecordsForBranch
+);
+router.get("/fee-records", registrarController.getFeeRecordsForBranch);
 
 // Faculty Management
 router.get('/teachers', registrarController.getTeachersByBranch);
