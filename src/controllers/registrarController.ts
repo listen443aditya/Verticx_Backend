@@ -2835,3 +2835,30 @@ export const getFeeRecordsForBranch = async (req: Request, res: Response, next: 
         next(error);
     }
 };
+
+
+export const createSubject = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const { name, teacherId } = req.body;
+
+  if (!name || typeof name !== "string" || name.trim() === "") {
+    return res.status(400).json({ message: "Subject name is required." });
+  }
+
+  try {
+    const newSubject = await prisma.subject.create({
+      data: {
+        name: name.trim(),
+        // Conditionally add teacherId only if it was provided and not an empty string
+        ...(teacherId && { teacherId: teacherId }),
+        // Note: Add branchId here if your Subject model requires it
+      },
+    });
+    res.status(201).json(newSubject);
+  } catch (error) {
+    next(error);
+  }
+};
