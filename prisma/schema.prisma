@@ -774,6 +774,9 @@ model AdmissionApplication {
   status        String   @default("Pending")
   branchId      String
   createdAt     DateTime @default(now())
+  guardianName  String
+  guardianEmail String
+  guardianPhone String
 
   branch Branch @relation(fields: [branchId], references: [id])
 }
