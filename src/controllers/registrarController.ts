@@ -34,12 +34,11 @@ export const getRegistrarDashboardData = async (
   }
 
   try {
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const now = new Date();
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
 
-    // Comprehensive data fetching transaction
+    // --- Comprehensive Data Fetching in a Single Transaction ---
     const [
       pendingAdmissions,
       pendingAcademicRequests,
@@ -57,7 +56,7 @@ export const getRegistrarDashboardData = async (
         where: { student: { branchId } },
       }),
       prisma.teacher.count({ where: { branchId, subjectIds: { isEmpty: true } } }),
-      prisma.schoolEvent.findMany({ where: { branchId, status: "Pending" }, take: 5 }),
+      prisma.schoolEvent.findMany({ where: { branchId, status: "Pending" }, take: 5, orderBy: { date: 'asc' } }),
       prisma.admissionApplication.findMany({
         where: { branchId, status: "Pending" },
         take: 5,
@@ -72,7 +71,8 @@ export const getRegistrarDashboardData = async (
           students: {
             select: {
               feeRecords: {
-                where: { paidAmount: { lt: prisma.feeRecord.fields.totalAmount } }
+                where: { paidAmount: { lt: prisma.feeRecord.fields.totalAmount } },
+                select: { totalAmount: true, paidAmount: true }
               }
             }
           }
@@ -91,7 +91,7 @@ export const getRegistrarDashboardData = async (
       })
     ]);
 
-    // Constructing fee overview for the last 6 months
+    // --- Complex Calculation for Monthly Fee Overview ---
     const feeOverviewPromises = Array.from({ length: 6 }).map(async (_, i) => {
         const month = (currentMonth - i + 12) % 12;
         const year = currentMonth - i < 0 ? currentYear - 1 : currentYear;
@@ -118,7 +118,7 @@ export const getRegistrarDashboardData = async (
     });
     const feeOverview = (await Promise.all(feeOverviewPromises)).reverse();
 
-    // Final data shaping
+    // --- Final Data Shaping to Match Frontend Contract ---
     const dashboardData = {
       summary: {
         pendingAdmissions,
@@ -126,7 +126,7 @@ export const getRegistrarDashboardData = async (
         feesPending: (feesPendingAggregate._sum.totalAmount || 0) - (feesPendingAggregate._sum.paidAmount || 0),
         unassignedFaculty,
       },
-      admissionRequests: admissionRequests.map(app => ({...app, type: 'Student', subject: ''})), // Shaping to match frontend type
+      admissionRequests: admissionRequests.map(app => ({...app, type: 'Student', subject: ''})),
       feeOverview,
       pendingEvents,
       classFeeSummaries: classFeeSummaries.map(c => {
@@ -147,7 +147,7 @@ export const getRegistrarDashboardData = async (
       })),
       academicRequests: {
           count: pendingAcademicRequests,
-          requests: [], // This can be populated with a more detailed query if needed
+          requests: [], // This can be populated with a more detailed query if needed for the UI
       }
     };
 
@@ -741,15 +741,30 @@ export const resetStudentAndParentPasswords = async (req: Request, res: Response
  * @description Get all school classes for the registrar's branch.
  * @route GET /api/registrar/classes
  */
-export const getSchoolClassesByBranch = async (req: Request, res: Response, next: NextFunction) => {
+export const getSchoolClassesByBranch = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   const branchId = getRegistrarBranchId(req);
   if (!branchId) {
-    return res.status(401).json({ message: "Authentication required with a valid branch." });
+    return res
+      .status(401)
+      .json({ message: "Authentication required with a valid branch." });
   }
   try {
     const classes = await prisma.schoolClass.findMany({
       where: { branchId },
-      orderBy: [{ gradeLevel: 'asc' }, { section: 'asc' }]
+      // FIX: Include the count of students and the names of subjects for each class
+      include: {
+        _count: {
+          select: { students: true },
+        },
+        subjects: {
+          select: { id: true, name: true },
+        },
+      },
+      orderBy: [{ gradeLevel: "asc" }, { section: "asc" }],
     });
     res.status(200).json(classes);
   } catch (error) {
