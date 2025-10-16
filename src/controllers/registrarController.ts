@@ -2842,7 +2842,18 @@ export const createSubject = async (
   res: Response,
   next: NextFunction
 ) => {
+  // 1. Get the branchId from the authenticated user's session
+  const branchId = getRegistrarBranchId(req);
   const { name, teacherId } = req.body;
+
+  // 2. Add a check to ensure a branchId was found
+  if (!branchId) {
+    return res
+      .status(401)
+      .json({
+        message: "Authentication error: Branch could not be identified.",
+      });
+  }
 
   if (!name || typeof name !== "string" || name.trim() === "") {
     return res.status(400).json({ message: "Subject name is required." });
@@ -2852,13 +2863,14 @@ export const createSubject = async (
     const newSubject = await prisma.subject.create({
       data: {
         name: name.trim(),
-        // Conditionally add teacherId only if it was provided and not an empty string
+        // 3. Include the branchId in the data being saved
+        branchId: branchId,
         ...(teacherId && { teacherId: teacherId }),
-        // Note: Add branchId here if your Subject model requires it
       },
     });
     res.status(201).json(newSubject);
   } catch (error) {
+    // This will catch potential errors, like if a subject with that name already exists
     next(error);
   }
 };
