@@ -347,6 +347,8 @@ CREATE TABLE "ErpPayment" (
     "amount" DOUBLE PRECISION NOT NULL,
     "paymentDate" TIMESTAMP(3) NOT NULL,
     "transactionId" TEXT NOT NULL,
+    "notes" TEXT,
+    "periodEndDate" TIMESTAMP(3),
 
     CONSTRAINT "ErpPayment_pkey" PRIMARY KEY ("id")
 );
@@ -590,6 +592,7 @@ CREATE TABLE "FacultyApplication" (
     "qualification" TEXT NOT NULL,
     "branchId" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'Pending',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "FacultyApplication_pkey" PRIMARY KEY ("id")
 );
@@ -614,6 +617,9 @@ CREATE TABLE "AdmissionApplication" (
     "status" TEXT NOT NULL DEFAULT 'Pending',
     "branchId" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "guardianName" TEXT NOT NULL,
+    "guardianEmail" TEXT NOT NULL,
+    "guardianPhone" TEXT NOT NULL,
 
     CONSTRAINT "AdmissionApplication_pkey" PRIMARY KEY ("id")
 );
