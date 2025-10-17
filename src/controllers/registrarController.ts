@@ -1778,33 +1778,50 @@ export const getTimetableConfig = async (
   }
 };
 
-/**
- * @description Create or update the timetable configuration (time slots) for a class.
- * @route POST /api/registrar/timetable-config
- */
-export const createTimetableConfig = async (req: Request, res: Response, next: NextFunction) => {
-    const branchId = getRegistrarBranchId(req);
-    const { classId, timeSlots } = req.body;
+export const createTimetableConfig = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  const { classId } = req.params;
+  const { timeSlots } = req.body;
 
-    if (!branchId) return res.status(401).json({ message: "Authentication required." });
-    if (!classId || !timeSlots) return res.status(400).json({ message: "classId and timeSlots are required." });
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+  if (!classId || !Array.isArray(timeSlots)) {
+    return res
+      .status(400)
+      .json({
+        message: "Class ID and a valid array of time slots are required.",
+      });
+  }
 
-    try {
-        const schoolClass = await prisma.schoolClass.findFirst({
-            where: { id: classId, branchId }
-        });
-        if (!schoolClass) return res.status(404).json({ message: "Class not found in your branch." });
+  try {
+    const config = await prisma.timetableConfig.upsert({
+      where: {
+        // THIS IS THE FIX: Use the composite unique key.
+        // Prisma typically names this by joining the fields with an underscore.
+        classId_branchId: {
+          classId: classId,
+          branchId: branchId,
+        },
+      },
+      update: {
+        timeSlots: timeSlots,
+      },
+      create: {
+        classId: classId,
+        branchId: branchId,
+        timeSlots: timeSlots,
+      },
+    });
 
-        const config = await prisma.timetableConfig.upsert({
-            // FIX: Use the correct composite key syntax 'field1_field2'
-            where: { classId_branchId: { classId, branchId } },
-            update: { timeSlots },
-            create: { classId, branchId, timeSlots }
-        });
-        res.status(201).json(config);
-    } catch (error) {
-        next(error);
-    }
+    res.status(201).json(config);
+  } catch (error) {
+    next(error);
+  }
 };
 
 /**
