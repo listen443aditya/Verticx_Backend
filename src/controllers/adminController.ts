@@ -1047,29 +1047,58 @@ export const recordManualErpPayment = async (
   next: NextFunction
 ) => {
   try {
-    if (!req.user)
+    if (!req.user) {
       return res.status(401).json({ message: "Authentication required." });
+    }
 
     const { branchId, amount, paymentDate, notes, periodEndDate } = req.body;
 
-    if (!branchId || !amount || !paymentDate) {
+    if (!branchId || !amount || !paymentDate || !periodEndDate) {
       return res
         .status(400)
-        .json({ message: "Branch ID, amount, and payment date are required." });
+        .json({
+          message:
+            "Branch ID, amount, payment date, and period end date are required.",
+        });
     }
 
-    const newPayment = await prisma.erpPayment.create({
-      data: {
-        branchId,
-        amount: Number(amount),
-        paymentDate: new Date(paymentDate),
-        transactionId: `MANUAL-${req.user.id}-${Date.now()}`,
-        // You might need to add a 'notes' field to your ErpPayment model in schema.prisma
-      },
-    });
+    // --- THIS IS THE FIX ---
+    // We use a transaction to ensure both the payment is created AND the branch is updated.
+    // If either operation fails, the whole thing is rolled back.
 
-    // Also update the branch's next due date
-    // TODO: Calculation logic for next due date based on billing cycle
+    const [newPayment, updatedBranch] = await prisma.$transaction(
+      async (tx) => {
+        // 1. Create the detailed payment record
+        const payment = await tx.erpPayment.create({
+          data: {
+            branchId,
+            amount: Number(amount),
+            paymentDate: new Date(paymentDate),
+            transactionId: `MANUAL-${req.user!.id}-${Date.now()}`,
+            notes, // Now saving notes
+            periodEndDate: new Date(periodEndDate), // And the period end date
+          },
+        });
+
+        // 2. Calculate the next due date (e.g., the first day of the next month)
+        const periodEnd = new Date(periodEndDate);
+        const nextDueDate = new Date(
+          periodEnd.getFullYear(),
+          periodEnd.getMonth() + 1,
+          1
+        );
+
+        // 3. Update the branch with the new due date
+        const branch = await tx.branch.update({
+          where: { id: branchId },
+          data: {
+            nextDueDate: nextDueDate,
+          },
+        });
+
+        return [payment, branch];
+      }
+    );
 
     res.status(201).json({
       message: "Manual ERP payment recorded successfully.",

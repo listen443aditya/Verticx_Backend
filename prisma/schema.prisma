@@ -107,9 +107,9 @@ model Branch {
   name                     String
   location                 String
   principalId              String?      @unique // A branch has only one principal.
-  // The registrarId is removed. It is a phantom.
+
   status                   BranchStatus @default(pending)
-  // ... all other scalar fields ...
+ 
   email                    String?
   helplineNumber           String?
   erpPricePerStudent       Float?
@@ -506,6 +506,8 @@ model ErpPayment {
   amount        Float
   paymentDate   DateTime
   transactionId String
+  notes           String?  
+  periodEndDate   DateTime?
 
   branch Branch @relation(fields: [branchId], references: [id])
 }
