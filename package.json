@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "NODE_ENV=development nodemon --exec ts-node src/server.ts",
     "build": "prisma migrate deploy && prisma generate && tsc",
+    "postbuild": "npx prisma migrate deploy",
     "start": "NODE_ENV=production npm run build && node dist/server.js",
     "lint": "eslint . --ext .ts",
     "prisma:generate": "prisma generate",
