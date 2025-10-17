@@ -431,6 +431,89 @@ export const submitFacultyApplication = async (
 };
 
 
+
+export const getClassFeeSummaries = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
+  try {
+    // 1. Get all classes for the registrar's branch
+    const classes = await prisma.schoolClass.findMany({
+      where: { branchId },
+      select: { id: true, gradeLevel: true, section: true },
+    });
+
+    // 2. Process each class to calculate its fee summary in parallel
+    const summaries = await Promise.all(
+      classes.map(async (sClass) => {
+        // Find all student IDs for the current class
+        const studentsInClass = await prisma.student.findMany({
+          where: { classId: sClass.id },
+          select: { id: true },
+        });
+        const studentIds = studentsInClass.map((s) => s.id);
+
+        // If the class has no students, return a zero-value summary
+        if (studentIds.length === 0) {
+          return {
+            classId: sClass.id,
+            className: `Grade ${sClass.gradeLevel} - ${sClass.section}`,
+            totalBilled: 0,
+            totalCollected: 0,
+            totalPending: 0,
+            defaulterCount: 0,
+          };
+        }
+
+        // 3. Aggregate the total and paid amounts for all students in the class
+        const feeTotals = await prisma.feeRecord.aggregate({
+          where: { studentId: { in: studentIds } },
+          _sum: {
+            totalAmount: true,
+            paidAmount: true,
+          },
+        });
+
+        // 4. Count how many students have outstanding fees (defaulters)
+        const defaulters = await prisma.student.count({
+          where: {
+            id: { in: studentIds },
+            feeRecords: {
+              some: {
+                // This logic assumes a pending amount > 0 means a defaulter
+                // It may need adjustment based on your specific business rules
+              },
+            },
+          },
+        });
+
+        const totalBilled = feeTotals._sum.totalAmount || 0;
+        const totalCollected = feeTotals._sum.paidAmount || 0;
+
+        return {
+          classId: sClass.id,
+          className: `Grade ${sClass.gradeLevel} - ${sClass.section}`,
+          totalBilled,
+          totalCollected,
+          totalPending: totalBilled - totalCollected,
+          defaulterCount: defaulters, // Using a simplified count for now
+        };
+      })
+    );
+
+    res.status(200).json(summaries);
+  } catch (error) {
+    next(error);
+  }
+};
+
+
 /**
  * @description Get all faculty applications for the registrar's branch.
  * @route GET /api/registrar/faculty-applications

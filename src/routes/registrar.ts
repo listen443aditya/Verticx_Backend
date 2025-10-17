@@ -151,6 +151,11 @@ router.put(
 // --- Fee Management ---
 router.get("/fees/templates", registrarController.getFeeTemplates); 
 router.post("/fees/templates", registrarController.createFeeTemplate); 
+router.get("/fees/class-summaries", registrarController.getClassFeeSummaries);
+router.post(
+  "/fees/templates/:id/request-update",
+  registrarController.requestFeeTemplateUpdate
+);
 router.post(
   "/fees/templates/:id/request-update",
   registrarController.requestFeeTemplateUpdate
