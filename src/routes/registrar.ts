@@ -15,7 +15,12 @@ router.get("/user-details/:userId", registrarController.getUserDetails);
 
 // --- Admissions & Faculty Applications ---
 // FIX: Consolidated to a single, clear route for admission applications
-router.get("/admissions/applications", registrarController.getApplications);
+// router.get("/admissions/applications", registrarController.getApplications);
+router.get(
+  "/admissions/applications",
+  registrarController.getUnifiedApplications
+);
+
 // FIX: Changed to PUT to match frontend and RESTful practices for status updates
 router.put(
   "/admissions/applications/:id/status",

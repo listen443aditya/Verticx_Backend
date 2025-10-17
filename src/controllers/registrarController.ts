@@ -431,6 +431,75 @@ export const submitFacultyApplication = async (
 };
 
 
+// Add this new function to registrarController.ts
+export const getUnifiedApplications = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  if (!branchId) {
+    return res
+      .status(401)
+      .json({ message: "Authentication required with a valid branch." });
+  }
+
+  try {
+    // 1. Fetch student applications in a standardized format
+    const studentApps = await prisma.admissionApplication.findMany({
+      where: { branchId },
+      select: {
+        id: true,
+        applicantName: true,
+        gradeLevel: true,
+        status: true,
+        createdAt: true,
+      },
+    });
+
+    // 2. Fetch faculty applications in a standardized format
+    const facultyApps = await prisma.facultyApplication.findMany({
+      where: { branchId },
+      select: {
+        id: true,
+        name: true, // Note: field is 'name', not 'applicantName'
+        qualification: true,
+        status: true,
+        createdAt: true, // You may need to add this field to your FacultyApplication schema
+      },
+    });
+
+    // 3. Map both lists into a common structure
+    const unifiedList = [
+      ...studentApps.map((app) => ({
+        id: app.id,
+        applicantName: app.applicantName,
+        type: "Student",
+        details: `Grade ${app.gradeLevel}`,
+        status: app.status,
+        createdAt: app.createdAt,
+      })),
+      ...facultyApps.map((app) => ({
+        id: app.id,
+        applicantName: app.name, // Standardize to 'applicantName'
+        type: "Faculty",
+        details: app.qualification,
+        status: app.status,
+        createdAt: app.createdAt,
+      })),
+    ];
+
+    // 4. Sort the combined list by date
+    const sortedList = unifiedList.sort(
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
+    );
+
+    res.status(200).json(sortedList);
+  } catch (error) {
+    next(error);
+  }
+};
+
 
 export const getClassFeeSummaries = async (
   req: Request,

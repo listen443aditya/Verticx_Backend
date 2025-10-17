@@ -753,6 +753,7 @@ model FacultyApplication {
   branchId      String
   status        String @default("Pending")
   branch        Branch @relation(fields: [branchId], references: [id])
+  createdAt     DateTime @default(now())
 }
 
 model LeaveApplication {
