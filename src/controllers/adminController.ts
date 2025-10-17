@@ -258,12 +258,7 @@ export const deleteBranch = async (
   }
 };
 
-// --- THIS IS THE FULLY IMPLEMENTED FUNCTION FOR THE 'VIEW' BUTTON ---
-// in src/controllers/adminController.ts
 
-// in src/controllers/adminController.ts
-
-// The Final, Perfected Backend Function for src/controllers/adminController.ts
 
 export const getSchoolDetails = async (
   req: Request,
@@ -300,19 +295,21 @@ export const getSchoolDetails = async (
       })
     );
 
+    // FIX 1: Use the correct field name 'paidAmount' from your schema.
     const feeDetails = await prisma.feeRecord.aggregate({
       _sum: { totalAmount: true, paidAmount: true },
       where: { student: { branchId: branchId } },
     });
 
-    const defaulterCount = await prisma.student.count({
-      where: {
-        branchId: branchId,
-        feeRecords: {
-          some: { totalAmount: { gt: prisma.feeRecord.fields.paidAmount } },
-        },
-      },
-    });
+    // FIX 2: Use the correct column name '"paidAmount"' in the raw query.
+    const defaulterCountResult = await prisma.$queryRaw<[{ count: bigint }]>`
+        SELECT COUNT(DISTINCT "studentId")
+        FROM "FeeRecord"
+        INNER JOIN "Student" ON "Student"."id" = "FeeRecord"."studentId"
+        WHERE "Student"."branchId" = ${branchId}
+          AND "FeeRecord"."totalAmount" > "FeeRecord"."paidAmount"
+    `;
+    const defaulterCount = Number(defaulterCountResult[0]?.count || 0);
 
     const [
       inventoryData,
@@ -337,7 +334,6 @@ export const getSchoolDetails = async (
         _sum: { capacity: true },
         where: { hostel: { branchId: branchId } },
       }),
-      // FIX: Speaking the true name of the field to be summed.
       prisma.libraryBook.aggregate({
         _sum: { totalCopies: true },
         where: { branchId: branchId },
@@ -349,6 +345,10 @@ export const getSchoolDetails = async (
         where: { branchId: branchId, roomId: { not: null } },
       }),
     ]);
+
+    // FIX 3: Add null-safety checks for feeDetails._sum
+    const totalFees = feeDetails._sum?.totalAmount ?? 0;
+    const paidFees = feeDetails._sum?.paidAmount ?? 0;
 
     const schoolDetails = {
       branch,
@@ -364,10 +364,8 @@ export const getSchoolDetails = async (
         {
           className: "Overall",
           studentCount: branch.students.length,
-          totalFees: feeDetails._sum.totalAmount || 0,
-          pendingFees:
-            (feeDetails._sum.totalAmount || 0) -
-            (feeDetails._sum.paidAmount || 0),
+          totalFees: totalFees,
+          pendingFees: totalFees - paidFees,
           defaulters: defaulterCount,
         },
       ],
@@ -385,7 +383,6 @@ export const getSchoolDetails = async (
         totalRooms: hostelData._count.id || 0,
         totalHostelCapacity: hostelData._sum.capacity || 0,
         hostelOccupancy: hostelOccupancy,
-        // FIX: Accessing the correct, resiliently-guarded property.
         totalLibraryBooks: libraryData._sum?.totalCopies ?? 0,
       },
       inventorySummary: {
@@ -400,25 +397,54 @@ export const getSchoolDetails = async (
   }
 };
 
-
-
-
-
 export const updateBranchDetails = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
+  
+  // Add or remove fields here based on what's allowed.
+  const { name, address, phone, email, city, state } = req.body;
+
+  // 2. Create a clean data object with only those allowed fields.
+  const updates = {
+    name,
+    address,
+    phone,
+    email,
+    city,
+    state,
+  };
+
   try {
     await prisma.branch.update({
       where: { id: req.params.id },
-      data: req.body,
+      data: updates, // Use the sanitized `updates` object, not the raw req.body
     });
-    res.status(200).json({ message: "Branch details updated." });
+    res.status(200).json({ message: "Branch details updated successfully." });
   } catch (error) {
+    // This will handle cases where the branch ID is not found, etc.
     next(error);
   }
 };
+
+
+
+// export const updateBranchDetails = async (
+//   req: Request,
+//   res: Response,
+//   next: NextFunction
+// ) => {
+//   try {
+//     await prisma.branch.update({
+//       where: { id: req.params.id },
+//       data: req.body,
+//     });
+//     res.status(200).json({ message: "Branch details updated." });
+//   } catch (error) {
+//     next(error);
+//   }
+// };
 
 // --- Dashboard, Analytics, and Other Complex Read Operations ---
 export const getAdminDashboardData = async (
