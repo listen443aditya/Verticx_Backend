@@ -205,18 +205,28 @@ export const getApplications = async (
   next: NextFunction
 ) => {
   const branchId = getRegistrarBranchId(req);
+
+  // Validate that the user is authenticated and associated with a branch
   if (!branchId) {
     return res
       .status(401)
       .json({ message: "Authentication required with a valid branch." });
   }
+
   try {
-    const data = await prisma.admissionApplication.findMany({
-      where: { branchId },
-      orderBy: { createdAt: "desc" },
+    // Fetch all applications for the given branch, ordered by most recent
+    const applications = await prisma.admissionApplication.findMany({
+      where: {
+        branchId: branchId,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
     });
-    res.status(200).json(data);
+
+    res.status(200).json(applications);
   } catch (error) {
+    // Pass any database errors to the global error handler
     next(error);
   }
 };
