@@ -412,6 +412,7 @@ export const updateBranchDetails = async (
     state,
     // ADD THE ERP BILLING FIELDS HERE:
     erpPricePerStudent,
+    stats,
     erpConcessionPercentage,
   } = req.body;
 
@@ -433,7 +434,9 @@ export const updateBranchDetails = async (
   if (erpConcessionPercentage !== undefined) {
     updates.erpConcessionPercentage = Number(erpConcessionPercentage);
   }
-
+if (stats !== undefined && typeof stats === "object") {
+  updates.stats = stats;
+}
   try {
     await prisma.branch.update({
       where: { id: req.params.id },
