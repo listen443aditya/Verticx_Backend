@@ -402,7 +402,7 @@ export const updateBranchDetails = async (
   res: Response,
   next: NextFunction
 ) => {
-  // 1. Explicitly pull ALL the fields you want to be updatable from the request body.
+
   const {
     name,
     address,
@@ -410,10 +410,9 @@ export const updateBranchDetails = async (
     email,
     city,
     state,
-    // ADD THE ERP BILLING FIELDS HERE:
     erpPricePerStudent,
-    stats,
     erpConcessionPercentage,
+    enabledFeatures, 
   } = req.body;
 
   // 2. Create a clean data object with only those allowed fields.
@@ -426,17 +425,20 @@ export const updateBranchDetails = async (
     state,
   };
 
-  // 3. Conditionally add the numeric ERP fields to avoid saving null values.
-  // This ensures that if the frontend sends an empty value, it doesn't overwrite a valid one.
+  // 3. Conditionally add numeric ERP fields.
   if (erpPricePerStudent !== undefined) {
     updates.erpPricePerStudent = Number(erpPricePerStudent);
   }
   if (erpConcessionPercentage !== undefined) {
     updates.erpConcessionPercentage = Number(erpConcessionPercentage);
   }
-if (stats !== undefined && typeof stats === "object") {
-  updates.stats = stats;
-}
+
+  // 4. Conditionally add the feature toggles object.
+  // This is a safety check to ensure it's a valid object before saving.
+  if (enabledFeatures !== undefined && typeof enabledFeatures === "object") {
+    updates.enabledFeatures = enabledFeatures;
+  }
+
   try {
     await prisma.branch.update({
       where: { id: req.params.id },
@@ -444,11 +446,9 @@ if (stats !== undefined && typeof stats === "object") {
     });
     res.status(200).json({ message: "Branch details updated successfully." });
   } catch (error) {
-    // This will handle cases where the branch ID is not found, etc.
     next(error);
   }
 };
-
 
 
 // export const updateBranchDetails = async (
