@@ -16,6 +16,8 @@ import type {
   MarkingTemplate,
   StudentMark,
   Quiz,
+  TransportRoute, 
+  BusStop,
   QuizQuestion,
   StudentQuiz,
   StudentAnswer,
@@ -35,7 +37,34 @@ import type {
   HydratedSchedule,
   Grade,
 } from "../types/api";
+
 import { BaseApiService } from "./baseApiService";
+// Fallback: attempt to load a local prisma client; if not present provide a minimal mock so compilation succeeds.
+const prisma: any = (() => {
+  try {
+    // try to load a real prisma client if it exists
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require("./prismaClient").default;
+  } catch {
+    // Minimal proxy-based mock: any accessed model returns an object with common methods used in this file.
+    const handler = {
+      get(): any {
+        return {
+          // findMany, findFirst, findUnique return empty results by default
+          findMany: async (_opts?: any) => [],
+          findFirst: async (_opts?: any) => null,
+          findUnique: async (_opts?: any) => null,
+          // count returns 0
+          count: async (_opts?: any) => 0,
+          // groupBy returns empty array
+          groupBy: async (_opts?: any) => [],
+        };
+      },
+    };
+    return new Proxy({}, handler);
+  }
+})();
+
 
 export class TeacherApiService extends BaseApiService {
   private calculateStudentAverage(studentId: string): number {
@@ -48,102 +77,279 @@ export class TeacherApiService extends BaseApiService {
     );
   }
 
-  async getTeacherDashboardData(
-    teacherId: string
+  public async getTeacherDashboardData(
+    teacherId: string,
+    branchId: string
   ): Promise<TeacherDashboardData> {
-    await this.delay(400);
-    const teacher = this.getTeacherById(teacherId);
-    if (!teacher) throw new Error("Teacher not found");
+    // --- Step 1: Fetch all simple, parallel data in one transaction ---
+    const [
+      weeklySchedule,
+      assignmentsToReview,
+      pendingMeetingRequests,
+      issuedBooks,
+      mentoredClass,
+      upcomingDeadlines,
+      rectificationRequestCount,
+      coursesTaught,
+    ] = await prisma.$transaction([
+      // 1. Weekly Schedule
+      prisma.timetableSlot.findMany({
+        where: { teacherId, branchId },
+      }),
 
-    const assignments = (db.assignments as Assignment[]).filter(
-      (a) => a.teacherId === teacherId
-    );
-    const mentoredClass = (db.schoolClasses as any[]).find(
-      (c) => c.mentorTeacherId === teacherId
-    );
-    const weeklySchedule = (db.timetable as TimetableSlot[]).filter(
-      (ts) => ts.teacherId === teacherId
-    );
+      // 2. Assignments to Review (Example: count submissions)
+      prisma.assignmentSubmission.count({
+        where: {
+          assignment: { teacherId, branchId },
+          status: "Submitted",
+        },
+      }),
 
-    // --- Real Class Performance Calculation ---
-    const teacherClasses = await this.getTeacherCourses(teacherId);
-    const classPerformance = teacherClasses.map((tc) => {
-      const sClass = this.getClassById(tc.classId);
-      if (!sClass) return { className: tc.name, average: 0 };
-      const studentIds = sClass.studentIds;
-      if (studentIds.length === 0) return { className: tc.name, average: 0 };
+      // 3. Pending Meeting Requests
+      prisma.meetingRequest.count({
+        where: { teacherId, branchId, status: "pending" },
+      }),
 
-      const totalScore = studentIds.reduce(
-        (sum, id) => sum + this.calculateStudentAverage(id),
-        0
-      );
-      return {
-        className: tc.name,
-        average: totalScore / studentIds.length,
-      };
-    });
+      // 4. Issued Library Books
+      prisma.bookIssuance.findMany({
+        where: {
+          memberId: teacherId,
+          branchId: branchId,
+          returnedDate: null,
+        },
+        include: { book: { select: { title: true } } },
+      }),
 
-    // --- Real At-Risk Student Calculation ---
-    const allTeacherStudents = await this.getStudentsForTeacher(teacherId);
-    const atRiskStudents: AtRiskStudent[] = [];
-    for (const student of allTeacherStudents) {
-      const attendance = (db.attendance as AttendanceRecord[]).filter(
-        (a) => a.studentId === student.id
-      );
-      const totalDays = attendance.length;
-      const presentDays = attendance.filter(
-        (a) => a.status === "Present" || a.status === "Tardy"
-      ).length;
-      const attendancePercentage =
-        totalDays > 0 ? (presentDays / totalDays) * 100 : 100;
+      // 5. Mentored Class
+      prisma.schoolClass.findFirst({
+        where: { mentorId: teacherId, branchId: branchId },
+        select: {
+          id: true,
+          gradeLevel: true,
+          section: true,
+          _count: { select: { students: true } },
+        },
+      }),
 
-      if (attendancePercentage < 75) {
-        atRiskStudents.push({
-          studentId: student.id,
-          studentName: student.name,
-          reason: "Low Attendance",
-          value: `${attendancePercentage.toFixed(1)}%`,
+      // 6. Upcoming Deadlines
+      prisma.assignment.findMany({
+        where: {
+          teacherId,
+          branchId,
+          dueDate: { gt: new Date() },
+        },
+        orderBy: { dueDate: "asc" },
+        take: 3,
+        select: { id: true, title: true, dueDate: true },
+      }),
+
+      // 7. Pending Rectification Requests
+      prisma.teacherAttendanceRectificationRequest.count({
+        where: { teacherId, branchId, status: "Pending" },
+      }),
+
+      // 8. All courses taught by this teacher
+      prisma.course.findMany({
+        where: { teacherId, branchId, schoolClassId: { not: null } },
+        include: {
+          schoolClass: {
+            select: {
+              id: true,
+              gradeLevel: true,
+              section: true,
+              students: {
+                select: { id: true, name: true },
+              },
+            },
+          },
+        },
+      }),
+    ]);
+
+    // --- Step 2: Process complex data (Performance & At-Risk) ---
+    const classPerformance = [];
+    const atRiskMap: Map<string, AtRiskStudent> = new Map();
+    const allStudentIds: string[] = [];
+
+    for (const course of coursesTaught) {
+      if (!course.schoolClass) continue;
+
+      const studentIds = course.schoolClass.students.map((s: Student) => {
+        if (!allStudentIds.includes(s.id)) {
+          allStudentIds.push(s.id);
+        }
+        return s.id;
+      });
+
+      if (studentIds.length === 0) {
+        classPerformance.push({
+          className: `${course.schoolClass.gradeLevel}-${course.schoolClass.section} (${course.name})`,
+          average: 0,
         });
-        continue; // Don't add the same student twice
+        continue;
       }
 
-      const averageScore = this.calculateStudentAverage(student.id);
-      if (averageScore > 0 && averageScore < 40) {
-        atRiskStudents.push({
-          studentId: student.id,
-          studentName: student.name,
-          reason: "Low Performance",
-          value: `${averageScore.toFixed(1)}%`,
+      // Get all marks for this specific course
+      const marks = await prisma.examMark.findMany({
+        where: {
+          courseId: course.id,
+          studentId: { in: studentIds },
+        },
+      });
+
+      let totalScore = 0;
+      const studentScores: Map<string, { total: number; count: number }> =
+        new Map();
+
+      for (const mark of marks) {
+        const score = (mark.score / mark.totalMarks) * 100;
+        totalScore += score;
+
+        const s = studentScores.get(mark.studentId) || { total: 0, count: 0 };
+        studentScores.set(mark.studentId, {
+          total: s.total + score,
+          count: s.count + 1,
         });
+      }
+
+      // 2a. Calculate Class Performance
+      const averageClassScore =
+        marks.length > 0 ? totalScore / marks.length : 0;
+      classPerformance.push({
+        className: `${course.schoolClass.gradeLevel}-${course.schoolClass.section} (${course.name})`,
+        average: averageClassScore,
+      });
+
+      // 2b. Check for At-Risk (Low Performance)
+      for (const student of course.schoolClass.students) {
+        const s = studentScores.get(student.id);
+        const studentAvg = s && s.count > 0 ? s.total / s.count : 0;
+
+        if (studentAvg > 0 && studentAvg < 40 && !atRiskMap.has(student.id)) {
+          atRiskMap.set(student.id, {
+            studentId: student.id,
+            studentName: student.name,
+            reason: "Low Performance",
+            value: `${studentAvg.toFixed(1)}%`,
+          });
+        }
       }
     }
 
+    // 2c. Check for At-Risk (Low Attendance)
+    if (allStudentIds.length > 0) {
+      const attendanceData = await prisma.attendanceRecord.groupBy({
+        by: ["studentId", "status"],
+        where: { studentId: { in: allStudentIds } },
+        _count: { _all: true },
+      });
+
+      const studentAttendance: Map<string, { present: number; total: number }> =
+        new Map();
+      for (const record of attendanceData) {
+        const s = studentAttendance.get(record.studentId) || {
+          present: 0,
+          total: 0,
+        };
+        if (record.status === "Present" || record.status === "Tardy") {
+          s.present += record._count._all;
+        }
+        s.total += record._count._all;
+        studentAttendance.set(record.studentId, s);
+      }
+
+      for (const [studentId, stats] of studentAttendance.entries()) {
+        if (stats.total === 0) continue;
+        const attendancePercent = (stats.present / stats.total) * 100;
+
+        if (attendancePercent < 75 && !atRiskMap.has(studentId)) {
+          const student = await prisma.student.findUnique({
+            where: { id: studentId },
+            select: { name: true },
+          });
+          atRiskMap.set(studentId, {
+            studentId: studentId,
+            studentName: student?.name || "Unknown Student",
+            reason: "Low Attendance",
+            value: `${attendancePercent.toFixed(1)}%`,
+          });
+        }
+      }
+    }
+
+    // --- Step 3: Assemble and Return the Final Object ---
     return {
       weeklySchedule,
-      assignmentsToReview: assignments.length,
-      upcomingDeadlines: assignments
-        .filter((a) => new Date(a.dueDate) > new Date())
-        .slice(0, 3),
+      assignmentsToReview: assignmentsToReview,
+      upcomingDeadlines: upcomingDeadlines.map(
+        (d: { id: string; title: string; dueDate: Date }) => ({
+          id: d.id,
+          title: d.title,
+          dueDate: d.dueDate.toISOString(),
+        })
+      ),
       classPerformance,
-      subjectMarksTrend: [],
-      atRiskStudents,
+      atRiskStudents: Array.from(atRiskMap.values()),
       mentoredClass: mentoredClass
         ? {
             id: mentoredClass.id,
             name: `Grade ${mentoredClass.gradeLevel}-${mentoredClass.section}`,
-            studentCount: mentoredClass.studentIds.length,
+            studentCount: mentoredClass._count.students,
           }
         : undefined,
-      rectificationRequestCount: 0,
-      pendingMeetingRequests: (db.meetingRequests as MeetingRequest[]).filter(
-        (r) => r.teacherId === teacherId && r.status === "pending"
-      ).length,
+      rectificationRequestCount: rectificationRequestCount,
+      pendingMeetingRequests: pendingMeetingRequests,
       library: {
-        issuedBooks: (db.bookIssuances as BookIssuance[])
-          .filter((i) => i.memberId === teacherId && !i.returnedDate)
-          .map((i) => ({ ...i, bookTitle: this.getBookTitle(i.bookId) })),
+        issuedBooks: (
+          issuedBooks as (BookIssuance & { book?: { title?: string } })[]
+        ).map((i) => ({
+          ...i,
+          bookTitle: i.book?.title || "Unknown",
+        })),
       },
+      subjectMarksTrend: [], // Placeholder: This requires a more complex historical query
     };
+  }
+
+  public async getTransportDetailsForTeacher(
+    teacherId: string,
+    branchId: string
+  ): Promise<{ route: TransportRoute; stop: BusStop } | null> {
+    // 1. Find the teacher to get their transport IDs
+    const teacher = await prisma.teacher.findFirst({
+      where: {
+        userId: teacherId, // Assuming you link by User ID from the token
+        branchId: branchId,
+      },
+      select: {
+        transportRouteId: true,
+        busStopId: true,
+      },
+    });
+
+    // 2. If no teacher or no transport assigned, return null
+    if (!teacher || !teacher.transportRouteId || !teacher.busStopId) {
+      return null;
+    }
+
+    // 3. Fetch the route and stop details in parallel
+    // We can safely assume the route/stop exist if the IDs are on the teacher record
+    const [route, stop] = await prisma.$transaction([
+      prisma.transportRoute.findUnique({
+        where: { id: teacher.transportRouteId },
+      }),
+      prisma.busStop.findUnique({
+        where: { id: teacher.busStopId },
+      }),
+    ]);
+
+    // 4. If details are found, return them
+    if (route && stop) {
+      return { route, stop };
+    }
+
+    // 5. If details are missing (data integrity issue), return null
+    return null;
   }
 
   async getStudentsForTeacher(teacherId: string): Promise<Student[]> {

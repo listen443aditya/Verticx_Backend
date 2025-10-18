@@ -1,19 +1,57 @@
 import { Request, Response } from "express";
 import { teacherApiService } from "../services/"; // Using the mock service
 
-// This controller acts as a pass-through, invoking the business logic from the service layer.
-// This keeps the API routing clean and focused on handling HTTP requests and responses.
-
 export const getTeacherDashboardData = async (req: Request, res: Response) => {
   try {
+    // The user's token already contains everything we need.
     const teacherId = req.user?.id;
-    if (!teacherId) {
-      return res.status(401).json({ message: "Unauthorized" });
+    const branchId = req.user?.branchId;
+
+    // A user without a branchId cannot be a teacher in this context.
+    if (!teacherId || !branchId) {
+      return res
+        .status(401)
+        .json({
+          message: "Unauthorized: Missing teacher or branch identifier.",
+        });
     }
-    const data = await teacherApiService.getTeacherDashboardData(teacherId);
+
+    // Pass BOTH identifiers to the service layer.
+    const data = await teacherApiService.getTeacherDashboardData(
+      teacherId,
+      branchId
+    );
     res.status(200).json(data);
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    // Add a log here to see the actual database error in your Vercel logs.
+    console.error("Failed to get teacher dashboard:", error);
+    res
+      .status(500)
+      .json({
+        message: "An internal error occurred while fetching dashboard data.",
+      });
+  }
+};
+
+export const getTeacherTransportDetails = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const teacherId = req.user?.id;
+    const branchId = req.user?.branchId;
+    if (!teacherId || !branchId) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+    // You will need to implement this service function
+    const details = await teacherApiService.getTransportDetailsForTeacher(
+      teacherId,
+      branchId
+    );
+    res.status(200).json(details);
+  } catch (error: any) {
+    console.error("Failed to get teacher transport details:", error);
+    res.status(500).json({ message: "Failed to fetch transport details." });
   }
 };
 

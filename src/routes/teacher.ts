@@ -67,6 +67,9 @@ router.post('/skill-assessment', teacherController.submitSkillAssessment);
 router.get('/leave-applications', teacherController.getLeaveApplicationsForTeacher);
 router.post('/leave-applications/:id/process', teacherController.processLeaveApplication);
 router.get('/library/search', teacherController.searchLibraryBooks);
-
+router.get(
+  "/my-transport-details",
+  teacherController.getTeacherTransportDetails
+);
 
 export default router;
