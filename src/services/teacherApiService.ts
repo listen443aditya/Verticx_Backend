@@ -44,7 +44,7 @@ const prisma: any = (() => {
   try {
     // try to load a real prisma client if it exists
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return require("./prismaClient").default;
+    return require("../prisma").default;
   } catch (e) {
     console.warn("Failed to load real Prisma client, using mock. Error:", e);
 
