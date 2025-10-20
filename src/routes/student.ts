@@ -44,6 +44,10 @@ router.patch('/complaints/:id/resolve', studentController.resolveStudentComplain
 // Misc
 router.get('/leave-applications', studentController.getLeaveApplicationsForUser);
 router.get('/library/search', studentController.searchLibraryBooks);
+router.get(
+  "/my-transport-details",
+  studentController.getStudentTransportDetails
+);
 
 
 export default router;

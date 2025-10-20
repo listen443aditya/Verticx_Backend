@@ -329,7 +329,31 @@ export const getStudentSelfStudyProgress = async (
     res.status(500).json({ message: error.message });
   }
 };
+export const getStudentTransportDetails = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const studentId = req.user?.id; // Get ID from the token
+    const branchId = req.user?.branchId;
 
+    if (!studentId || !branchId) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    // You will need to create this service function,
+    // it will be almost identical to getTransportDetailsForTeacher
+    const details = await studentApiService.getTransportDetailsForStudent(
+      studentId,
+      branchId
+    );
+
+    res.status(200).json(details);
+  } catch (error: any) {
+    console.error("Failed to get student transport details:", error);
+    res.status(500).json({ message: "Failed to fetch transport details." });
+  }
+};
 export const updateStudentSelfStudyProgress = async (
   req: Request,
   res: Response

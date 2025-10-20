@@ -25,6 +25,7 @@ import type {
   TransportRoute,
   Hostel,
   Room,
+  BusStop,
   FeeRecord,
   LeaveApplication,
   LibraryBook,
@@ -58,6 +59,45 @@ const ACADEMIC_MONTHS = [
   "November",
   "December",
 ];
+
+// const prisma: any = (() => {
+//   try {
+//     // try to load a real prisma client if it exists
+//     // eslint-disable-next-line @typescript-eslint/no-var-requires
+//     return require("./prismaClient").default;
+//   } catch (e) {
+//     console.warn("Failed to load real Prisma client, using mock. Error:", e);
+
+//     // This is the mock for a model (e.g., prisma.student)
+//     const modelHandler = {
+//       findMany: async (_opts?: any) => [],
+//       findFirst: async (_opts?: any) => null,
+//       findUnique: async (_opts?: any) => null,
+//       count: async (_opts?: any) => 0,
+//       groupBy: async (_opts?: any) => [],
+//     };
+
+//     // This is the mock for the main prisma object itself
+//     const prismaHandler = {
+//       get(target: any, prop: string): any {
+//         // --- THIS IS THE FIX ---
+//         // If the code asks for '$transaction', give it a mock function
+//         if (prop === "$transaction") {
+//           // Return a mock function that just runs the promises and returns their results
+//           return async (promises: Promise<any>[]) => Promise.all(promises);
+//         }
+//         // --- END OF FIX ---
+
+//         // For any other property (e.g., 'timetableSlot'), return the model mock
+//         return modelHandler;
+//       },
+//     };
+//     return new Proxy({}, prismaHandler);
+//   }
+// })();
+
+
+import prisma from "../prisma";
 
 export class StudentApiService extends BaseApiService {
   // Helper to calculate overall marks for any student
@@ -380,6 +420,61 @@ export class StudentApiService extends BaseApiService {
     return (db.leaveApplications as LeaveApplication[]).filter(
       (l) => l.applicantId === userId
     );
+  }
+ public async getTransportDetailsForStudent(
+    studentId: string,
+    branchId: string
+  ): Promise<{ route: TransportRoute; stop: BusStop } | null> {
+    // 1. Find the student to get their transport IDs
+    const student = await prisma.student.findFirst({
+      where: {
+        id: studentId, // Assuming you link by User ID from the token
+        branchId: branchId,
+      },
+      select: {
+        transportRouteId: true,
+        busStopId: true,
+      },
+    });
+
+    // 2. If no student or no transport assigned, return null
+    if (!student || !student.transportRouteId || !student.busStopId) {
+      return null;
+    }
+
+    // 3. Fetch the route and stop details in parallel
+    // We can safely assume the route/stop exist if the IDs are on the student record
+    // 3. Fetch the route and stop details in parallel
+    // We can safely assume the route/stop exist if the IDs are on the student record
+    const [routeData, stopData] = await prisma.$transaction([
+      prisma.transportRoute.findUnique({
+        where: { id: student.transportRouteId },
+        include: {
+          busStops: true, // Keep this: Error 2 says it's needed
+          // assignedMembers: true <-- REMOVE THIS: Error 1 says it's invalid
+        },
+      }),
+      prisma.busStop.findUnique({
+        where: { id: student.busStopId },
+      }),
+    ]);
+
+    // 4. If details are found, return them
+    if (routeData && stopData) {
+      // --- THIS IS THE FIX ---
+      // We manually add the 'assignedMembers' property as an empty array
+      // to satisfy the incorrect 'TransportRoute' type definition.
+      const route = {
+        ...routeData,
+        assignedMembers: [], // This makes TypeScript happy (fixes Error 2)
+      };
+
+      // We now return the modified 'route' object
+      return { route, stop: stopData };
+    }
+
+    // 5. If details are missing (data integrity issue), return null
+    return null;
   }
 
   async getStudentGrades(studentId: string): Promise<GradeWithCourse[]> {
