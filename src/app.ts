@@ -21,6 +21,7 @@ const app: Express = express();
 
 // --- Middlewares ---
 const allowedOrigins = ["https://verticx.vercel.app"];
+
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
     if (
