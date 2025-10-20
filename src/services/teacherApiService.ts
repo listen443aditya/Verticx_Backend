@@ -45,23 +45,34 @@ const prisma: any = (() => {
     // try to load a real prisma client if it exists
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     return require("./prismaClient").default;
-  } catch {
-    // Minimal proxy-based mock: any accessed model returns an object with common methods used in this file.
-    const handler = {
-      get(): any {
-        return {
-          // findMany, findFirst, findUnique return empty results by default
-          findMany: async (_opts?: any) => [],
-          findFirst: async (_opts?: any) => null,
-          findUnique: async (_opts?: any) => null,
-          // count returns 0
-          count: async (_opts?: any) => 0,
-          // groupBy returns empty array
-          groupBy: async (_opts?: any) => [],
-        };
+  } catch (e) {
+    console.warn("Failed to load real Prisma client, using mock. Error:", e);
+
+    // This is the mock for a model (e.g., prisma.student)
+    const modelHandler = {
+      findMany: async (_opts?: any) => [],
+      findFirst: async (_opts?: any) => null,
+      findUnique: async (_opts?: any) => null,
+      count: async (_opts?: any) => 0,
+      groupBy: async (_opts?: any) => [],
+    };
+
+    // This is the mock for the main prisma object itself
+    const prismaHandler = {
+      get(target: any, prop: string): any {
+        // --- THIS IS THE FIX ---
+        // If the code asks for '$transaction', give it a mock function
+        if (prop === "$transaction") {
+          // Return a mock function that just runs the promises and returns their results
+          return async (promises: Promise<any>[]) => Promise.all(promises);
+        }
+        // --- END OF FIX ---
+
+        // For any other property (e.g., 'timetableSlot'), return the model mock
+        return modelHandler;
       },
     };
-    return new Proxy({}, handler);
+    return new Proxy({}, prismaHandler);
   }
 })();
 
