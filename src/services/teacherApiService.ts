@@ -882,4 +882,28 @@ export class TeacherApiService extends BaseApiService {
           b.isbn.includes(query))
     );
   }
+
+  public async getTeacherSchedule(
+    teacherId: string,
+    branchId: string
+  ): Promise<TimetableSlot[]> {
+    // This is just ONE query from your old function. Fast!
+    return prisma.timetableSlot.findMany({
+      where: { teacherId, branchId },
+    });
+  }
+
+  public async getTeacherAssignmentsToReview(
+    teacherId: string,
+    branchId: string
+  ): Promise<{ count: number }> {
+    // Just the count. Fast!
+    const count = await prisma.assignmentSubmission.count({
+      where: {
+        assignment: { teacherId, branchId },
+        status: "Submitted",
+      },
+    });
+    return { count };
+  }
 }

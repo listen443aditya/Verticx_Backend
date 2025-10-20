@@ -571,3 +571,40 @@ export const searchLibraryBooks = async (req: Request, res: Response) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+
+export const getDashboardSchedule = async (req: Request, res: Response) => {
+  try {
+    const teacherId = req.user?.id;
+    const branchId = req.user?.branchId;
+    if (!teacherId || !branchId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const data = await teacherApiService.getTeacherSchedule(teacherId, branchId);
+    res.status(200).json(data);
+  } catch (error: any) {
+    console.error("Failed to get teacher schedule:", error);
+    res.status(500).json({ message: "Failed to get schedule" });
+  }
+};
+
+export const getDashboardAssignmentsToReview = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const teacherId = req.user?.id;
+    const branchId = req.user?.branchId;
+    if (!teacherId || !branchId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const data = await teacherApiService.getTeacherAssignmentsToReview(
+      teacherId,
+      branchId
+    );
+    res.status(200).json(data);
+  } catch (error: any) {
+    console.error("Failed to get assignment count:", error);
+    res.status(500).json({ message: "Failed to get assignment count" });
+  }
+}
