@@ -1,5 +1,5 @@
 // src/app.ts
-
+import path from "path";
 import express, { Express, Request, Response, NextFunction } from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -39,10 +39,17 @@ app.use(cors(corsOptions));//corsOptions
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+app.use(express.static(path.join(__dirname, "../public")));
+app.get("/favicon.ico", (req, res) => res.status(204).end());
+
+
 app.use("/api", auditLogMiddleware);
 
 // --- API Test Route ---
 app.get("/api/ping", (req, res) => res.status(200).json({ message: "Pong!" }));
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", environment: process.env.NODE_ENV });
+});
 
 // --- API Routes ---
 app.use("/api/auth", authRoutes);

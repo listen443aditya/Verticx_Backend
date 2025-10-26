@@ -23,6 +23,6 @@
     // Enable source maps (optional, useful for debugging)
     "sourceMap": true
   },
-  "include": ["src"],
+ "include": ["src", "public"],
   "exclude": ["node_modules", "dist"]
 }
