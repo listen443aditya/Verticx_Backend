@@ -2,7 +2,7 @@
     "$schema": "https://openapi.vercel.sh/vercel.json",
     "functions": {
         "src/server.ts": {
-            "runtime": "@vercel/node@latest"
+            "runtime": "nodejs20.x"
         }
     },
     "rewrites": [
