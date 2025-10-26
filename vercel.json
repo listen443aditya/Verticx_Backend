@@ -1,14 +1,15 @@
 {
-    "$schema": "https://openapi.vercel.sh/vercel.json",
-    "functions": {
-        "src/server.ts": {
-            "runtime": "nodejs20.x"
-        }
-    },
-    "rewrites": [
+    "version": 2,
+    "builds": [
         {
-            "source": "/(.*)",
-            "destination": "/src/server.ts"
+            "src": "package.json",
+            "use": "@vercel/node"
+        }
+    ],
+    "routes": [
+        {
+            "src": "/(.*)",
+            "dest": "/dist/server.js"
         }
     ]
 }
