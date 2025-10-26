@@ -1,0 +1,14 @@
+{
+    "$schema": "https://openapi.vercel.sh/vercel.json",
+    "functions": {
+        "src/server.ts": {
+            "runtime": "@vercel/node@latest"
+        }
+    },
+    "rewrites": [
+        {
+            "source": "/(.*)",
+            "destination": "/src/server.ts"
+        }
+    ]
+}
