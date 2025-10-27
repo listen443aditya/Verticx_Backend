@@ -1,9 +1,7 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   binaryTargets = ["native", "linux-arm64-openssl-3.0.x", "linux-musl-arm64-openssl-3.0.x"]
 }
-
-
 
 datasource db {
   provider = "postgresql"
@@ -23,6 +21,14 @@ enum UserRole {
   Librarian
   SuperAdmin
   SupportStaff
+}
+
+enum Day {
+  Monday
+  Tuesday
+  Wednesday
+  Thursday
+  Friday
 }
 
 enum BranchStatus {
@@ -98,70 +104,70 @@ model User {
   // A User can be the Principal of ONE Branch. This is the singular crown.
   principalOf Branch? @relation("BranchPrincipal")
 
-  children         Student[]   @relation("ParentChildren")
-  teacher          Teacher?    @relation("UserTeacher")
-  complaintsRaised Complaint[] @relation("ComplaintsRaisedBy")
-  leaveApplications  LeaveApplication[]
+  children          Student[]          @relation("ParentChildren")
+  teacher           Teacher?           @relation("UserTeacher")
+  complaintsRaised  Complaint[]        @relation("ComplaintsRaisedBy")
+  leaveApplications LeaveApplication[]
 }
 
 model Branch {
-  id                       String       @id @default(cuid())
-  registrationId           String       @unique
-  name                     String
-  location                 String
-  principalId              String?      @unique // A branch has only one principal.
+  id             String  @id @default(cuid())
+  registrationId String  @unique
+  name           String
+  location       String
+  principalId    String? @unique // A branch has only one principal.
 
-  status                   BranchStatus @default(pending)
- 
+  status BranchStatus @default(pending)
+
   email                    String?
   helplineNumber           String?
   erpPricePerStudent       Float?
   erpConcessionPercentage  Float?
   billingCycle             String?
   nextDueDate              DateTime?
-  enabledFeatures          Json         @default("{}")
+  enabledFeatures          Json      @default("{}")
   academicSessionStartDate DateTime?
-  stats                    Json         @default("{}")
-  createdAt                DateTime     @default(now())
-  updatedAt                DateTime     @updatedAt
+  stats                    Json      @default("{}")
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
 
   principal User? @relation("BranchPrincipal", fields: [principalId], references: [id], onDelete: SetNull)
 
-  users                 User[]                   @relation("BranchUsers")
-  complaints            Complaint[]
-  feeTemplates          FeeTemplate[]
-  teachers              Teacher[]
-  students              Student[]
-  classes               SchoolClass[]
-  subjects              Subject[]
-  courses               Course[]
-  examinations          Examination[]
-  lectures              Lecture[]
-  expenses              ManualExpense[]
-  salaryAdjustments     ManualSalaryAdjustment[]
-  payrolls              PayrollRecord[]
-  erpPayments           ErpPayment[]
-  transportRoutes       TransportRoute[]
-  hostels               Hostel[]
-  libraryBooks          LibraryBook[]
-  inventoryItems        InventoryItem[]
-  schoolEvents          SchoolEvent[]
-  announcements         Announcement[]
-  smsMessages           SmsMessage[]
-  timetables            TimetableConfig[]
-  ExamSchedule          ExamSchedule[]
-  ExamMark              ExamMark[]
-  principalQueries      PrincipalQuery[]
-  FacultyApplication    FacultyApplication[]
-  admissionApplications AdmissionApplication[]
-  enquiries             Enquiry[]
+  users                                  User[]                                  @relation("BranchUsers")
+  complaints                             Complaint[]
+  feeTemplates                           FeeTemplate[]
+  teachers                               Teacher[]
+  students                               Student[]
+  classes                                SchoolClass[]
+  subjects                               Subject[]
+  courses                                Course[]
+  examinations                           Examination[]
+  lectures                               Lecture[]
+  expenses                               ManualExpense[]
+  salaryAdjustments                      ManualSalaryAdjustment[]
+  payrolls                               PayrollRecord[]
+  erpPayments                            ErpPayment[]
+  transportRoutes                        TransportRoute[]
+  hostels                                Hostel[]
+  libraryBooks                           LibraryBook[]
+  inventoryItems                         InventoryItem[]
+  schoolEvents                           SchoolEvent[]
+  announcements                          Announcement[]
+  smsMessages                            SmsMessage[]
+  timetables                             TimetableConfig[]
+  ExamSchedule                           ExamSchedule[]
+  ExamMark                               ExamMark[]
+  principalQueries                       PrincipalQuery[]
+  FacultyApplication                     FacultyApplication[]
+  admissionApplications                  AdmissionApplication[]
+  enquiries                              Enquiry[]
   teacherAttendanceRectificationRequests TeacherAttendanceRectificationRequest[]
-  rectificationRequests                RectificationRequest[]
-  syllabusChangeRequests               SyllabusChangeRequest[]
+  rectificationRequests                  RectificationRequest[]
+  syllabusChangeRequests                 SyllabusChangeRequest[]
   examMarkRectificationRequests          ExamMarkRectificationRequest[]
-  timetableSlots TimetableSlot[]
-  leaveSettings LeaveSettings?
-
+  timetableSlots                         TimetableSlot[]
+  leaveSettings                          LeaveSettings?
+  assignments                            Assignment[]                            @relation("BranchToAssignments")
 }
 
 model RegistrationRequest {
@@ -194,19 +200,21 @@ model Teacher {
   transportRouteId String?
   busStopId        String?
 
-  branch            Branch                    @relation(fields: [branchId], references: [id])
-  user              User                      @relation("UserTeacher", fields: [userId], references: [id])
-  attendanceRecords TeacherAttendanceRecord[]
-  lectures          Lecture[]
-  courses           Course[]
-  examMarks         ExamMark[]
-  schoolClasses     SchoolClass[] // renamed to lowercase plural for clarity
-  subjects          Subject[]
+  branch                                 Branch                                  @relation(fields: [branchId], references: [id])
+  user                                   User                                    @relation("UserTeacher", fields: [userId], references: [id])
+  attendanceRecords                      TeacherAttendanceRecord[]
+  lectures                               Lecture[]
+  courses                                Course[]
+  examMarks                              ExamMark[]
+  schoolClasses                          SchoolClass[] // renamed to lowercase plural for clarity
+  subjects                               Subject[]
   teacherAttendanceRectificationRequests TeacherAttendanceRectificationRequest[]
-  rectificationRequests                RectificationRequest[]
-  syllabusChangeRequests               SyllabusChangeRequest[]
+  rectificationRequests                  RectificationRequest[]
+  syllabusChangeRequests                 SyllabusChangeRequest[]
   examMarkRectificationRequests          ExamMarkRectificationRequest[]
-  timetableSlots TimetableSlot[]
+  timetableSlots                         TimetableSlot[]
+  assignments                            Assignment[]                            @relation("TeacherToAssignments")
+  meetingRequests                        MeetingRequest[]                        @relation("TeacherToMeetings")
 }
 
 model Student {
@@ -230,16 +238,16 @@ model Student {
   attendanceRecords AttendanceRecord[]
   examMarks         ExamMark[]
 
-  parent            User?              @relation("ParentChildren", fields: [parentId], references: [id])
-  class             SchoolClass?       @relation(fields: [classId], references: [id])
-  FeeAdjustment     FeeAdjustment[]
-  transportRouteId  String?
-  busStopId         String?
-  roomId            String?
-  complaintsAboutMe Complaint[]
-  suspensionRecords SuspensionRecord[]
+  parent                User?                  @relation("ParentChildren", fields: [parentId], references: [id])
+  class                 SchoolClass?           @relation(fields: [classId], references: [id])
+  FeeAdjustment         FeeAdjustment[]
+  transportRouteId      String?
+  busStopId             String?
+  roomId                String?
+  complaintsAboutMe     Complaint[]
+  suspensionRecords     SuspensionRecord[]
   rectificationRequests RectificationRequest[]
-  room                Room?     @relation(fields: [roomId], references: [id])
+  room                  Room?                  @relation(fields: [roomId], references: [id])
 }
 
 // ============================================================================
@@ -300,17 +308,16 @@ model SchoolClass {
   section    String
   mentorId   String?
 
-  branch        Branch         @relation(fields: [branchId], references: [id])
-  students      Student[]
-  subjects      Subject[]
-  mentor        Teacher?       @relation(fields: [mentorId], references: [id])
-  courses       Course[]
-  examSchedules ExamSchedule[]
-  examMarks     ExamMark[] // Added: to fetch exam marks per class
-  feeTemplateId String?
-  feeTemplate   FeeTemplate?   @relation(fields: [feeTemplateId], references: [id])
+  branch         Branch          @relation(fields: [branchId], references: [id])
+  students       Student[]
+  subjects       Subject[]
+  mentor         Teacher?        @relation(fields: [mentorId], references: [id])
+  courses        Course[]
+  examSchedules  ExamSchedule[]
+  examMarks      ExamMark[] // Added: to fetch exam marks per class
+  feeTemplateId  String?
+  feeTemplate    FeeTemplate?    @relation(fields: [feeTemplateId], references: [id])
   timetableSlots TimetableSlot[]
-
 }
 
 model Subject {
@@ -319,14 +326,14 @@ model Subject {
   name      String
   teacherId String?
 
-  branch        Branch         @relation(fields: [branchId], references: [id])
-  teacher       Teacher?       @relation(fields: [teacherId], references: [id])
-  courses       Course[]
-  examSchedules ExamSchedule[]
-  SchoolClass   SchoolClass?   @relation(fields: [schoolClassId], references: [id])
-  schoolClassId String?
+  branch                 Branch                  @relation(fields: [branchId], references: [id])
+  teacher                Teacher?                @relation(fields: [teacherId], references: [id])
+  courses                Course[]
+  examSchedules          ExamSchedule[]
+  SchoolClass            SchoolClass?            @relation(fields: [schoolClassId], references: [id])
+  schoolClassId          String?
   syllabusChangeRequests SyllabusChangeRequest[]
-  timetableSlots TimetableSlot[]
+  timetableSlots         TimetableSlot[]
 }
 
 model Course {
@@ -390,15 +397,52 @@ model ExamMark {
   totalMarks     Int
   enteredAt      DateTime @default(now())
 
-  branch       Branch       @relation(fields: [branchId], references: [id])
-  examination  Examination  @relation(fields: [examinationId], references: [id])
-  examSchedule ExamSchedule @relation(fields: [examScheduleId], references: [id])
-  student      Student      @relation(fields: [studentId], references: [id])
-  teacher      Teacher      @relation(fields: [teacherId], references: [id])
-  Course       Course?      @relation(fields: [courseId], references: [id])
-  courseId     String?
-  schoolClass  SchoolClass  @relation(fields: [schoolClassId], references: [id])
+  branch                Branch                         @relation(fields: [branchId], references: [id])
+  examination           Examination                    @relation(fields: [examinationId], references: [id])
+  examSchedule          ExamSchedule                   @relation(fields: [examScheduleId], references: [id])
+  student               Student                        @relation(fields: [studentId], references: [id])
+  teacher               Teacher                        @relation(fields: [teacherId], references: [id])
+  Course                Course?                        @relation(fields: [courseId], references: [id])
+  courseId              String?
+  schoolClass           SchoolClass                    @relation(fields: [schoolClassId], references: [id])
   rectificationRequests ExamMarkRectificationRequest[]
+}
+
+model Assignment {
+  id        String   @id @default(cuid())
+  title     String
+  dueDate   DateTime
+  teacherId String
+  branchId  String?
+  status    String?  @default("Pending")
+
+  teacher     Teacher                @relation("TeacherToAssignments", fields: [teacherId], references: [id])
+  branch      Branch?                @relation("BranchToAssignments", fields: [branchId], references: [id])
+  submissions AssignmentSubmission[]
+}
+
+model AssignmentSubmission {
+  id           String     @id @default(uuid())
+  assignmentId String
+  studentId    String
+  fileUrl      String?
+  grade        String?
+  submittedAt  DateTime   @default(now())
+  assignment   Assignment @relation(fields: [assignmentId], references: [id])
+  branchId     String?
+  status       String      @default("Pending")
+}
+
+model MeetingRequest {
+  id          String   @id @default(cuid())
+  teacherId   String
+  parentId    String
+  studentId   String
+  branchId    String?
+  status      String   @default("pending")
+  requestedAt DateTime @default(now())
+
+  teacher Teacher @relation("TeacherToMeetings", fields: [teacherId], references: [id])
 }
 
 // ============================================================================
@@ -504,13 +548,13 @@ model PayrollRecord {
 }
 
 model ErpPayment {
-  id            String   @id @default(uuid())
+  id            String    @id @default(uuid())
   branchId      String
   amount        Float
   paymentDate   DateTime
   transactionId String
-  notes           String?  
-  periodEndDate   DateTime?
+  notes         String?
+  periodEndDate DateTime?
 
   branch Branch @relation(fields: [branchId], references: [id])
 }
@@ -541,8 +585,8 @@ model TeacherAttendanceRecord {
   teacher   Teacher  @relation(fields: [teacherId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  @@unique([teacherId, date]) 
 
+  @@unique([teacherId, date])
 }
 
 model Lecture {
@@ -565,15 +609,15 @@ model Lecture {
 // INFRASTRUCTURE
 // ============================================================================
 model TransportRoute {
-  id         String @id @default(uuid())
-  branchId   String
-  routeName  String
-  busNumber  String
-  driverName String
-  capacity   Int
-
-  branch   Branch    @relation(fields: [branchId], references: [id])
-  busStops BusStop[]
+  id              String    @id @default(uuid())
+  branchId        String
+  routeName       String
+  busNumber       String
+  driverName      String
+  capacity        Int
+  assignedMembers Json?
+  branch          Branch    @relation(fields: [branchId], references: [id])
+  busStops        BusStop[]
 }
 
 model BusStop {
@@ -605,7 +649,7 @@ model Room {
   fee        Float
   roomType   String
 
-  hostel Hostel @relation(fields: [hostelId], references: [id])
+  hostel    Hostel    @relation(fields: [hostelId], references: [id])
   occupants Student[] // Add this line
 }
 
@@ -631,6 +675,7 @@ model BookIssuance {
   dueDate      DateTime
   returnedDate DateTime?
   finePerDay   Float
+  branchId     String?
 
   book LibraryBook @relation(fields: [bookId], references: [id])
 }
@@ -703,6 +748,7 @@ model TimetableConfig {
   timeSlots Json
   Branch    Branch? @relation(fields: [branchId], references: [id])
   branchId  String?
+
   @@unique([classId, branchId])
 }
 
@@ -750,27 +796,27 @@ model PrincipalQuery {
 }
 
 model FacultyApplication {
-  id            String @id @default(cuid())
+  id            String   @id @default(cuid())
   name          String
   email         String
   phone         String
   qualification String
   branchId      String
-  status        String @default("Pending")
-  branch        Branch @relation(fields: [branchId], references: [id])
+  status        String   @default("Pending")
+  branch        Branch   @relation(fields: [branchId], references: [id])
   createdAt     DateTime @default(now())
 }
 
 model LeaveApplication {
-  id        String   @id @default(cuid())
-  reason    String
-  status    String   @default("Pending")
-  fromDate  String
-  toDate    String
+  id       String @id @default(cuid())
+  reason   String
+  status   String @default("Pending")
+  fromDate String
+  toDate   String
 
   // This is the single, required relation to the User who applied for leave.
   applicantId String
-  applicant   User     @relation(fields: [applicantId], references: [id])
+  applicant   User   @relation(fields: [applicantId], references: [id])
 }
 
 model AdmissionApplication {
@@ -800,7 +846,6 @@ model Enquiry {
   branch Branch @relation(fields: [branchId], references: [id])
 }
 
-
 model TeacherAttendanceRectificationRequest {
   id          String    @id @default(cuid())
   branchId    String
@@ -815,8 +860,8 @@ model TeacherAttendanceRectificationRequest {
   reviewedBy  String?
   reviewedAt  DateTime?
 
-  branch      Branch    @relation(fields: [branchId], references: [id])
-  teacher     Teacher   @relation(fields: [teacherId], references: [id])
+  branch  Branch  @relation(fields: [branchId], references: [id])
+  teacher Teacher @relation(fields: [teacherId], references: [id])
 }
 
 model RectificationRequest {
@@ -831,23 +876,23 @@ model RectificationRequest {
   reviewedBy  String?
   reviewedAt  DateTime?
 
-  branch      Branch    @relation(fields: [branchId], references: [id])
-  student     Student   @relation(fields: [studentId], references: [id])
-  teacher     Teacher   @relation(fields: [teacherId], references: [id])
+  branch  Branch  @relation(fields: [branchId], references: [id])
+  student Student @relation(fields: [studentId], references: [id])
+  teacher Teacher @relation(fields: [teacherId], references: [id])
 }
 
 model SyllabusChangeRequest {
-  id          String    @id @default(cuid())
+  id          String   @id @default(cuid())
   branchId    String
   teacherId   String
   subjectId   String
   description String
-  status      String    @default("Pending")
-  createdAt   DateTime  @default(now())
+  status      String   @default("Pending")
+  createdAt   DateTime @default(now())
 
-  branch      Branch    @relation(fields: [branchId], references: [id])
-  teacher     Teacher   @relation(fields: [teacherId], references: [id])
-  subject     Subject   @relation(fields: [subjectId], references: [id])
+  branch  Branch  @relation(fields: [branchId], references: [id])
+  teacher Teacher @relation(fields: [teacherId], references: [id])
+  subject Subject @relation(fields: [subjectId], references: [id])
 }
 
 model ExamMarkRectificationRequest {
@@ -860,41 +905,40 @@ model ExamMarkRectificationRequest {
   status     String   @default("Pending")
   createdAt  DateTime @default(now())
 
-  branch     Branch   @relation(fields: [branchId], references: [id])
-  teacher    Teacher  @relation(fields: [teacherId], references: [id])
-  examMark   ExamMark @relation(fields: [examMarkId], references: [id])
+  branch   Branch   @relation(fields: [branchId], references: [id])
+  teacher  Teacher  @relation(fields: [teacherId], references: [id])
+  examMark ExamMark @relation(fields: [examMarkId], references: [id])
 }
 
 model TimetableSlot {
-  id        String @id @default(uuid())
+  id        String  @id @default(uuid())
   branchId  String
   classId   String
-  day       String // e.g., "Monday", "Tuesday"
+  day       Day
   startTime String // e.g., "09:00"
   endTime   String // e.g., "10:00"
   subjectId String
   teacherId String
   room      String?
 
-  branch    Branch      @relation(fields: [branchId], references: [id])
-  class     SchoolClass @relation(fields: [classId], references: [id])
-  subject   Subject     @relation(fields: [subjectId], references: [id])
-  teacher   Teacher     @relation(fields: [teacherId], references: [id])
+  branch  Branch      @relation(fields: [branchId], references: [id])
+  class   SchoolClass @relation(fields: [classId], references: [id])
+  subject Subject     @relation(fields: [subjectId], references: [id])
+  teacher Teacher     @relation(fields: [teacherId], references: [id])
 
   @@unique([branchId, classId, day, startTime], name: "class_slot_unique")
   @@unique([branchId, teacherId, day, startTime], name: "teacher_slot_unique")
 }
 
-
 model LeaveSettings {
-  id                     String  @id @default(cuid())
-  branchId               String  @unique // Each branch has one set of settings
-  defaultStudentSick     Int     @default(10)
-  defaultStudentCasual   Int     @default(5)
-  defaultTeacherSick     Int     @default(12)
-  defaultTeacherCasual   Int     @default(10)
-  defaultStaffSick       Int     @default(12)
-  defaultStaffCasual     Int     @default(7)
+  id                   String @id @default(cuid())
+  branchId             String @unique // Each branch has one set of settings
+  defaultStudentSick   Int    @default(10)
+  defaultStudentCasual Int    @default(5)
+  defaultTeacherSick   Int    @default(12)
+  defaultTeacherCasual Int    @default(10)
+  defaultStaffSick     Int    @default(12)
+  defaultStaffCasual   Int    @default(7)
 
-  branch                 Branch  @relation(fields: [branchId], references: [id])
+  branch Branch @relation(fields: [branchId], references: [id])
 }

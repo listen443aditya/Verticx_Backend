@@ -2,6 +2,9 @@
 CREATE TYPE "UserRole" AS ENUM ('Admin', 'Principal', 'Registrar', 'Teacher', 'Student', 'Parent', 'Librarian', 'SuperAdmin', 'SupportStaff');
 
 -- CreateEnum
+CREATE TYPE "Day" AS ENUM ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday');
+
+-- CreateEnum
 CREATE TYPE "BranchStatus" AS ENUM ('active', 'pending', 'suspended');
 
 -- CreateEnum
@@ -240,6 +243,45 @@ CREATE TABLE "ExamMark" (
 );
 
 -- CreateTable
+CREATE TABLE "Assignment" (
+    "id" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "dueDate" TIMESTAMP(3) NOT NULL,
+    "teacherId" TEXT NOT NULL,
+    "branchId" TEXT,
+    "status" TEXT DEFAULT 'Pending',
+
+    CONSTRAINT "Assignment_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "AssignmentSubmission" (
+    "id" TEXT NOT NULL,
+    "assignmentId" TEXT NOT NULL,
+    "studentId" TEXT NOT NULL,
+    "fileUrl" TEXT,
+    "grade" TEXT,
+    "submittedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "branchId" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'Pending',
+
+    CONSTRAINT "AssignmentSubmission_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "MeetingRequest" (
+    "id" TEXT NOT NULL,
+    "teacherId" TEXT NOT NULL,
+    "parentId" TEXT NOT NULL,
+    "studentId" TEXT NOT NULL,
+    "branchId" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    "requestedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "MeetingRequest_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "FeeTemplate" (
     "id" TEXT NOT NULL,
     "branchId" TEXT NOT NULL,
@@ -404,6 +446,7 @@ CREATE TABLE "TransportRoute" (
     "busNumber" TEXT NOT NULL,
     "driverName" TEXT NOT NULL,
     "capacity" INTEGER NOT NULL,
+    "assignedMembers" JSONB,
 
     CONSTRAINT "TransportRoute_pkey" PRIMARY KEY ("id")
 );
@@ -465,6 +508,7 @@ CREATE TABLE "BookIssuance" (
     "dueDate" TIMESTAMP(3) NOT NULL,
     "returnedDate" TIMESTAMP(3),
     "finePerDay" DOUBLE PRECISION NOT NULL,
+    "branchId" TEXT,
 
     CONSTRAINT "BookIssuance_pkey" PRIMARY KEY ("id")
 );
@@ -704,7 +748,7 @@ CREATE TABLE "TimetableSlot" (
     "id" TEXT NOT NULL,
     "branchId" TEXT NOT NULL,
     "classId" TEXT NOT NULL,
-    "day" TEXT NOT NULL,
+    "day" "Day" NOT NULL,
     "startTime" TEXT NOT NULL,
     "endTime" TEXT NOT NULL,
     "subjectId" TEXT NOT NULL,
@@ -880,6 +924,18 @@ ALTER TABLE "ExamMark" ADD CONSTRAINT "ExamMark_courseId_fkey" FOREIGN KEY ("cou
 
 -- AddForeignKey
 ALTER TABLE "ExamMark" ADD CONSTRAINT "ExamMark_schoolClassId_fkey" FOREIGN KEY ("schoolClassId") REFERENCES "SchoolClass"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Assignment" ADD CONSTRAINT "Assignment_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "Teacher"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Assignment" ADD CONSTRAINT "Assignment_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "AssignmentSubmission" ADD CONSTRAINT "AssignmentSubmission_assignmentId_fkey" FOREIGN KEY ("assignmentId") REFERENCES "Assignment"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "MeetingRequest" ADD CONSTRAINT "MeetingRequest_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "Teacher"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "FeeTemplate" ADD CONSTRAINT "FeeTemplate_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

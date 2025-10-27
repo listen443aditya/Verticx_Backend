@@ -37,44 +37,45 @@ import type {
   HydratedSchedule,
   Grade,
 } from "../types/api";
+import prisma from "../prisma";
 
 import { BaseApiService } from "./baseApiService";
 // Fallback: attempt to load a local prisma client; if not present provide a minimal mock so compilation succeeds.
-const prisma: any = (() => {
-  try {
-    // try to load a real prisma client if it exists
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return require("../prisma").default;
-  } catch (e) {
-    console.warn("Failed to load real Prisma client, using mock. Error:", e);
+// const prisma: any = (() => {
+//   try {
+//     // try to load a real prisma client if it exists
+//     // eslint-disable-next-line @typescript-eslint/no-var-requires
+//     return require("../prisma").default;
+//   } catch (e) {
+//     console.warn("Failed to load real Prisma client, using mock. Error:", e);
 
-    // This is the mock for a model (e.g., prisma.student)
-    const modelHandler = {
-      findMany: async (_opts?: any) => [],
-      findFirst: async (_opts?: any) => null,
-      findUnique: async (_opts?: any) => null,
-      count: async (_opts?: any) => 0,
-      groupBy: async (_opts?: any) => [],
-    };
+//     // This is the mock for a model (e.g., prisma.student)
+//     const modelHandler = {
+//       findMany: async (_opts?: any) => [],
+//       findFirst: async (_opts?: any) => null,
+//       findUnique: async (_opts?: any) => null,
+//       count: async (_opts?: any) => 0,
+//       groupBy: async (_opts?: any) => [],
+//     };
 
-    // This is the mock for the main prisma object itself
-    const prismaHandler = {
-      get(target: any, prop: string): any {
-        // --- THIS IS THE FIX ---
-        // If the code asks for '$transaction', give it a mock function
-        if (prop === "$transaction") {
-          // Return a mock function that just runs the promises and returns their results
-          return async (promises: Promise<any>[]) => Promise.all(promises);
-        }
-        // --- END OF FIX ---
+//     // This is the mock for the main prisma object itself
+//     const prismaHandler = {
+//       get(target: any, prop: string): any {
+//         // --- THIS IS THE FIX ---
+//         // If the code asks for '$transaction', give it a mock function
+//         if (prop === "$transaction") {
+//           // Return a mock function that just runs the promises and returns their results
+//           return async (promises: Promise<any>[]) => Promise.all(promises);
+//         }
+//         // --- END OF FIX ---
 
-        // For any other property (e.g., 'timetableSlot'), return the model mock
-        return modelHandler;
-      },
-    };
-    return new Proxy({}, prismaHandler);
-  }
-})();
+//         // For any other property (e.g., 'timetableSlot'), return the model mock
+//         return modelHandler;
+//       },
+//     };
+//     return new Proxy({}, prismaHandler);
+//   }
+// })();
 
 
 export class TeacherApiService extends BaseApiService {
@@ -185,12 +186,14 @@ export class TeacherApiService extends BaseApiService {
     for (const course of coursesTaught) {
       if (!course.schoolClass) continue;
 
-      const studentIds = course.schoolClass.students.map((s: Student) => {
-        if (!allStudentIds.includes(s.id)) {
-          allStudentIds.push(s.id);
+      const studentIds = course.schoolClass.students.map(
+        (s: { id: string; name: string }) => {
+          if (!allStudentIds.includes(s.id)) {
+            allStudentIds.push(s.id);
+          }
+          return s.id;
         }
-        return s.id;
-      });
+      );
 
       if (studentIds.length === 0) {
         classPerformance.push({
@@ -290,15 +293,22 @@ export class TeacherApiService extends BaseApiService {
 
     // --- Step 3: Assemble and Return the Final Object ---
     return {
-      weeklySchedule,
-      assignmentsToReview: assignmentsToReview,
+      weeklySchedule: weeklySchedule.map((slot) => ({
+        ...slot,
+        room: slot.room ?? undefined, // fix null → undefined mismatch
+      })),
+      assignmentsToReview,
       upcomingDeadlines: upcomingDeadlines.map(
         (d: { id: string; title: string; dueDate: Date }) => ({
           id: d.id,
           title: d.title,
-          dueDate: d.dueDate.toISOString(),
+          dueDate: d.dueDate,
+          courseId: "",
+          classId: "",
+          teacherId,
         })
       ),
+
       classPerformance,
       atRiskStudents: Array.from(atRiskMap.values()),
       mentoredClass: mentoredClass
@@ -308,8 +318,8 @@ export class TeacherApiService extends BaseApiService {
             studentCount: mentoredClass._count.students,
           }
         : undefined,
-      rectificationRequestCount: rectificationRequestCount,
-      pendingMeetingRequests: pendingMeetingRequests,
+      rectificationRequestCount,
+      pendingMeetingRequests,
       library: {
         issuedBooks: (
           issuedBooks as (BookIssuance & { book?: { title?: string } })[]
@@ -318,7 +328,7 @@ export class TeacherApiService extends BaseApiService {
           bookTitle: i.book?.title || "Unknown",
         })),
       },
-      subjectMarksTrend: [], // Placeholder: This requires a more complex historical query
+      subjectMarksTrend: [],
     };
   }
 
@@ -326,41 +336,41 @@ export class TeacherApiService extends BaseApiService {
     teacherId: string,
     branchId: string
   ): Promise<{ route: TransportRoute; stop: BusStop } | null> {
-    // 1. Find the teacher to get their transport IDs
+    // Step 1: Find teacher
     const teacher = await prisma.teacher.findFirst({
-      where: {
-        userId: teacherId, // Assuming you link by User ID from the token
-        branchId: branchId,
-      },
-      select: {
-        transportRouteId: true,
-        busStopId: true,
-      },
+      where: { userId: teacherId, branchId },
+      select: { transportRouteId: true, busStopId: true },
     });
 
-    // 2. If no teacher or no transport assigned, return null
-    if (!teacher || !teacher.transportRouteId || !teacher.busStopId) {
+    // Step 2: Handle null teacher or missing transport details early
+    if (!teacher?.transportRouteId || !teacher?.busStopId) {
       return null;
     }
 
-    // 3. Fetch the route and stop details in parallel
-    // We can safely assume the route/stop exist if the IDs are on the teacher record
-    const [route, stop] = await prisma.$transaction([
+    // Step 3: Fetch route + stop safely
+    const [routeRaw, stop] = await prisma.$transaction([
       prisma.transportRoute.findUnique({
-        where: { id: teacher.transportRouteId },
+        where: { id: teacher.transportRouteId ?? undefined },
+        include: { busStops: true },
       }),
       prisma.busStop.findUnique({
-        where: { id: teacher.busStopId },
+        where: { id: teacher.busStopId ?? undefined },
       }),
     ]);
 
-    // 4. If details are found, return them
-    if (route && stop) {
-      return { route, stop };
-    }
+    // Step 4: Ensure valid records exist
+    if (!routeRaw || !stop) return null;
 
-    // 5. If details are missing (data integrity issue), return null
-    return null;
+    // Step 5: Normalize TransportRoute fields
+    const route: TransportRoute = {
+      ...routeRaw,
+      assignedMembers: Array.isArray(routeRaw.assignedMembers)
+        ? (routeRaw.assignedMembers as any)
+        : [],
+      busStops: routeRaw.busStops ?? [], // ✅ ensures required field exists
+    };
+
+    return { route, stop };
   }
 
   async getStudentsForTeacher(teacherId: string): Promise<Student[]> {
@@ -887,10 +897,10 @@ export class TeacherApiService extends BaseApiService {
     teacherId: string,
     branchId: string
   ): Promise<TimetableSlot[]> {
-    // This is just ONE query from your old function. Fast!
-    return prisma.timetableSlot.findMany({
+    const slots = await prisma.timetableSlot.findMany({
       where: { teacherId, branchId },
     });
+    return slots.map((slot) => ({ ...slot, room: slot.room ?? undefined }));
   }
 
   public async getTeacherAssignmentsToReview(

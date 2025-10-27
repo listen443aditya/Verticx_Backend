@@ -1907,12 +1907,12 @@ export const getAvailableTeachersForSlot = async (req: Request, res: Response, n
     try {
         // 1. Find all teacher IDs who are ALREADY booked for this slot in this branch.
         const bookedSlots = await prisma.timetableSlot.findMany({
-            where: {
-                branchId,
-                day: day as string,
-                startTime: startTime as string,
-            },
-            select: { teacherId: true }
+          where: {
+            branchId,
+            day: day as unknown as import("@prisma/client").Day,
+            startTime: startTime as string,
+          },
+          select: { teacherId: true },
         });
         const bookedTeacherIds = bookedSlots.map(slot => slot.teacherId);
 
