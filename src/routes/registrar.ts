@@ -21,6 +21,7 @@ router.get(
   registrarController.getUnifiedApplications
 );
 
+
 // FIX: Changed to PUT to match frontend and RESTful practices for status updates
 router.put(
   "/admissions/applications/:id/status",
@@ -112,6 +113,7 @@ router.get("/staff/support", registrarController.getSupportStaffByBranch);
 router.post("/staff/support", registrarController.createSupportStaff); 
 router.put("/staff/support/:id", registrarController.updateSupportStaff); 
 router.delete("/staff/support/:id", registrarController.deleteSupportStaff); 
+router.get("/staff/all", registrarController.getAllStaffForBranch);
 
 // --- Academic & Leave Requests ---
 router.get(
