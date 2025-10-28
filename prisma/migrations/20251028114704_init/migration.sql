@@ -45,6 +45,7 @@ CREATE TABLE "User" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "currentOtp" TEXT,
+    "otpExpiry" TIMESTAMP(3),
     "profileAccessOtp" TEXT,
     "name" TEXT NOT NULL,
 
@@ -123,6 +124,7 @@ CREATE TABLE "Student" (
     "dob" TIMESTAMP(3),
     "address" TEXT,
     "guardianInfo" JSONB,
+    "gender" TEXT,
     "profilePictureUrl" TEXT,
     "leaveBalances" JSONB,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,

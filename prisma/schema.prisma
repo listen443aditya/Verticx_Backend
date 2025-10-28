@@ -95,13 +95,12 @@ model User {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
   currentOtp       String?
+  otpExpiry        DateTime?
   profileAccessOtp String?
   name             String
 
-  // CORRECTED RELATIONSHIP
   branch Branch? @relation("BranchUsers", fields: [branchId], references: [id], onDelete: SetNull)
 
-  // A User can be the Principal of ONE Branch. This is the singular crown.
   principalOf Branch? @relation("BranchPrincipal")
 
   children          Student[]          @relation("ParentChildren")

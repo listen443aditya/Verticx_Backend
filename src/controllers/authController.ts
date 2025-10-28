@@ -6,7 +6,7 @@ import bcrypt from "bcryptjs";
 import prisma from "../prisma";
 import { User, UserRole } from "../types/api";
 import { randomInt } from "crypto";
-
+import { sendOtpEmail } from "../services/emailService"; 
 const JWT_SECRET =
   process.env.JWT_SECRET ||
   "Lq9w1fe&hbA//=r5H%l=+WSG*^7@j@Ncw7+B!mp=m@t^Qi^CNaf@uKBf@vu2fiJv@$ih$oQRcpLlo%gJ2de7tT!C*/GY$Lp5yyfpDPyQAJnZkn/7zHNeTd16S6COSpMW";
@@ -305,5 +305,39 @@ export const changePassword = async (
     res.status(200).json({ message: "Password changed successfully." });
   } catch (error) {
     next(error);
+  }
+};
+
+
+
+export const sendLoginOtp = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const { email } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ message: "Email is required." });
+  }
+
+  try {
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    await prisma.user.update({
+      where: { email },
+      data: { currentOtp: otp, otpExpiry: otpExpiry },
+    });
+    await sendOtpEmail(email, otp);
+
+    res.status(200).json({ message: "OTP has been sent to your email." });
+  } catch (error) {
+    next(error); 
   }
 };
