@@ -55,7 +55,6 @@ app.get("/api/health", (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api", generalRoutes); // For routes like /api/profile
 
-// FIX: Use the new, dedicated routers for each role
 app.use("/api/admin", adminRoutes);
 app.use("/api/superadmin", adminRoutes);
 
