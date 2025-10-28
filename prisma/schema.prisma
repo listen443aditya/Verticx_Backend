@@ -228,6 +228,7 @@ model Student {
   dob               DateTime?
   address           String?
   guardianInfo      Json?
+  gender            String?
   profilePictureUrl String?
   leaveBalances     Json?
   createdAt         DateTime  @default(now())

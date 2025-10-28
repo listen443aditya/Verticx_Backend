@@ -18,12 +18,12 @@ export interface User {
   role: UserRole;
   password?: string; // Should be stripped from all API responses
   branchId?: string;
-  status?: 'active' | 'suspended';
-  phone?: string;
-  designation?: string;
+  status?: string | null;
+  phone?: string | null;
+  designation?: string | null;
   childrenIds?: string[];
-  currentOtp?: string;
-  profileAccessOtp?: string;
+  currentOtp?: string | null;
+  profileAccessOtp?: string | null;
   leaveBalances?: {
     [key: string]: number;
     sick: number;
