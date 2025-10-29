@@ -1523,7 +1523,7 @@ export const getSupportStaffByBranch = async (
         role: true,
         status: true, 
         designation: true, 
-        // salary: true, // <-- Added salary
+        salary: true, // <-- Added salary
       },
       orderBy: { name: "asc" },
     });
