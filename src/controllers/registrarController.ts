@@ -314,57 +314,63 @@ export const admitStudent = async (
     let applicantName: string;
     let gradeLevel: number;
     let guardianInfo: { name: string; email: string; phone: string };
+    let studentEmail: string | undefined; // Optional email for student
 
     if (applicationId) {
+      // --- Admitting from Application ---
       const application = await prisma.admissionApplication.findFirst({
         where: { id: applicationId, branchId, status: "Approved" },
       });
-
       if (!application) {
         return res
           .status(404)
           .json({ message: "Approved application not found." });
       }
-
       applicantName = application.applicantName;
       gradeLevel = application.gradeLevel;
-
-      // --- THIS BLOCK IS THE FIX ---
-      // Since the application doesn't store guardian details,
-      // we create a default name and leave email/phone blank.
+      // Use guardian info from application if available, else default
       guardianInfo = {
-        name: `${application.applicantName}'s Guardian`,
-        email: "",
-        phone: "",
+        name: application.guardianName || `${applicantName}'s Guardian`,
+        email: application.guardianEmail || "", // Use real email if available
+        phone: application.guardianPhone || "", // Use real phone if available
       };
-      // --- END OF FIX ---
+      // studentEmail = application.studentEmail; // Use if application collects student email
 
       await prisma.admissionApplication.update({
         where: { id: applicationId },
         data: { status: "Admitted" },
       });
     } else if (studentData) {
+      // --- Direct Admission ---
       if (!studentData.name || !studentData.gradeLevel) {
-        return res.status(400).json({
-          message:
-            "Student name and grade level are required for direct admission.",
-        });
+        return res
+          .status(400)
+          .json({ message: "Student name and grade level are required." });
       }
       applicantName = studentData.name;
       gradeLevel = studentData.gradeLevel;
       guardianInfo = studentData.guardianInfo || {
-        name: `${studentData.name}'s Guardian`,
+        name: `${applicantName}'s Guardian`,
         email: "",
         phone: "",
       };
+      // studentEmail = studentData.email; // Use if form collects student email
     } else {
-      return res.status(400).json({
-        message: "Request must include either an applicationId or studentData.",
-      });
+      return res
+        .status(400)
+        .json({
+          message: "Request must include either applicationId or studentData.",
+        });
     }
 
+    // --- Generate Credentials ---
     const parentPassword = generatePassword();
+    const studentPassword = generatePassword(); // Generate password for student user
+    const studentUserId = `VRTX-STU-${Date.now().toString().slice(-6)}`; // Generate student userId
+
+    // --- Create Records in Transaction ---
     const result = await prisma.$transaction(async (tx) => {
+      // 1. Create Parent User (as before)
       const parentUser = await tx.user.create({
         data: {
           email:
@@ -377,33 +383,62 @@ export const admitStudent = async (
           name: guardianInfo.name,
           role: "Parent",
           branchId,
+          phone: guardianInfo.phone || undefined, // Add phone if available
         },
       });
 
-      await tx.student.create({
+      // 2. Create Student User <-- NEW
+      const studentUser = await tx.user.create({
+        data: {
+          // Use student email if provided, otherwise generate a placeholder
+          email:
+            studentEmail ||
+            `stu_${applicantName.replace(/\s+/g, ".").toLowerCase()}${Date.now()
+              .toString()
+              .slice(-4)}@school.com`,
+          passwordHash: await bcrypt.hash(studentPassword, 10),
+          userId: studentUserId, // Use the generated student userId
+          name: applicantName,
+          role: "Student", // Set role to Student
+          branchId,
+          status: "active", // Set initial status
+        },
+      });
+
+      // 3. Create Student Record, linking Parent AND Student User <-- MODIFIED
+      const student = await tx.student.create({
         data: {
           name: applicantName,
           gradeLevel,
           branchId,
-          parentId: parentUser.id,
+          parentId: parentUser.id, // Link to parent's database ID
+          userId: studentUser.id, // <-- Link to student's User record database ID
           status: "active",
+          // Include other details from studentData if available
           ...(studentData?.dob && { dob: new Date(studentData.dob) }),
           ...(studentData?.address && { address: studentData.address }),
           ...(studentData?.gender && { gender: studentData.gender }),
           ...(studentData?.classId && { classId: studentData.classId }),
+          guardianInfo: studentData?.guardianInfo
+            ? studentData.guardianInfo
+            : undefined, // Save guardian info if direct admission
         },
       });
 
+      // Return both sets of credentials
       return {
+        student, // Return the created student record if needed
         credentials: {
           parent: { userId: parentUser.userId, password: parentPassword },
+          student: { userId: studentUser.userId, password: studentPassword }, // Return student credentials
         },
       };
     });
 
+    // Send back both credentials
     res.status(201).json({
       message: "Student admitted successfully.",
-      credentials: result.credentials.parent,
+      credentials: result.credentials, // Send the object containing both parent and student
     });
   } catch (error) {
     next(error);

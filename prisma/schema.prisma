@@ -103,6 +103,7 @@ model User {
   branch Branch? @relation("BranchUsers", fields: [branchId], references: [id], onDelete: SetNull)
 
   principalOf Branch? @relation("BranchPrincipal")
+  studentProfile Student?
 
   children          Student[]          @relation("ParentChildren")
   teacher           Teacher?           @relation("UserTeacher")
@@ -221,6 +222,7 @@ model Teacher {
 model Student {
   id                String    @id @default(uuid())
   branchId          String
+  userId            String?   @unique
   name              String
   gradeLevel        Int
   parentId          String?
@@ -250,6 +252,7 @@ model Student {
   suspensionRecords     SuspensionRecord[]
   rectificationRequests RectificationRequest[]
   room                  Room?                  @relation(fields: [roomId], references: [id])
+  user              User?     @relation(fields: [userId], references: [id])
 }
 
 // ============================================================================
