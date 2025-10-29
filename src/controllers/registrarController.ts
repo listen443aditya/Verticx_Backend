@@ -3445,6 +3445,7 @@ export const getStudentProfileDetails = async (
       where: { id: studentId, branchId: branchId },
       include: {
         parent: true,
+        user: true,
         class: true,
         feeRecords: { include: { payments: true } },
         attendanceRecords: { orderBy: { date: "desc" }, take: 90 },
