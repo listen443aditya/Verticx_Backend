@@ -98,6 +98,7 @@ model User {
   otpExpiry        DateTime?
   profileAccessOtp String?
   name             String
+  salary           Float?
 
   branch Branch? @relation("BranchUsers", fields: [branchId], references: [id], onDelete: SetNull)
 

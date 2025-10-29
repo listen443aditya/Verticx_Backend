@@ -48,6 +48,7 @@ CREATE TABLE "User" (
     "otpExpiry" TIMESTAMP(3),
     "profileAccessOtp" TEXT,
     "name" TEXT NOT NULL,
+    "salary" DOUBLE PRECISION,
 
     CONSTRAINT "User_pkey" PRIMARY KEY ("id")
 );
