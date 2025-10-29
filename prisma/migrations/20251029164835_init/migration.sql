@@ -117,6 +117,7 @@ CREATE TABLE "Teacher" (
 CREATE TABLE "Student" (
     "id" TEXT NOT NULL,
     "branchId" TEXT NOT NULL,
+    "userId" TEXT,
     "name" TEXT NOT NULL,
     "gradeLevel" INTEGER NOT NULL,
     "parentId" TEXT,
@@ -800,6 +801,9 @@ CREATE UNIQUE INDEX "Teacher_userId_key" ON "Teacher"("userId");
 CREATE UNIQUE INDEX "Teacher_email_key" ON "Teacher"("email");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "Student_userId_key" ON "Student"("userId");
+
+-- CreateIndex
 CREATE INDEX "Complaint_studentId_idx" ON "Complaint"("studentId");
 
 -- CreateIndex
@@ -849,6 +853,9 @@ ALTER TABLE "Student" ADD CONSTRAINT "Student_classId_fkey" FOREIGN KEY ("classI
 
 -- AddForeignKey
 ALTER TABLE "Student" ADD CONSTRAINT "Student_roomId_fkey" FOREIGN KEY ("roomId") REFERENCES "Room"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Student" ADD CONSTRAINT "Student_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Complaint" ADD CONSTRAINT "Complaint_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "Student"("id") ON DELETE SET NULL ON UPDATE CASCADE;
