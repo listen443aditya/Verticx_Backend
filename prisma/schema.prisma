@@ -109,6 +109,7 @@ model User {
   leaveApplications LeaveApplication[]
 }
 
+
 model Branch {
   id             String  @id @default(cuid())
   registrationId String  @unique

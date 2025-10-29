@@ -1487,26 +1487,45 @@ export const updateTeacher = async (
  * @description Get all non-teaching support staff for the registrar's branch.
  * @route GET /api/registrar/support-staff
  */
-export const getSupportStaffByBranch = async (req: Request, res: Response, next: NextFunction) => {
-    const branchId = getRegistrarBranchId(req);
-    if (!branchId) {
-        return res.status(401).json({ message: "Authentication required with a valid branch." });
-    }
-    try {
-        const supportStaff = await prisma.user.findMany({
-            where: {
-                branchId,
-                role: { in: [UserRole.Librarian, UserRole.SupportStaff, UserRole.Registrar] }
-            },
-            select: { id: true, name: true, email: true, phone: true, role: true, status: true },
-            orderBy: { name: 'asc' }
-        });
-        res.status(200).json(supportStaff);
-    } catch (error) {
-        next(error);
-    }
+export const getSupportStaffByBranch = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  if (!branchId) {
+    return res
+      .status(401)
+      .json({ message: "Authentication required with a valid branch." });
+  }
+  try {
+    const supportStaff = await prisma.user.findMany({
+      where: {
+        branchId,
+        // Make sure 'SupportStaff' role name matches your enum/type exactly
+        role: {
+          in: [UserRole.Librarian, UserRole.SupportStaff, UserRole.Registrar],
+        },
+      },
+      // FIX: Add the missing fields to the select clause
+      select: {
+        id: true, 
+        userId: true, 
+        name: true,
+        email: true,
+        phone: true,
+        role: true,
+        status: true, 
+        designation: true, 
+        // salary: true, // <-- Added salary
+      },
+      orderBy: { name: "asc" },
+    });
+    res.status(200).json(supportStaff);
+  } catch (error) {
+    next(error);
+  }
 };
-
 /**
  * @description Create a new support staff user account.
  * @route POST /api/registrar/support-staff
