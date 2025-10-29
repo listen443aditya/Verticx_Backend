@@ -1508,12 +1508,11 @@ export const getSupportStaffByBranch = async (
     const supportStaff = await prisma.user.findMany({
       where: {
         branchId,
-        // Make sure 'SupportStaff' role name matches your enum/type exactly
         role: {
           in: [UserRole.Librarian, UserRole.SupportStaff, UserRole.Registrar],
         },
       },
-      // FIX: Add the missing fields to the select clause
+      
       select: {
         id: true, 
         userId: true, 
@@ -1523,7 +1522,7 @@ export const getSupportStaffByBranch = async (
         role: true,
         status: true, 
         designation: true, 
-        salary: true, // <-- Added salary
+        salary: true, 
       },
       orderBy: { name: "asc" },
     });
