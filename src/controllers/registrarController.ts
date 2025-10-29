@@ -21,7 +21,14 @@ interface TeacherUpdatePayload {
   subjectIds?: string[];
   // Add other updatable fields as needed (e.g., status, doj)
 }
-
+interface SupportStaffUpdatePayload {
+  name?: string;
+  email?: string;
+  phone?: string | null;
+  designation?: string | null;
+  status?: string | null; // Or use your specific status enum/type if available
+  salary?: number; // Add salary here
+}
 const getRegistrarBranchId = (req: Request): string | null => {
   if (req.user?.role === "Registrar" && req.user.branchId) {
     return req.user.branchId;
@@ -1460,7 +1467,6 @@ export const updateTeacher = async (
       data: updateData as Prisma.TeacherUpdateInput, // Cast to Prisma's input type
     });
 
-    // Prisma throws P2025 if not found, caught below
 
     res
       .status(200)
@@ -1574,35 +1580,82 @@ export const createSupportStaff = async (req: Request, res: Response, next: Next
  * @description Update a support staff member's information.
  * @route PATCH /api/registrar/support-staff/:id
  */
-export const updateSupportStaff = async (req: Request, res: Response, next: NextFunction) => {
-    const branchId = getRegistrarBranchId(req);
-    const { id } = req.params; // User ID
-    const { name, email, phone, role, designation, status } = req.body;
-    const updateData = { name, email, phone, role, designation, status };
+export const updateSupportStaff = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  const { id } = req.params; // User ID from URL
 
-    if (!branchId) {
-        return res.status(401).json({ message: "Authentication required." });
+  // 1. Explicitly pull ONLY the allowed fields for support staff update
+  const { name, email, phone, designation, status, salary } = req.body;
+
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
+  // 2. Build the update payload using the defined interface
+  const updateData: SupportStaffUpdatePayload = {};
+  if (name !== undefined) updateData.name = name;
+  if (email !== undefined) updateData.email = email;
+  if (phone !== undefined) updateData.phone = phone; // Allows setting to null/empty
+  if (designation !== undefined) updateData.designation = designation; // Allows setting to null/empty
+  if (status !== undefined) updateData.status = status;
+
+  // Handle salary separately for number conversion
+  if (salary !== undefined) {
+    const parsedSalary = Number(salary);
+    if (!isNaN(parsedSalary)) {
+      updateData.salary = parsedSalary;
+    } else {
+      // Don't include salary in update if it's not a valid number
+      console.warn(`Invalid salary format received for user ${id}: ${salary}`);
+      // Optionally return a 400 error:
+      // return res.status(400).json({ message: "Invalid salary format. Must be a number." });
     }
-    
-    try {
-        // Security: Use updateMany to scope the update to the correct branch and valid roles.
-        const result = await prisma.user.updateMany({
-            where: {
-                id,
-                branchId,
-                role: { in: [UserRole.Librarian, UserRole.SupportStaff, UserRole.Registrar] }
-            },
-            data: updateData
+  }
+
+  // 3. Define the allowed roles for this update operation
+  const allowedRoles: UserRole[] = [
+    UserRole.Librarian,
+    UserRole.SupportStaff,
+    UserRole.Registrar,
+  ];
+
+  try {
+    // 4. Use prisma.user.update for a single record
+    const updatedStaff = await prisma.user.update({
+      where: {
+        id: id,
+        branchId: branchId, // Security: Ensure user belongs to the registrar's branch
+        role: { in: allowedRoles }, // Security: Ensure we only update valid support staff roles
+      },
+      data: updateData as Prisma.UserUpdateInput, // Use the clean updateData
+    });
+
+    // Prisma throws P2025 if not found, caught below
+
+    res
+      .status(200)
+      .json({
+        message: "Staff profile updated successfully.",
+        staff: updatedStaff,
+      });
+  } catch (error: any) {
+    // Check if the error is Prisma's "Record not found" error
+    if (error.code === "P2025") {
+      return res
+        .status(404)
+        .json({
+          message:
+            "Support staff member not found in your branch or does not have an updatable role.",
         });
-
-        if (result.count === 0) {
-            return res.status(404).json({ message: "Support staff not found in your branch." });
-        }
-
-        res.status(200).json({ message: "Staff profile updated successfully." });
-    } catch (error) {
-        next(error);
     }
+    // Handle other potential errors (validation, database connection, etc.)
+    console.error("Error updating support staff:", error);
+    next(error);
+  }
 };
 
 /**
