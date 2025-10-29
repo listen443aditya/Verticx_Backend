@@ -940,21 +940,22 @@ export class RegistrarApiService extends BaseApiService {
       const totalDays = staffRecords.length;
 
       // ✅ Normalize Prisma output for strict User type
-      const normalizedUser: User = {
-        ...s,
-        branchId: s.branchId ?? undefined,
-        phone: s.phone ?? undefined,
-        designation: s.designation ?? undefined,
-        status:
-          s.status === null
-            ? "active" // default fallback if null
-            : (s.status as "active" | "suspended" | undefined),
-      };
-      return {
-        ...normalizedUser,
-        attendancePercentage:
-          totalDays > 0 ? (presentDays / totalDays) * 100 : 100,
-      };
+            const normalizedUser: User = {
+              ...s,
+              branchId: s.branchId ?? undefined,
+              phone: s.phone ?? undefined,
+              designation: s.designation ?? undefined,
+              salary: (s as any).salary ?? undefined,
+              status:
+                s.status === null
+                  ? "active" // default fallback if null
+                  : (s.status as "active" | "suspended" | undefined),
+            };
+            return {
+              ...normalizedUser,
+              attendancePercentage:
+                totalDays > 0 ? (presentDays / totalDays) * 100 : 100,
+            };
     });
   }
 
