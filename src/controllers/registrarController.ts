@@ -3396,28 +3396,26 @@ export const getStudentProfileDetails = async (
   res: Response,
   next: NextFunction
 ) => {
-  const branchId = getRegistrarBranchId(req);
-  const { studentId } = req.params;
-
-  if (!branchId) {
-    return res.status(401).json({ message: "Authentication required." });
-  }
-
   try {
-    // 1. Fetch Student, Parent, Class, Fee Records, Attendance in parallel
+    const branchId = getRegistrarBranchId(req);
+    const { studentId } = req.params;
+
+    if (!branchId) {
+      return res.status(401).json({ message: "Authentication required." });
+    }
+
+    // 1️⃣ Fetch the student with all related records
     const student = await prisma.student.findFirst({
-      where: { id: studentId, branchId: branchId },
+      where: { id: studentId, branchId },
       include: {
-        parent: true, // Include parent user details
-        class: true, // Include class details
+        parent: true,
+        class: true,
         feeRecords: true,
         attendanceRecords: {
-          // Fetch recent attendance for summary
           orderBy: { date: "desc" },
-          take: 30, // Example: last 30 records
+          take: 30, // last 30 records
         },
         suspensionRecords: {
-          // Include active suspensions
           where: { endDate: { gte: new Date() } },
           orderBy: { endDate: "desc" },
         },
@@ -3430,65 +3428,82 @@ export const getStudentProfileDetails = async (
         .json({ message: "Student not found in your branch." });
     }
 
-    // 2. Calculate Summaries
+    // 2️⃣ Compute summaries
+    const attendanceTotal = student.attendanceRecords?.length || 0;
+    const attendancePresent =
+      student.attendanceRecords?.filter((r) => r.status === "Present").length ||
+      0;
+
     const attendanceSummary = {
-      total: student.attendanceRecords.length,
-      present: student.attendanceRecords.filter((r) => r.status === "Present")
-        .length,
-      // Calculate percentage safely
+      total: attendanceTotal,
+      present: attendancePresent,
       percentage:
-        student.attendanceRecords.length > 0
-          ? (student.attendanceRecords.filter((r) => r.status === "Present")
-              .length /
-              student.attendanceRecords.length) *
-            100
-          : 100, // Assume 100% if no records yet
+        attendanceTotal > 0 ? (attendancePresent / attendanceTotal) * 100 : 100,
     };
 
     const feeSummary = {
-      totalBilled: student.feeRecords.reduce(
-        (sum, r) => sum + r.totalAmount,
-        0
-      ),
-      totalPaid: student.feeRecords.reduce((sum, r) => sum + r.paidAmount, 0),
-      pending: student.feeRecords.reduce(
-        (sum, r) => sum + (r.totalAmount - r.paidAmount),
-        0
-      ),
+      totalBilled:
+        student.feeRecords?.reduce((sum, r) => sum + (r.totalAmount || 0), 0) ||
+        0,
+      totalPaid:
+        student.feeRecords?.reduce((sum, r) => sum + (r.paidAmount || 0), 0) ||
+        0,
+      pending:
+        student.feeRecords?.reduce(
+          (sum, r) => sum + ((r.totalAmount || 0) - (r.paidAmount || 0)),
+          0
+        ) || 0,
       nextDueDate:
-        student.feeRecords.length > 0 ? student.feeRecords[0].dueDate : null, // Simplistic example
+        student.feeRecords && student.feeRecords.length > 0
+          ? student.feeRecords[0].dueDate
+          : null,
     };
 
-    // 3. Assemble Profile (matching StudentProfile type)
+    // 3️⃣ Build a safe profile object — no undefineds, no sensitive fields
     const profile = {
       student: {
-        ...student,
-        // Remove sensitive or redundant data before sending
-        passwordHash: undefined, // Example if parent had password hash
+        id: student.id,
+        name: student.name,
+        gender: student.gender,
+        dob: student.dob,
+        address: student.address,
+        guardianInfo: student.guardianInfo || {
+          name: "",
+          email: "",
+          phone: "",
+        },
+        status: student.status,
+        // schoolRank: student.schoolRank ?? null,
+        classId: student.classId,
+        branchId: student.branchId,
+        createdAt: student.createdAt,
+        // updatedAt: student.updatedAt,
       },
       parent: student.parent
         ? {
-            ...student.parent,
-            passwordHash: undefined, // Remove sensitive data
+            id: student.parent.id,
+            name: student.parent.name,
+            email: student.parent.email,
+            phone: student.parent.phone,
           }
         : null,
       className: student.class
         ? `Grade ${student.class.gradeLevel} - ${student.class.section}`
-        : "N/A",
-      attendanceSummary: attendanceSummary,
-      feeSummary: feeSummary,
-      recentAttendance: student.attendanceRecords,
+        : "Unassigned",
+      attendanceSummary,
+      feeSummary,
+      recentAttendance: student.attendanceRecords || [],
       activeSuspension:
-        student.suspensionRecords.length > 0
+        student.suspensionRecords && student.suspensionRecords.length > 0
           ? student.suspensionRecords[0]
           : null,
-      // Add other fields required by StudentProfile type (e.g., recentMarks)
     };
 
-    res.status(200).json(profile);
+    // 4️⃣ Send a consistent JSON payload
+    return res.status(200).json(profile);
   } catch (error) {
-    console.error("Error fetching student profile:", error);
-    next(error);
+    console.error("❌ Error fetching student profile:", error);
+    return next(error);
   }
 };
 
