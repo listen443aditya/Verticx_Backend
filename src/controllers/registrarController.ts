@@ -1,8 +1,9 @@
 // src/controllers/registrarController.ts
 import { Request, Response, NextFunction} from "express";
-import { registrarApiService } from "../services";
+// import { registrarApiService } from "../services";
 import prisma from "../prisma";
 import {
+  Prisma,
   FeePayment,
   Student,
   UserRole,
@@ -10,7 +11,16 @@ import {
 } from "@prisma/client"; 
 import { generatePassword } from "../utils/helpers"; 
 import bcrypt from "bcryptjs";
-
+// import { getBranchId } from "../utils/authUtils";
+interface TeacherUpdatePayload {
+  name?: string;
+  email?: string;
+  phone?: string | null;
+  qualification?: string;
+  salary?: number;
+  subjectIds?: string[];
+  // Add other updatable fields as needed (e.g., status, doj)
+}
 
 const getRegistrarBranchId = (req: Request): string | null => {
   if (req.user?.role === "Registrar" && req.user.branchId) {
@@ -1391,32 +1401,86 @@ export const getAllStaffForBranch = async (
  * @description Update a teacher's profile information.
  * @route PATCH /api/registrar/teachers/:id
  */
-export const updateTeacher = async (req: Request, res: Response, next: NextFunction) => {
-    const branchId = getRegistrarBranchId(req);
-    const { id } = req.params; // Teacher ID
-    // Securely destructure payload to prevent unwanted field updates
-    const { name, email, phone, qualification, salary } = req.body;
-    const updateData = { name, email, phone, qualification, salary };
+export const updateTeacher = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  const { id } = req.params; // Teacher ID from URL
 
-    if (!branchId) {
-        return res.status(401).json({ message: "Authentication required." });
+  // 1. Validate incoming data structure (basic check)
+  const { subjectIds, salary, ...otherData } = req.body;
+
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+  if (subjectIds !== undefined && !Array.isArray(subjectIds)) {
+    return res
+      .status(400)
+      .json({ message: "subjectIds must be an array of strings." });
+  }
+  // Optional: Add more validation here (e.g., check email format)
+
+  // 2. Build the update payload using the defined interface for type safety
+  const updateData: TeacherUpdatePayload = { ...otherData };
+
+  if (salary !== undefined) {
+    const parsedSalary = Number(salary);
+    if (!isNaN(parsedSalary)) {
+      updateData.salary = parsedSalary;
+    } else {
+      return res
+        .status(400)
+        .json({ message: "Invalid salary format. Must be a number." });
     }
+  }
 
-    try {
-        // Security: Use updateMany to ensure we only update a teacher within the registrar's branch.
-        const result = await prisma.teacher.updateMany({
-            where: { id, branchId },
-            data: updateData
+  // 3. Handle subjectIds specifically
+  // This assumes your Prisma schema has `subjectIds String[]` on the Teacher model
+  if (subjectIds !== undefined) {
+    // Ensure all elements in the array are strings (basic sanitation)
+    if (subjectIds.every((item: any) => typeof item === "string")) {
+      updateData.subjectIds = subjectIds;
+    } else {
+      return res
+        .status(400)
+        .json({ message: "subjectIds array must contain only strings." });
+    }
+  }
+
+  try {
+    // 4. Use prisma.teacher.update with strong typing
+    const updatedTeacher = await prisma.teacher.update({
+      where: {
+        id: id,
+        branchId: branchId, // Security: Ensures the teacher belongs to the registrar's branch
+      },
+      // Use the type-safe updateData object
+      data: updateData as Prisma.TeacherUpdateInput, // Cast to Prisma's input type
+    });
+
+    // Prisma throws P2025 if not found, caught below
+
+    res
+      .status(200)
+      .json({
+        message: "Teacher profile updated successfully.",
+        teacher: updatedTeacher,
+      });
+  } catch (error: any) {
+    // Check if the error is Prisma's "Record not found" error
+    if (error.code === "P2025") {
+      return res
+        .status(404)
+        .json({
+          message: "Teacher not found in your branch or does not exist.",
         });
-
-        if (result.count === 0) {
-            return res.status(404).json({ message: "Teacher not found in your branch." });
-        }
-        
-        res.status(200).json({ message: "Teacher profile updated successfully." });
-    } catch (error) {
-        next(error);
     }
+    // Handle other potential errors (validation, database connection, etc.)
+    console.error("Error updating teacher:", error); // Log the actual error for debugging
+    next(error);
+  }
 };
 
 /**
