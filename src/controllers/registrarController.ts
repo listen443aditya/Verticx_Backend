@@ -7,6 +7,7 @@ import {
   FeePayment,
   Student,
   UserRole,
+  FeeAdjustment,
   TeacherAttendanceStatus,
 } from "@prisma/client"; 
 import { generatePassword } from "../utils/helpers"; 
@@ -3396,29 +3397,32 @@ export const getStudentProfileDetails = async (
   res: Response,
   next: NextFunction
 ) => {
+  const branchId = getRegistrarBranchId(req);
+  const { studentId } = req.params;
+
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
   try {
-    const branchId = getRegistrarBranchId(req);
-    const { studentId } = req.params;
-
-    if (!branchId) {
-      return res.status(401).json({ message: "Authentication required." });
-    }
-
-    // 1️⃣ Fetch the student with all related records
+    // 1. Fetch Student and essential relations
     const student = await prisma.student.findFirst({
-      where: { id: studentId, branchId },
+      where: { id: studentId, branchId: branchId },
       include: {
         parent: true,
         class: true,
-        feeRecords: true,
-        attendanceRecords: {
-          orderBy: { date: "desc" },
-          take: 30, // last 30 records
-        },
+        feeRecords: { include: { payments: true } },
+        attendanceRecords: { orderBy: { date: "desc" }, take: 90 },
         suspensionRecords: {
           where: { endDate: { gte: new Date() } },
           orderBy: { endDate: "desc" },
         },
+        examMarks: {
+          include: {
+            examSchedule: { include: { subject: true } },
+          },
+        },
+        FeeAdjustment: { orderBy: { date: "desc" } },
       },
     });
 
@@ -3428,84 +3432,128 @@ export const getStudentProfileDetails = async (
         .json({ message: "Student not found in your branch." });
     }
 
-    // 2️⃣ Compute summaries
-    const attendanceTotal = student.attendanceRecords?.length || 0;
-    const attendancePresent =
-      student.attendanceRecords?.filter((r) => r.status === "Present").length ||
-      0;
+    // 2. Calculate Summaries and Format Data
 
-    const attendanceSummary = {
+    const attendanceTotal = await prisma.attendanceRecord.count({
+      where: { studentId: studentId },
+    });
+    const attendancePresent = await prisma.attendanceRecord.count({
+      where: { studentId: studentId, status: "Present" },
+    });
+    const attendance = {
       total: attendanceTotal,
       present: attendancePresent,
       percentage:
         attendanceTotal > 0 ? (attendancePresent / attendanceTotal) * 100 : 100,
     };
 
-    const feeSummary = {
-      totalBilled:
-        student.feeRecords?.reduce((sum, r) => sum + (r.totalAmount || 0), 0) ||
-        0,
-      totalPaid:
-        student.feeRecords?.reduce((sum, r) => sum + (r.paidAmount || 0), 0) ||
-        0,
-      pending:
-        student.feeRecords?.reduce(
-          (sum, r) => sum + ((r.totalAmount || 0) - (r.paidAmount || 0)),
-          0
-        ) || 0,
-      nextDueDate:
-        student.feeRecords && student.feeRecords.length > 0
-          ? student.feeRecords[0].dueDate
-          : null,
+    const feeStatus = {
+      total: student.feeRecords.reduce((sum, r) => sum + r.totalAmount, 0),
+      paid: student.feeRecords.reduce((sum, r) => sum + r.paidAmount, 0),
+      pending: student.feeRecords.reduce(
+        (sum, r) => sum + (r.totalAmount - r.paidAmount),
+        0
+      ),
     };
 
-    // 3️⃣ Build a safe profile object — no undefineds, no sensitive fields
+    type PaymentItem = FeePayment & { type: "payment" }; // <-- Corrected
+    type AdjustmentItem = FeeAdjustment & { type: "adjustment" }; // <-- Corrected
+    type HistoryItem = PaymentItem | AdjustmentItem;
+
+    const paymentHistory = student.feeRecords
+      .flatMap((fr) => fr.payments)
+      .map((p) => ({ ...p, itemType: "payment" as const })); // Use a different property name like 'itemType'
+
+    // Map adjustments, adding the same 'itemType' property
+    const adjustmentHistory = (student.FeeAdjustment || []).map(
+      (adj) => ({ ...adj, itemType: "adjustment" as const }) // Use 'itemType'
+    );
+
+    // Combine the arrays (TypeScript can now infer the union type)
+    const feeHistory = [...paymentHistory, ...adjustmentHistory].sort(
+      (a, b) => {
+        let dateA: Date | undefined | null;
+        let dateB: Date | undefined | null;
+
+        // Check the discriminating property 'itemType'
+        if (a.itemType === "payment") {
+          dateA = a.paidDate;
+        } else {
+          // 'a' must be AdjustmentItem
+          dateA = a.date;
+        }
+
+        if (b.itemType === "payment") {
+          dateB = b.paidDate;
+        } else {
+          // 'b' must be AdjustmentItem
+          dateB = b.date;
+        }
+
+        // Ensure dates are valid before comparing
+        const timeA = dateA ? new Date(dateA).getTime() : 0;
+        const timeB = dateB ? new Date(dateB).getTime() : 0;
+        return timeB - timeA; // Sort descending (most recent first)
+      }
+    );
+
+    const grades = student.examMarks.map((mark) => ({
+      courseName: mark.examSchedule.subject.name,
+      score: mark.score,
+    }));
+
+    const rank = { class: "N/A", school: "N/A" };
+
+    const skills = [
+      { subject: "Communication", A: Math.random() * 5 },
+      { subject: "Problem Solving", A: Math.random() * 5 },
+      { subject: "Teamwork", A: Math.random() * 5 },
+      { subject: "Creativity", A: Math.random() * 5 },
+      { subject: "Leadership", A: Math.random() * 5 },
+    ];
+
+    // FIX 3: Remove the frontend-specific 'StudentProfile' type annotation.
+    // The structure returned implicitly matches what the frontend expects.
     const profile = {
       student: {
-        id: student.id,
-        name: student.name,
-        gender: student.gender,
-        dob: student.dob,
-        address: student.address,
-        guardianInfo: student.guardianInfo || {
-          name: "",
-          email: "",
-          phone: "",
-        },
-        status: student.status,
-        // schoolRank: student.schoolRank ?? null,
-        classId: student.classId,
-        branchId: student.branchId,
-        createdAt: student.createdAt,
-        // updatedAt: student.updatedAt,
+        ...student,
+        passwordHash: undefined,
+        // Explicitly remove relations included for calculation but not needed in final student object
+        feeRecords: undefined,
+        attendanceRecords: undefined,
+        suspensionRecords: undefined,
+        examMarks: undefined,
+        FeeAdjustment: undefined,
       },
       parent: student.parent
         ? {
-            id: student.parent.id,
-            name: student.parent.name,
-            email: student.parent.email,
-            phone: student.parent.phone,
+            ...student.parent,
+            passwordHash: undefined,
           }
         : null,
-      className: student.class
+      classInfo: student.class
         ? `Grade ${student.class.gradeLevel} - ${student.class.section}`
-        : "Unassigned",
-      attendanceSummary,
-      feeSummary,
-      recentAttendance: student.attendanceRecords || [],
+        : "N/A",
+      attendance: attendance,
+      feeStatus: feeStatus,
+      attendanceHistory: student.attendanceRecords, // Send the original records
+      feeHistory: feeHistory,
+      grades: grades,
+      rank: rank,
+      skills: skills,
       activeSuspension:
-        student.suspensionRecords && student.suspensionRecords.length > 0
+        student.suspensionRecords.length > 0
           ? student.suspensionRecords[0]
           : null,
     };
 
-    // 4️⃣ Send a consistent JSON payload
-    return res.status(200).json(profile);
+    res.status(200).json(profile);
   } catch (error) {
-    console.error("❌ Error fetching student profile:", error);
-    return next(error);
+    console.error("Error fetching student profile:", error);
+    next(error);
   }
 };
+
 
 export const getAttendanceRecordsForBranch = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
