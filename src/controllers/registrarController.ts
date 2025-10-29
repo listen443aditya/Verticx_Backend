@@ -1280,6 +1280,67 @@ export const getTeachersByBranch = async (req: Request, res: Response, next: Nex
 };
 
 
+// export const getAllStaffForBranch = async (
+//   req: Request,
+//   res: Response,
+//   next: NextFunction
+// ) => {
+//   const branchId = getRegistrarBranchId(req);
+//   if (!branchId) {
+//     return res
+//       .status(401)
+//       .json({ message: "Authentication required with a valid branch." });
+//   }
+
+//   // Define the roles considered as staff for this branch
+//   const staffRoles: UserRole[] = [
+//     "Teacher",
+//     "Registrar",
+//     "Librarian",
+//     "Principal",
+//     // Add 'SupportStaff' or other relevant roles if needed
+//   ];
+
+//   try {
+//     // 1️⃣ Fetch users matching the staff roles and branch
+//     const staffUsers = await prisma.user.findMany({
+//       where: {
+//         branchId: branchId,
+//         role: { in: staffRoles },
+//       },
+//       // 2️⃣ Crucially, include the related Teacher data
+//       include: {
+//         teacher: true, // This fetches qualification, subjectIds, salary etc.
+//       },
+//       orderBy: {
+//         name: "asc", // Optional: Order alphabetically
+//       },
+//     });
+
+//     // 3️⃣ Combine User data with Teacher data where available
+//     const combinedStaff = staffUsers.map((user) => {
+//       // If the user has linked teacher data, merge it in
+//       if (user.teacher) {
+//         return {
+//           ...user, // Basic user info (id, name, email, role, status)
+//           ...user.teacher, // Teacher-specific info (qualification, subjectIds, salary)
+//           id: user.id, // Ensure the User ID overrides the Teacher ID if they differ
+//         };
+//       }
+//       // If not a teacher, return just the user data
+//       return user;
+//     });
+
+//     // We don't need attendance logic here, the frontend service can handle that if needed elsewhere
+
+//     res.status(200).json(combinedStaff);
+//   } catch (error) {
+//     next(error);
+//   }
+// };
+
+
+
 export const getAllStaffForBranch = async (
   req: Request,
   res: Response,
@@ -1292,52 +1353,39 @@ export const getAllStaffForBranch = async (
       .json({ message: "Authentication required with a valid branch." });
   }
 
-  // Define the roles considered as staff for this branch
   const staffRoles: UserRole[] = [
     "Teacher",
     "Registrar",
     "Librarian",
     "Principal",
-    // Add 'SupportStaff' or other relevant roles if needed
-  ];
+    "SupportStaff",
+    ];
 
   try {
-    // 1️⃣ Fetch users matching the staff roles and branch
     const staffUsers = await prisma.user.findMany({
       where: {
         branchId: branchId,
         role: { in: staffRoles },
       },
-      // 2️⃣ Crucially, include the related Teacher data
       include: {
-        teacher: true, // This fetches qualification, subjectIds, salary etc.
+        // Include the FULL teacher record, not just specific fields
+        teacher: true,
       },
       orderBy: {
-        name: "asc", // Optional: Order alphabetically
+        name: "asc",
       },
     });
 
-    // 3️⃣ Combine User data with Teacher data where available
-    const combinedStaff = staffUsers.map((user) => {
-      // If the user has linked teacher data, merge it in
-      if (user.teacher) {
-        return {
-          ...user, // Basic user info (id, name, email, role, status)
-          ...user.teacher, // Teacher-specific info (qualification, subjectIds, salary)
-          id: user.id, // Ensure the User ID overrides the Teacher ID if they differ
-        };
-      }
-      // If not a teacher, return just the user data
-      return user;
-    });
+    // We no longer need manual merging here.
+    // The data structure returned by Prisma with the include is already good:
+    // User { id, name, ..., teacher: Teacher | null }
 
-    // We don't need attendance logic here, the frontend service can handle that if needed elsewhere
-
-    res.status(200).json(combinedStaff);
+    res.status(200).json(staffUsers); // Send the direct Prisma result
   } catch (error) {
     next(error);
   }
 };
+
 
 /**
  * @description Update a teacher's profile information.
