@@ -103,7 +103,9 @@ router.post("/subjects", registrarController.createSubject);
 //   registrarController.createTimetableConfig
 // );
 
+router.get("/classes/:id", registrarController.getClassDetails);
 
+router.put("/classes/:id/subjects", registrarController.updateClassSubjects);
 
 
 // --- Faculty & Staff Management ---

@@ -11,7 +11,8 @@ import {
 } from "@prisma/client"; 
 import { generatePassword } from "../utils/helpers"; 
 import bcrypt from "bcryptjs";
-// import { getBranchId } from "../utils/authUtils";
+
+import { getBranchId } from "../utils/authUtils";
 interface TeacherUpdatePayload {
   name?: string;
   email?: string;
@@ -1163,6 +1164,124 @@ export const assignStudentsToClass = async (req: Request, res: Response, next: N
     });
 
     res.status(200).json({ message: `${result.count} students were assigned to the class.` });
+  } catch (error) {
+    next(error);
+  }
+};
+
+
+export const getClassDetails = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  const { id: classId } = req.params; // Get classId from the URL
+
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
+  try {
+    // 1. Get Class Info, Subjects, and Mentor
+    const classInfo = await prisma.schoolClass.findFirst({
+      where: { id: classId, branchId: branchId },
+      include: {
+        subjects: {
+          include: {
+            teacher: { select: { name: true } }, // Get teacher's name for each subject
+          },
+        },
+        mentor: { select: { name: true } }, // Get mentor's name
+      },
+    });
+
+    if (!classInfo) {
+      return res
+        .status(404)
+        .json({ message: "Class not found in your branch." });
+    }
+
+    // 2. Get Student Roster
+    // FIX: Removed 'classRank' and 'schoolRank' as they don't exist on the Student model.
+    const students = await prisma.student.findMany({
+      where: { classId: classId },
+      select: {
+        id: true,
+        name: true,
+        // classRank: true, // Removed
+        // schoolRank: true, // Removed
+      },
+      orderBy: { name: "asc" }, // Changed to sort by name as rank is not available
+    });
+
+    // 3. Format Subject & Performance Data
+    const subjectsWithDetails = [];
+    const performance = [];
+
+    for (const sub of classInfo.subjects) {
+      const avg = await prisma.examMark.aggregate({
+        _avg: { score: true },
+        where: { examSchedule: { classId: classId, subjectId: sub.id } },
+      });
+
+      const averageScore = avg._avg.score || 0;
+
+      subjectsWithDetails.push({
+        subjectId: sub.id,
+        subjectName: sub.name,
+        teacherName: sub.teacher?.name || "N/A",
+        syllabusCompletion: 0, // Placeholder
+      });
+
+      performance.push({
+        subjectName: sub.name,
+        averageScore: averageScore,
+      });
+    }
+
+    // 4. Get Fee Details
+    // FIX: Changed 'amountPaid' to 'paidAmount' to match schema
+    const feeAggregates = await prisma.feeRecord.aggregate({
+      _sum: { totalAmount: true, paidAmount: true },
+      where: { student: { classId: classId } },
+    });
+
+    // FIX: Added null safety (?. and ??) and fixed typo to 'paidAmount'
+    const totalPending =
+      (feeAggregates._sum?.totalAmount ?? 0) -
+      (feeAggregates._sum?.paidAmount ?? 0);
+
+    // FIX: Changed 'fr."amountPaid"' to 'fr."paidAmount"' in raw query
+    const defaulterList = await prisma.$queryRaw<any[]>`
+      SELECT s.id, s.name, SUM(fr."totalAmount" - fr."paidAmount") as "pendingAmount"
+      FROM "Student" s
+      JOIN "FeeRecord" fr ON s.id = fr."studentId"
+      WHERE s."classId" = ${classId}
+      GROUP BY s.id, s.name
+      HAVING SUM(fr."totalAmount" - fr."paidAmount") > 0
+    `;
+
+    const fees = {
+      totalPending: totalPending,
+      defaulters: defaulterList.map((d) => ({
+        studentId: d.id,
+        studentName: d.name,
+        pendingAmount: Number(d.pendingAmount),
+      })),
+    };
+
+    // 5. Assemble the final ClassDetails object
+    const classDetails = {
+      classInfo: { ...classInfo, mentorName: classInfo.mentor?.name || "N/A" },
+      students: students,
+      subjects: subjectsWithDetails,
+      performance: performance,
+      attendance: [], // Attendance data is not used in your modal, so we send an empty array
+      fees: fees,
+    };
+
+    res.status(200).json(classDetails);
   } catch (error) {
     next(error);
   }
