@@ -1316,6 +1316,10 @@ export const getClassDetails = async (
   }
 };
 
+
+
+
+
 /**
  * @description Remove a single student from their currently assigned class.
  * @route PATCH /api/registrar/students/:studentId/remove-from-class
@@ -3385,6 +3389,107 @@ export const getStudentsForBranch = async (req: Request, res: Response, next: Ne
     } catch (error) {
         next(error);
     }
+};
+
+export const getStudentProfileDetails = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  const { studentId } = req.params;
+
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
+  try {
+    // 1. Fetch Student, Parent, Class, Fee Records, Attendance in parallel
+    const student = await prisma.student.findFirst({
+      where: { id: studentId, branchId: branchId },
+      include: {
+        parent: true, // Include parent user details
+        class: true, // Include class details
+        feeRecords: true,
+        attendanceRecords: {
+          // Fetch recent attendance for summary
+          orderBy: { date: "desc" },
+          take: 30, // Example: last 30 records
+        },
+        suspensionRecords: {
+          // Include active suspensions
+          where: { endDate: { gte: new Date() } },
+          orderBy: { endDate: "desc" },
+        },
+      },
+    });
+
+    if (!student) {
+      return res
+        .status(404)
+        .json({ message: "Student not found in your branch." });
+    }
+
+    // 2. Calculate Summaries
+    const attendanceSummary = {
+      total: student.attendanceRecords.length,
+      present: student.attendanceRecords.filter((r) => r.status === "Present")
+        .length,
+      // Calculate percentage safely
+      percentage:
+        student.attendanceRecords.length > 0
+          ? (student.attendanceRecords.filter((r) => r.status === "Present")
+              .length /
+              student.attendanceRecords.length) *
+            100
+          : 100, // Assume 100% if no records yet
+    };
+
+    const feeSummary = {
+      totalBilled: student.feeRecords.reduce(
+        (sum, r) => sum + r.totalAmount,
+        0
+      ),
+      totalPaid: student.feeRecords.reduce((sum, r) => sum + r.paidAmount, 0),
+      pending: student.feeRecords.reduce(
+        (sum, r) => sum + (r.totalAmount - r.paidAmount),
+        0
+      ),
+      nextDueDate:
+        student.feeRecords.length > 0 ? student.feeRecords[0].dueDate : null, // Simplistic example
+    };
+
+    // 3. Assemble Profile (matching StudentProfile type)
+    const profile = {
+      student: {
+        ...student,
+        // Remove sensitive or redundant data before sending
+        passwordHash: undefined, // Example if parent had password hash
+      },
+      parent: student.parent
+        ? {
+            ...student.parent,
+            passwordHash: undefined, // Remove sensitive data
+          }
+        : null,
+      className: student.class
+        ? `Grade ${student.class.gradeLevel} - ${student.class.section}`
+        : "N/A",
+      attendanceSummary: attendanceSummary,
+      feeSummary: feeSummary,
+      recentAttendance: student.attendanceRecords,
+      activeSuspension:
+        student.suspensionRecords.length > 0
+          ? student.suspensionRecords[0]
+          : null,
+      // Add other fields required by StudentProfile type (e.g., recentMarks)
+    };
+
+    res.status(200).json(profile);
+  } catch (error) {
+    console.error("Error fetching student profile:", error);
+    next(error);
+  }
 };
 
 export const getAttendanceRecordsForBranch = async (req: Request, res: Response, next: NextFunction) => {

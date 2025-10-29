@@ -51,6 +51,13 @@ router.post(
   registrarController.resetStudentAndParentPasswords
 ); 
 
+router.get(
+  "/students/:studentId/profile",
+  registrarController.getStudentProfileDetails
+);
+
+router.patch("/students/:id", registrarController.updateStudent);
+
 // --- Academic Record Routes ---
 router.get(
   "/attendance-records",
