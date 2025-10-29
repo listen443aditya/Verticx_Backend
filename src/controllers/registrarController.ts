@@ -1176,7 +1176,7 @@ export const getClassDetails = async (
   next: NextFunction
 ) => {
   const branchId = getRegistrarBranchId(req);
-  const { id: classId } = req.params; // Get classId from the URL
+  const { id: classId } = req.params;
 
   if (!branchId) {
     return res.status(401).json({ message: "Authentication required." });
@@ -1189,10 +1189,10 @@ export const getClassDetails = async (
       include: {
         subjects: {
           include: {
-            teacher: { select: { name: true } }, // Get teacher's name for each subject
+            teacher: { select: { name: true } },
           },
         },
-        mentor: { select: { name: true } }, // Get mentor's name
+        mentor: { select: { name: true } },
       },
     });
 
@@ -1202,57 +1202,35 @@ export const getClassDetails = async (
         .json({ message: "Class not found in your branch." });
     }
 
-    // 2. Get Student Roster
-    // FIX: Removed 'classRank' and 'schoolRank' as they don't exist on the Student model.
-    const students = await prisma.student.findMany({
-      where: { classId: classId },
-      select: {
-        id: true,
-        name: true,
-        // classRank: true, // Removed
-        // schoolRank: true, // Removed
-      },
-      orderBy: { name: "asc" }, // Changed to sort by name as rank is not available
-    });
-
-    // 3. Format Subject & Performance Data
+    // 2. Format Subject & Performance Data (Same as before)
     const subjectsWithDetails = [];
     const performance = [];
-
     for (const sub of classInfo.subjects) {
       const avg = await prisma.examMark.aggregate({
         _avg: { score: true },
         where: { examSchedule: { classId: classId, subjectId: sub.id } },
       });
-
       const averageScore = avg._avg.score || 0;
-
       subjectsWithDetails.push({
         subjectId: sub.id,
         subjectName: sub.name,
         teacherName: sub.teacher?.name || "N/A",
         syllabusCompletion: 0, // Placeholder
       });
-
       performance.push({
         subjectName: sub.name,
         averageScore: averageScore,
       });
     }
 
-    // 4. Get Fee Details
-    // FIX: Changed 'amountPaid' to 'paidAmount' to match schema
+    // 3. Get Fee Details (Same as before)
     const feeAggregates = await prisma.feeRecord.aggregate({
       _sum: { totalAmount: true, paidAmount: true },
       where: { student: { classId: classId } },
     });
-
-    // FIX: Added null safety (?. and ??) and fixed typo to 'paidAmount'
     const totalPending =
       (feeAggregates._sum?.totalAmount ?? 0) -
       (feeAggregates._sum?.paidAmount ?? 0);
-
-    // FIX: Changed 'fr."amountPaid"' to 'fr."paidAmount"' in raw query
     const defaulterList = await prisma.$queryRaw<any[]>`
       SELECT s.id, s.name, SUM(fr."totalAmount" - fr."paidAmount") as "pendingAmount"
       FROM "Student" s
@@ -1261,7 +1239,6 @@ export const getClassDetails = async (
       GROUP BY s.id, s.name
       HAVING SUM(fr."totalAmount" - fr."paidAmount") > 0
     `;
-
     const fees = {
       totalPending: totalPending,
       defaulters: defaulterList.map((d) => ({
@@ -1271,13 +1248,65 @@ export const getClassDetails = async (
       })),
     };
 
-    // 5. Assemble the final ClassDetails object
+    // 4. --- RANK CALCULATION LOGIC ---
+    // Get all students in the class
+    const studentsInClass = await prisma.student.findMany({
+      where: { classId: classId },
+      select: { id: true, name: true },
+    });
+
+    // Helper function to get average scores
+    const getAverageScores = async (studentIds: string[]) => {
+      const averages = await prisma.examMark.groupBy({
+        by: ["studentId"],
+        _avg: { score: true },
+        where: { studentId: { in: studentIds } },
+      });
+      return new Map(averages.map((a) => [a.studentId, a._avg.score || 0]));
+    };
+
+    // Calculate class ranks
+    const classScores = await getAverageScores(
+      studentsInClass.map((s) => s.id)
+    );
+    const sortedClassRanks = [...classScores.entries()]
+      .sort((a, b) => b[1] - a[1])
+      // --- THIS IS THE FIX ---
+      // Tell TypeScript this is a 2-element tuple
+      .map((entry, index) => [entry[0], index + 1] as [string, number]);
+    const classRankMap = new Map(sortedClassRanks);
+
+    // Calculate school ranks (based on grade level)
+    const schoolScores = await getAverageScores(
+      (
+        await prisma.student.findMany({
+          where: { branchId: branchId, gradeLevel: classInfo.gradeLevel },
+          select: { id: true },
+        })
+      ).map((s) => s.id)
+    );
+    const sortedSchoolRanks = [...schoolScores.entries()]
+      .sort((a, b) => b[1] - a[1])
+      // --- THIS IS THE FIX ---
+      // Tell TypeScript this is a 2-element tuple
+      .map((entry, index) => [entry[0], index + 1] as [string, number]);
+    const schoolRankMap = new Map(sortedSchoolRanks);
+
+    // 5. Assemble Student Roster with Ranks
+    const studentsWithRank = studentsInClass.map((student) => ({
+      id: student.id,
+      name: student.name,
+      classRank: classRankMap.get(student.id) || null,
+      schoolRank: schoolRankMap.get(student.id) || null,
+    }));
+
+    // 6. Assemble the final ClassDetails object
     const classDetails = {
       classInfo: { ...classInfo, mentorName: classInfo.mentor?.name || "N/A" },
-      students: students,
+      students: studentsWithRank,
       subjects: subjectsWithDetails,
       performance: performance,
-      attendance: [], // Attendance data is not used in your modal, so we send an empty array
+      attendance: [],
       fees: fees,
     };
 
