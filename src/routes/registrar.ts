@@ -57,8 +57,9 @@ router.get(
   "/students/:studentId/profile",
   registrarController.getStudentProfileDetails
 );
+// AFTER
 
-router.patch("/students/:id", registrarController.updateStudent);
+// router.patch("/students/:id", registrarController.updateStudent);
 
 // --- Academic Record Routes ---
 router.get(

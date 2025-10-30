@@ -900,37 +900,74 @@ export const removeSuspension = async (req: Request, res: Response, next: NextFu
  * @description Update a student's profile information.
  * @route PATCH /api/registrar/students/:id
  */
-export const updateStudent = async (req: Request, res: Response, next: NextFunction) => {
+export const updateStudent = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   const branchId = getRegistrarBranchId(req);
-  const { id } = req.params;
+  const { id: studentId } = req.params; // Get the student's ID from the URL
+
+  // 1. Explicitly "whitelist" the fields you allow to be updated from the form.
+  const {
+    name,
+    classId,
+    dob, // This will be a string like "2025-10-02"
+    address,
+    gender,
+    guardianInfo,
+    status,
+  } = req.body;
 
   if (!branchId) {
     return res.status(401).json({ message: "Authentication required." });
   }
-  
-  // Exclude fields that should not be updated through this generic endpoint
-  const { id: studentId, branchId: reqBranchId, status, ...updateData } = req.body;
+
+  // 2. Create a clean updateData object for Prisma
+  const updateData: Prisma.StudentUpdateInput = {};
+
+  // Conditionally add fields to the update object if they were provided
+  if (name !== undefined) updateData.name = name;
+  if (classId !== undefined) updateData.class = { connect: { id: classId } };
+  if (address !== undefined) updateData.address = address;
+  if (gender !== undefined) updateData.gender = gender;
+  if (guardianInfo !== undefined) updateData.guardianInfo = guardianInfo;
+  if (status !== undefined) updateData.status = status;
+
+  // 3. THIS IS THE FIX:
+  // Convert the 'dob' string into a valid JavaScript Date object
+  if (dob) {
+    updateData.dob = new Date(dob);
+  }
 
   try {
-    // Security Check: Ensure student exists in the registrar's branch before updating.
-    const studentExists = await prisma.student.findFirst({
-        where: { id, branchId }
-    });
-
-    if (!studentExists) {
-        return res.status(404).json({ message: "Student not found in your branch." });
-    }
-
+    // 4. Update the student record securely, ensuring it's in the registrar's branch
     const updatedStudent = await prisma.student.update({
-      where: { id },
+      where: {
+        id: studentId,
+        branchId: branchId, // Security check
+      },
       data: updateData,
     });
-    res.status(200).json(updatedStudent);
-  } catch (error) {
+
+    res
+      .status(200)
+      .json({
+        message: "Student updated successfully.",
+        student: updatedStudent,
+      });
+  } catch (error: any) {
+    // Catch the error if the student wasn't found (e.g., wrong ID or branch)
+    if (error.code === "P2025") {
+      return res
+        .status(404)
+        .json({ message: "Student not found in your branch." });
+    }
+    // Pass any other errors (like the validation error we just fixed) to the handler
+    console.error("Error updating student:", error);
     next(error);
   }
 };
-
 /**
  * @description Reset passwords for a student (if they have a user account) and their parent.
  * @route POST /api/registrar/students/:id/reset-password
