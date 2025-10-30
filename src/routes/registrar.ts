@@ -126,6 +126,7 @@ router.post("/staff/support", registrarController.createSupportStaff);
 router.put("/staff/support/:id", registrarController.updateSupportStaff); 
 router.delete("/staff/support/:id", registrarController.deleteSupportStaff); 
 router.get("/staff/all", registrarController.getAllStaffForBranch);
+router.post("/users/:id/reset-password", registrarController.resetUserPassword);
 
 // --- Academic & Leave Requests ---
 router.get(

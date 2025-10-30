@@ -1954,6 +1954,57 @@ export const deleteSupportStaff = async (req: Request, res: Response, next: Next
 };
 
 
+export const resetUserPassword = async (req: Request, res: Response, next: NextFunction) => {
+  const branchId = getRegistrarBranchId(req);
+  const { id: userIdToReset } = req.params; // This is the User's database ID
+
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
+  try {
+    // 1. Find the user to get their human-readable userId
+    const userToReset = await prisma.user.findFirst({
+      where: {
+        id: userIdToReset,
+        branchId: branchId, // Security: Ensure user is in the registrar's branch
+      },
+      select: {
+        id: true,
+        userId: true, // The human-readable ID (e.g., VRTX-...)
+      }
+    });
+
+    if (!userToReset) {
+      return res.status(404).json({ message: "User not found in your branch." });
+    }
+
+    // 2. Generate and hash the new password
+    const newPassword = generatePassword(); // From your helpers
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // 3. Update the user's password in the database
+    await prisma.user.update({
+      where: {
+        id: userToReset.id, // Update using the database ID
+      },
+      data: {
+        passwordHash: hashedPassword,
+      },
+    });
+
+    // 4. Return the human-readable ID and the *unhashed* new password
+    res.status(200).json({
+      message: "Password reset successfully.",
+      userId: userToReset.userId, // Send the VRTX-... ID
+      newPassword: newPassword,    // Send the plain text password
+    });
+
+  } catch (error) {
+    next(error);
+  }
+};
+
 /**
  * @description Get all rectification requests for the registrar's branch.
  * @route GET /api/registrar/rectification-requests
