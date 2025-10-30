@@ -3810,45 +3810,41 @@ export const updateSubject = async (
   next: NextFunction
 ) => {
   const branchId = getRegistrarBranchId(req);
-  const { id } = req.params; // This is the Subject ID
+  const { id } = req.params; // Subject ID
 
   if (!branchId) {
     return res.status(401).json({ message: "Authentication required." });
   }
 
-  // 1. Whitelist the allowed fields
+  // 1. Get the allowed fields from the body
   const { name, teacherId } = req.body;
 
   // 2. Build the update data object
-  const updateData: Prisma.SubjectUpdateInput = {};
+  const updateData: any = {}; // Use 'any' or a specific interface
 
   if (name !== undefined) {
     updateData.name = name;
   }
 
-  // This logic handles all cases:
-  // - A new teacherId is provided: "some-uuid"
-  // - A teacher is unassigned: "" (empty string)
-  // - The field isn't being changed: undefined (and it's skipped)
+  // 3. THIS IS THE FIX:
+  // We are now updating the 'teacherId' field directly.
   if (teacherId !== undefined) {
-    // If teacherId is an empty string or null, set the database field to null
-    // Otherwise, connect the teacher.
-    updateData.teacher = teacherId
-      ? { connect: { id: teacherId } }
-      : { disconnect: true };
+    // If frontend sends an empty string "", set the database field to null.
+    // Otherwise, set it to the provided teacherId.
+    updateData.teacherId = teacherId || null;
   }
 
   try {
-    // 3. Use updateMany for security, ensuring the subject is in the registrar's branch
+    // 4. Use updateMany for security, ensuring the subject is in the registrar's branch
     const result = await prisma.subject.updateMany({
       where: {
         id: id,
         branchId: branchId,
       },
-      data: updateData,
+      data: updateData, // This will now send { name: "...", teacherId: "..." }
     });
 
-    // 4. Check if anything was actually updated
+    // 5. Check if anything was actually updated
     if (result.count === 0) {
       return res
         .status(404)
