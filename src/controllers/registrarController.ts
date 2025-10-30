@@ -748,7 +748,11 @@ export const demoteStudents = async (req: Request, res: Response, next: NextFunc
  * @description Permanently delete a student and all their associated records.
  * @route DELETE /api/registrar/students/:id
  */
-export const deleteStudent = async (req: Request, res: Response, next: NextFunction) => {
+export const deleteStudent = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   const branchId = getRegistrarBranchId(req);
   const { id } = req.params;
 
@@ -757,40 +761,43 @@ export const deleteStudent = async (req: Request, res: Response, next: NextFunct
   }
 
   try {
-    // Wrap all delete operations in a transaction to ensure data integrity
-    await prisma.$transaction(async (tx) => {
-      // 1. Security Check: Verify the student exists and belongs to the registrar's branch.
-      const student = await tx.student.findFirst({
-        where: { id, branchId },
-      });
-
-      if (!student) {
-        // We throw an error here to automatically roll back the transaction.
-        throw new Error("Student not found in your branch.");
-      }
-
-      // 2. Delete all dependent records to prevent foreign key violations.
-      // The order is important: delete records that reference the student first.
-      await tx.feeAdjustment.deleteMany({ where: { studentId: id } });
-      await tx.feePayment.deleteMany({ where: { studentId: id } });
-      await tx.feeRecord.deleteMany({ where: { studentId: id } });
-      await tx.attendanceRecord.deleteMany({ where: { studentId: id } });
-      await tx.examMark.deleteMany({ where: { studentId: id } });
-      await tx.complaint.deleteMany({ where: { studentId: id } });
-      await tx.suspensionRecord.deleteMany({ where: { studentId: id } });
-      await tx.rectificationRequest.deleteMany({ where: { studentId: id } });
-      
-      // 3. Finally, delete the student record itself.
-      await tx.student.delete({ where: { id } });
+    // 1. Security Check: Verify the student belongs to the registrar's branch.
+    const student = await prisma.student.findFirst({
+      where: { id, branchId },
     });
 
-    res.status(204).send(); // Success, no content to return.
-
-  } catch (error: any) {
-    // If our custom error was thrown, return a 404. Otherwise, pass to the global handler.
-    if (error.message === "Student not found in your branch.") {
-      return res.status(404).json({ message: error.message });
+    if (!student) {
+      return res
+        .status(404)
+        .json({ message: "Student not found in your branch." });
     }
+
+    // 2. Delete all dependent records sequentially.
+    // We are removing the transaction to avoid the timeout error.
+    await prisma.feeAdjustment.deleteMany({ where: { studentId: id } });
+    await prisma.feePayment.deleteMany({ where: { studentId: id } });
+    await prisma.feeRecord.deleteMany({ where: { studentId: id } });
+    await prisma.attendanceRecord.deleteMany({ where: { studentId: id } });
+    await prisma.examMark.deleteMany({ where: { studentId: id } });
+    await prisma.complaint.deleteMany({ where: { studentId: id } });
+    await prisma.suspensionRecord.deleteMany({ where: { studentId: id } });
+    await prisma.rectificationRequest.deleteMany({ where: { studentId: id } });
+
+    // 3. Finally, delete the student record itself.
+    await prisma.student.delete({ where: { id } });
+
+    res.status(204).send(); // Success, no content to return.
+  } catch (error: any) {
+    // Catch foreign key errors, which are now possible if a dependency is missed
+    if (error.code === "P2003") {
+      return res
+        .status(409)
+        .json({
+          message:
+            "Could not delete student. Other records (like leave applications) might still depend on it.",
+        });
+    }
+    // Handle other errors
     next(error);
   }
 };
