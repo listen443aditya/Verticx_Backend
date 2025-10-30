@@ -935,7 +935,11 @@ export const updateStudent = async (req: Request, res: Response, next: NextFunct
  * @description Reset passwords for a student (if they have a user account) and their parent.
  * @route POST /api/registrar/students/:id/reset-password
  */
-export const resetStudentAndParentPasswords = async (req: Request, res: Response, next: NextFunction) => {
+export const resetStudentAndParentPasswords = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   const branchId = getRegistrarBranchId(req);
   const { id } = req.params; // This is the Student ID
 
@@ -944,39 +948,66 @@ export const resetStudentAndParentPasswords = async (req: Request, res: Response
   }
 
   try {
-    // 1. Security Check: Find the student and their parent within the same branch.
+    // 1. Find the student, their linked User record, and their parent's User record
     const student = await prisma.student.findFirst({
-        where: { id, branchId },
-        include: { parent: true }
+      where: { id, branchId },
+      include: {
+        parent: true, // This is the parent's User record
+        user: true, // This is the student's own User record (from our previous schema fix)
+      },
     });
 
     if (!student) {
-        return res.status(404).json({ message: "Student not found in your branch." });
+      return res
+        .status(404)
+        .json({ message: "Student not found in your branch." });
     }
     if (!student.parent) {
-        return res.status(404).json({ message: "Parent account not found for this student." });
+      return res
+        .status(404)
+        .json({ message: "Parent account not found for this student." });
+    }
+    if (!student.user) {
+      return res
+        .status(404)
+        .json({ message: "Student user account not found for this student." });
     }
 
+    // 2. Generate new passwords for BOTH
     const parentPassword = generatePassword();
-    
-    // 2. Update the parent's password in the User table.
-    await prisma.user.update({
+    const studentPassword = generatePassword();
+
+    // 3. Update both passwords in a transaction
+    await prisma.$transaction([
+      // Update parent's password
+      prisma.user.update({
         where: { id: student.parentId! },
         data: {
-            passwordHash: await bcrypt.hash(parentPassword, 10)
-        }
-    });
-    
-    // (Optional: If students also have logins, reset their password here)
+          passwordHash: await bcrypt.hash(parentPassword, 10),
+        },
+      }),
+      // Update student's password
+      prisma.user.update({
+        where: { id: student.userId! }, // Use the student's user record ID
+        data: {
+          passwordHash: await bcrypt.hash(studentPassword, 10),
+        },
+      }),
+    ]);
 
-    res.status(200).json({ 
-        message: "Parent's password has been reset.",
-        credentials: {
-            parentId: student.parent.userId,
-            parentPassword: parentPassword
-        }
+    // 4. Send back the response in the format the modal expects
+    res.status(200).json({
+      message: "Student and parent passwords have been reset.",
+      // This is the structure the 'ResetCredentialsModal' component expects
+      student: {
+        id: student.user.userId, // Send human-readable student ID
+        pass: studentPassword,
+      },
+      parent: {
+        id: student.parent.userId, // Send human-readable parent ID
+        pass: parentPassword,
+      },
     });
-
   } catch (error) {
     next(error);
   }

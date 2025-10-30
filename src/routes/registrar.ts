@@ -50,6 +50,8 @@ router.post(
   "/students/:id/reset-passwords",
   registrarController.resetStudentAndParentPasswords
 ); 
+// Change this line in registrarRoutes.ts
+router.post("/students/:studentId/reset-passwords", registrarController.resetStudentAndParentPasswords);
 
 router.get(
   "/students/:studentId/profile",
