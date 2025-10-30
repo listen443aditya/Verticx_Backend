@@ -108,10 +108,7 @@ router.get(
 router.post("/timetable/slots", registrarController.setTimetableSlot); 
 router.delete("/timetable/slots/:id", registrarController.deleteTimetableSlot); 
 router.post("/subjects", registrarController.createSubject);
-// router.post(
-//   "/classes/:classId/timetable-config",
-//   registrarController.createTimetableConfig
-// );
+router.put("/subjects/:id", registrarController.updateSubject);
 
 router.get("/classes/:id", registrarController.getClassDetails);
 
