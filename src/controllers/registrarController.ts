@@ -604,17 +604,13 @@ export const getClassFeeSummaries = async (
         });
 
         // 4. Count how many students have outstanding fees (defaulters)
-        const defaulters = await prisma.student.count({
-          where: {
-            id: { in: studentIds },
-            feeRecords: {
-              some: {
-                // This logic assumes a pending amount > 0 means a defaulter
-                // It may need adjustment based on your specific business rules
-              },
-            },
-          },
-        });
+        const defaulterResult = await prisma.$queryRaw<[{ count: bigint }]>`
+            SELECT COUNT(DISTINCT "studentId")
+            FROM "FeeRecord"
+            WHERE "studentId" IN (${Prisma.join(studentIds)})
+            AND "totalAmount" > "paidAmount"
+        `;
+        const defaulterCount = Number(defaulterResult[0]?.count || 0);
 
         const totalBilled = feeTotals._sum.totalAmount || 0;
         const totalCollected = feeTotals._sum.paidAmount || 0;
@@ -625,7 +621,7 @@ export const getClassFeeSummaries = async (
           totalBilled,
           totalCollected,
           totalPending: totalBilled - totalCollected,
-          defaulterCount: defaulters, // Using a simplified count for now
+          defaulterCount: defaulterCount, 
         };
       })
     );
