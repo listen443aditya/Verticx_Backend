@@ -3,10 +3,11 @@
     // Target modern JavaScript features
     "target": "ES2020",
     // Use NodeNext modules for compatibility with nodenext resolution
+    // --- BEFORE ---
     "module": "NodeNext",
-    // Node-style module resolution for ES modules
     "moduleResolution": "nodenext",
-    // Output compiled files here
+  //  "module": "commonjs",
+  //  "moduleResolution": "bundler",    // Output compiled files here
     "outDir": "./dist",
     // Source root
     "rootDir": "./src",
