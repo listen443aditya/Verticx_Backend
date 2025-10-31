@@ -1202,7 +1202,7 @@ export const deleteSchoolClass = async (req: Request, res: Response, next: NextF
  */
 export const updateClassSubjects = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
-    const { id } = req.params;
+    const { id: classId } = req.params;
     const { subjectIds } = req.body; // Expects an array of subject IDs
 
     if (!branchId) {
@@ -1215,7 +1215,7 @@ export const updateClassSubjects = async (req: Request, res: Response, next: Nex
     try {
         // Security Check: Ensure the class exists in the registrar's branch.
         const classExists = await prisma.schoolClass.findFirst({
-            where: { id, branchId }
+          where: { id: classId, branchId },
         });
 
         if (!classExists) {
@@ -1223,14 +1223,16 @@ export const updateClassSubjects = async (req: Request, res: Response, next: Nex
         }
 
         // This operation connects the class to existing subjects.
-        await prisma.schoolClass.update({
-            where: { id },
-            data: {
-                subjects: {
-                    set: subjectIds.map(subjectId => ({ id: subjectId }))
-                }
-            },
-        });
+       await prisma.schoolClass.update({
+         where: { id: classId },
+         data: {
+           subjects: {
+             // 'set' disconnects all previously connected subjects
+             // and connects only the ones in this new list.
+             set: subjectIds.map((subjectId) => ({ id: subjectId })),
+           },
+         },
+       });
 
         res.status(200).json({ message: "Class subjects updated successfully." });
     } catch (error) {
