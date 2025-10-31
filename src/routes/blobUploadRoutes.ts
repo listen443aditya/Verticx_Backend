@@ -60,3 +60,47 @@ router.post(
 );
 
 export default router;
+
+
+// import { Router } from "express";
+// import type { Request, Response } from "express";
+// // FIX: Import the *correct* server-side handler
+// import { handleUpload, type BlobResult } from "@vercel/blob/server";
+
+// const router = Router();
+
+// // This endpoint listens for the frontend's token request
+// router.post(
+//   "/registrar/documents/upload",
+//   async (req: Request, res: Response) => {
+//     try {
+//       const jsonResponse = await handleUpload({
+//         body: req.body, // handleUpload needs the raw body
+//         request: req as any,
+//         onBeforeUpload: async (pathname: string) => {
+//           // You can add auth/validation here
+//           return {
+//             allowedContentTypes: ["application/pdf", "image/jpeg", "image/png"],
+//           };
+//         },
+//         onUploadCompleted: async ({
+//           blob,
+//           tokenPayload,
+//         }: {
+//           blob: BlobResult;
+//           tokenPayload: any;
+//         }) => {
+//           console.log("File uploaded successfully to:", blob.pathname);
+//         },
+//       });
+
+//       // This returns the token to the frontend client
+//       return res.status(200).json(jsonResponse);
+//     } catch (error) {
+//       console.error("Error in upload handler:", error);
+//       return res.status(400).json({ error: (error as Error).message });
+//     }
+//   }
+// );
+
+// export default router;
