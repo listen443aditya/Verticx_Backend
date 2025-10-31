@@ -36,13 +36,14 @@ const corsOptions: cors.CorsOptions = {
   credentials: true,
 };
 app.use(cors(corsOptions));//corsOptions
+app.use("/api", blobUploadRoutes);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use(express.static(path.join(__dirname, "../public")));
 app.get("/favicon.ico", (req, res) => res.status(204).end());
 
-app.use("/api", blobUploadRoutes);
 app.use("/api", auditLogMiddleware);
 
 // --- API Test Route ---
