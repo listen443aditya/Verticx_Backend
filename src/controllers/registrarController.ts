@@ -581,7 +581,7 @@ export const getClassFeeSummaries = async (
           select: { id: true },
         });
         const studentIds = studentsInClass.map((s) => s.id);
-
+        const studentCount = studentIds.length;
         // If the class has no students, return a zero-value summary
         if (studentIds.length === 0) {
           return {
@@ -591,6 +591,7 @@ export const getClassFeeSummaries = async (
             totalCollected: 0,
             totalPending: 0,
             defaulterCount: 0,
+            studentCount: 0,
           };
         }
 
@@ -621,7 +622,8 @@ export const getClassFeeSummaries = async (
           totalBilled,
           totalCollected,
           totalPending: totalBilled - totalCollected,
-          defaulterCount: defaulterCount, 
+          defaulterCount: defaulterCount,
+          studentCount: studentCount,
         };
       })
     );
