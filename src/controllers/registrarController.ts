@@ -746,6 +746,64 @@ export const demoteStudents = async (req: Request, res: Response, next: NextFunc
  * @description Permanently delete a student and all their associated records.
  * @route DELETE /api/registrar/students/:id
  */
+
+
+// export const deleteStudent = async (
+//   req: Request,
+//   res: Response,
+//   next: NextFunction
+// ) => {
+//   const branchId = getRegistrarBranchId(req);
+//   const { id } = req.params;
+
+//   if (!branchId) {
+//     return res.status(401).json({ message: "Authentication required." });
+//   }
+
+//   try {
+//     // 1. Security Check: Verify the student belongs to the registrar's branch.
+//     const student = await prisma.student.findFirst({
+//       where: { id, branchId },
+//     });
+
+//     if (!student) {
+//       return res
+//         .status(404)
+//         .json({ message: "Student not found in your branch." });
+//     }
+
+//     // 2. Delete all dependent records sequentially.
+//     // We are removing the transaction to avoid the timeout error.
+//     await prisma.feeAdjustment.deleteMany({ where: { studentId: id } });
+//     await prisma.feePayment.deleteMany({ where: { studentId: id } });
+//     await prisma.feeRecord.deleteMany({ where: { studentId: id } });
+//     await prisma.attendanceRecord.deleteMany({ where: { studentId: id } });
+//     await prisma.examMark.deleteMany({ where: { studentId: id } });
+//     await prisma.complaint.deleteMany({ where: { studentId: id } });
+//     await prisma.suspensionRecord.deleteMany({ where: { studentId: id } });
+//     await prisma.rectificationRequest.deleteMany({ where: { studentId: id } });
+
+//     // 3. Finally, delete the student record itself.
+//     await prisma.student.delete({ where: { id } });
+
+//     res.status(204).send(); // Success, no content to return.
+//   } catch (error: any) {
+//     // Catch foreign key errors, which are now possible if a dependency is missed
+//     if (error.code === "P2003") {
+//       return res
+//         .status(409)
+//         .json({
+//           message:
+//             "Could not delete student. Other records (like leave applications) might still depend on it.",
+//         });
+//     }
+//     // Handle other errors
+//     next(error);
+//   }
+// };
+
+
+
 export const deleteStudent = async (
   req: Request,
   res: Response,
@@ -759,43 +817,23 @@ export const deleteStudent = async (
   }
 
   try {
-    // 1. Security Check: Verify the student belongs to the registrar's branch.
-    const student = await prisma.student.findFirst({
-      where: { id, branchId },
+    // One single, fast, and safe operation.
+    // The database will automatically delete all related records.
+    await prisma.student.delete({
+      where: {
+        id: id,
+        branchId: branchId, // Security check still works
+      },
     });
 
-    if (!student) {
+    res.status(204).send();
+  } catch (error: any) {
+    if (error.code === "P2025") {
+      // "Record not found"
       return res
         .status(404)
         .json({ message: "Student not found in your branch." });
     }
-
-    // 2. Delete all dependent records sequentially.
-    // We are removing the transaction to avoid the timeout error.
-    await prisma.feeAdjustment.deleteMany({ where: { studentId: id } });
-    await prisma.feePayment.deleteMany({ where: { studentId: id } });
-    await prisma.feeRecord.deleteMany({ where: { studentId: id } });
-    await prisma.attendanceRecord.deleteMany({ where: { studentId: id } });
-    await prisma.examMark.deleteMany({ where: { studentId: id } });
-    await prisma.complaint.deleteMany({ where: { studentId: id } });
-    await prisma.suspensionRecord.deleteMany({ where: { studentId: id } });
-    await prisma.rectificationRequest.deleteMany({ where: { studentId: id } });
-
-    // 3. Finally, delete the student record itself.
-    await prisma.student.delete({ where: { id } });
-
-    res.status(204).send(); // Success, no content to return.
-  } catch (error: any) {
-    // Catch foreign key errors, which are now possible if a dependency is missed
-    if (error.code === "P2003") {
-      return res
-        .status(409)
-        .json({
-          message:
-            "Could not delete student. Other records (like leave applications) might still depend on it.",
-        });
-    }
-    // Handle other errors
     next(error);
   }
 };
@@ -3287,8 +3325,68 @@ export const getInventory = async (req: Request, res: Response, next: NextFuncti
     }
 };
 
+export const getSchoolDocuments = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req); // Get the registrar's branch
+
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
+  try {
+    // This query now works perfectly with your new model
+    const documents = await prisma.schoolDocument.findMany({
+      where: {
+        branchId: branchId,
+      },
+      orderBy: {
+        uploadedAt: "desc",
+      },
+    });
+
+    res.status(200).json(documents);
+  } catch (error) {
+    next(error);
+  }
+};
 
 
+export const createSchoolDocument = async (req: Request, res: Response, next: NextFunction) => {
+  const branchId = getRegistrarBranchId(req);
+  const uploadedBy = (req as any).user?.name || "Registrar"; // Get user from auth
+
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
+  // 1. Get the metadata from the request body. The fileUrl comes from Vercel Blob.
+  const { name, type, ownerId, fileUrl } = req.body;
+
+  if (!name || !type || !ownerId || !fileUrl) {
+    return res.status(400).json({ message: "Missing required fields: name, type, ownerId, fileUrl" });
+  }
+
+  try {
+    // 2. Create the document record in your database
+    const newDocument = await prisma.schoolDocument.create({
+      data: {
+        branchId: branchId,
+        name: name,
+        type: type, // "Student" or "Staff"
+        ownerId: ownerId, // The ID of the student or staff member
+        fileUrl: fileUrl,
+        uploadedBy: uploadedBy,
+      },
+    });
+
+    res.status(201).json(newDocument);
+  } catch (error) {
+    next(error);
+  }
+};
 
 /**
  * @description Get all inventory logs for the registrar's branch, with item details.

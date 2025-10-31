@@ -72,6 +72,11 @@ router.get(
 );
 router.get("/fee-records", registrarController.getFeeRecordsForBranch);
 
+
+// --- School Documents ---
+router.get("/documents", registrarController.getSchoolDocuments);
+router.post("/documents", registrarController.createSchoolDocument);
+
 // --- Class, Subject & Timetable Management ---
 router.get("/classes", registrarController.getSchoolClassesByBranch);
 router.post("/classes", registrarController.createSchoolClass);

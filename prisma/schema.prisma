@@ -118,6 +118,7 @@ model Branch {
   name           String
   location       String
   principalId    String? @unique // A branch has only one principal.
+  schoolDocuments   SchoolDocument[]
 
   status BranchStatus @default(pending)
 
@@ -474,8 +475,8 @@ model FeeRecord {
   dueDate             DateTime
   previousSessionDues Float?
 
-  student  Student      @relation(fields: [studentId], references: [id])
   payments FeePayment[]
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -575,8 +576,8 @@ model AttendanceRecord {
   date      DateTime
   status    AttendanceStatus
 
-  student   Student  @relation(fields: [studentId], references: [id])
   createdAt DateTime @default(now())
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
 }
 
 model TeacherAttendanceRecord {
@@ -946,4 +947,20 @@ model LeaveSettings {
   defaultStaffCasual   Int    @default(7)
 
   branch Branch @relation(fields: [branchId], references: [id])
+}
+
+
+model SchoolDocument {
+  id          String   @id @default(cuid())
+  branchId    String
+  name        String   // The title of the document (e.g., "Birth Certificate")
+  type        String   // Will store "Student" or "Staff" to match your frontend
+  ownerId     String   // The ID of the Student or the User (Staff)
+  fileUrl     String   // The URL to the actual file in cloud storage
+  uploadedAt  DateTime @default(now())
+
+  branch      Branch   @relation(fields: [branchId], references: [id])
+
+  @@index([branchId])
+  @@index([ownerId]) // Good to add an index for lookups
 }
