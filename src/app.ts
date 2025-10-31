@@ -16,7 +16,7 @@ import librarianRoutes from "./routes/librarian";
 import teacherRoutes from "./routes/teacher";
 import studentRoutes from "./routes/student";
 import generalRoutes from "./routes/general";
-
+import blobUploadRoutes from "./routes/blobUploadRoutes";
 const app: Express = express();
 
 // --- Middlewares ---
@@ -42,7 +42,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "../public")));
 app.get("/favicon.ico", (req, res) => res.status(204).end());
 
-
+app.use("/api", blobUploadRoutes);
 app.use("/api", auditLogMiddleware);
 
 // --- API Test Route ---
