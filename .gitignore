@@ -88,3 +88,5 @@ pnpm-debug.log*
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+.vercel
+.env*.local
