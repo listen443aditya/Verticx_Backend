@@ -3378,7 +3378,7 @@ export const createSchoolDocument = async (req: Request, res: Response, next: Ne
         type: type, // "Student" or "Staff"
         ownerId: ownerId, // The ID of the student or staff member
         fileUrl: fileUrl,
-        uploadedBy: uploadedBy,
+        
       },
     });
 
