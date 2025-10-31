@@ -124,39 +124,47 @@ router.post(
   "/registrar/documents/upload",
   async (req: Request, res: Response) => {
     try {
-      const jsonResponse = await (handleUpload as any)({
+      const jsonResponse = await(handleUpload as any)({
         body: req.body,
         request: req as any,
 
         // 2. This function now runs BEFORE the token is generated
         onBeforeUpload: async (pathname: string) => {
-          // 3. Get the token from the request header
+          // 1. Get the secret from environment
+          const secret = process.env.JWT_SECRET;
+          if (!secret) {
+            // This check prevents the crash and gives a clear error
+            console.error("FATAL: JWT_SECRET environment variable is not set.");
+            throw new Error("Server is not configured for authentication.");
+          }
+
+          // 2. Get the token from the request header
           const authHeader = req.headers.authorization;
           if (!authHeader || !authHeader.startsWith("Bearer ")) {
             throw new Error("Authorization header is missing or invalid.");
           }
           const token = authHeader.split(" ")[1];
 
-          // 4. Verify the token
+          // 3. Verify the token
           let decoded: any;
           try {
-            decoded = jwt.verify(token, process.env.JWT_SECRET as string);
+            decoded = jwt.verify(token, secret); // Use the 'secret' variable
           } catch (err) {
             throw new Error("Invalid token.");
           }
 
-          // 5. Check the user's role
+          // 4. Check the user's role
           if (decoded.role !== "Registrar") {
             throw new Error("You are not authorized to upload files.");
           }
 
-          // 6. Pass the user's ID and branchId to the completion step
+          // 5. Pass user info to the completion step
           const tokenPayload = JSON.stringify({
             userId: decoded.id,
             branchId: decoded.branchId,
           });
 
-          // 7. Return the upload permissions
+          // 6. Return the upload permissions
           return {
             allowedContentTypes: ["application/pdf", "image/jpeg", "image/png"],
             tokenPayload, // Pass the user's info
