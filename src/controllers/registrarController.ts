@@ -3565,7 +3565,52 @@ export const deleteInventoryItem = async (req: Request, res: Response, next: Nex
 
 
 
+export const deleteSubject = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  const { id } = req.params; // This is the Subject ID
 
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
+  try {
+    // Use 'deleteMany' for a secure, scoped delete.
+    // This query ensures that a registrar can ONLY delete a subject
+    // that belongs to their own branch.
+    const result = await prisma.subject.deleteMany({
+      where: {
+        id: id,
+        branchId: branchId,
+      },
+    });
+
+    // 'result.count' will be 0 if no subject was found with that ID in that branch
+    if (result.count === 0) {
+      return res
+        .status(404)
+        .json({ message: "Subject not found in your branch." });
+    }
+
+    res.status(204).send(); // 204 No Content is standard for a successful delete
+  } catch (error: any) {
+    // Check for a foreign key constraint violation
+    // This happens if the subject is still being used by a Timetable, Class, Exam, etc.
+    if (error.code === "P2003") {
+      return res
+        .status(409)
+        .json({
+          message:
+            "Cannot delete subject. It is still in use by a class, timetable, or exam schedule.",
+        });
+    }
+    // Handle other errors
+    next(error);
+  }
+};
 
 
 export const getSubjectsForBranch = async (req: Request, res: Response, next: NextFunction) => {

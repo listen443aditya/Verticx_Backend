@@ -98,6 +98,7 @@ router.get(
   "/classes/:classId/timetable",
   registrarController.getTimetableForClass
 );
+router.delete("/subjects/:id", registrarController.deleteSubject);
 router.get(
   "/classes/:classId/timetable-config",
   registrarController.getTimetableConfig
