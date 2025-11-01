@@ -669,11 +669,19 @@ export const getFaculty = async (req: Request, res: Response) => {
       where: {
         branchId: req.user.branchId,
         role: {
-          in: ["Teacher", "Registrar", "Librarian"],
+          // FIX: Add all staff roles to the list
+          in: [
+            "Teacher",
+            "Registrar",
+            "Librarian",
+            "SupportStaff",
+            "Principal",
+          ],
         },
       },
       select: {
         id: true,
+        userId: true, // Also select the human-readable VRTX- ID
         name: true,
         email: true,
         phone: true,
@@ -689,7 +697,6 @@ export const getFaculty = async (req: Request, res: Response) => {
     res.status(500).json({ message: err.message });
   }
 };
-
 export const createStaffMember = async (req: Request, res: Response) => {
   try {
     // Ensure authenticated principal with branch
