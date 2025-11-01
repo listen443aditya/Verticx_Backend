@@ -2711,6 +2711,67 @@ export const getDailyAttendanceForClass = async (
   }
 };
 
+export const getStaffAttendanceAndLeaveForMonth = async (req: Request, res: Response, next: NextFunction) => {
+  const branchId = getRegistrarBranchId(req);
+  const { staffId, year, month } = req.params;
+
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+  
+  const yearNum = parseInt(year, 10);
+  const monthNum = parseInt(month, 10); // 0-indexed (0=Jan, 11=Dec)
+
+  if (isNaN(yearNum) || isNaN(monthNum) || monthNum < 0 || monthNum > 11) {
+    return res.status(400).json({ message: "Invalid year or month." });
+  }
+
+  try {
+    // 1. Verify the staff member belongs to the registrar's branch
+    const staffUser = await prisma.user.findFirst({
+      where: { id: staffId, branchId: branchId },
+      select: { id: true, teacher: { select: { id: true } } } // Get user ID and linked teacher ID
+    });
+
+    if (!staffUser) {
+      return res.status(404).json({ message: "Staff member not found in your branch." });
+    }
+
+    // 2. Define the date range for the selected month
+    const startDate = new Date(Date.UTC(yearNum, monthNum, 1));
+    const endDate = new Date(Date.UTC(yearNum, monthNum + 1, 0, 23, 59, 59)); // Last day of the month
+
+    // 3. Fetch attendance and leave data in parallel
+    const [attendance, leaves] = await Promise.all([
+      // Fetch attendance records (using the Teacher ID if it exists)
+      staffUser.teacher ? prisma.teacherAttendanceRecord.findMany({
+        where: {
+          teacherId: staffUser.teacher.id, // Use the Teacher ID for this table
+          date: { gte: startDate, lte: endDate }
+        }
+      }) : Promise.resolve([]), // If not a teacher, return empty array
+
+      // Fetch leave applications (using the User ID)
+      prisma.leaveApplication.findMany({
+        where: {
+          applicantId: staffUser.id, // Use the User ID for this table
+          status: 'Approved',
+          // Check for date overlap
+          AND: [
+            { fromDate: { lte: endDate.toISOString() } },
+            { toDate: { gte: startDate.toISOString() } }
+          ]
+        }
+      })
+    ]);
+
+    res.status(200).json({ attendance, leaves });
+
+  } catch (error) {
+    console.error("Error fetching staff calendar data:", error);
+    next(error);
+  }
+};
 
 export const getTeacherAttendance = async (
   req: Request,

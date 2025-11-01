@@ -1324,7 +1324,7 @@ export const getSuperAdminContactDetails = async (
 ) => {
   try {
     const superAdmin = await prisma.user.findFirst({
-      where: { role: "SuperAdmin" },
+      where: { role: "SuperAdmin"},
     });
     if (!superAdmin) {
       return res

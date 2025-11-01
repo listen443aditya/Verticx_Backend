@@ -136,6 +136,10 @@ router.get(
   "/requests/grade-attendance",
   registrarController.getTeacherAttendanceRequests
 );
+router.get(
+  "/staff/:staffId/attendance/:year/:month",
+  registrarController.getStaffAttendanceAndLeaveForMonth
+);
 router.put(
   "/requests/grade-attendance/:id/process",
   registrarController.processRectificationRequest
