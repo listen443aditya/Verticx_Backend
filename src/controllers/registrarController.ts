@@ -2642,10 +2642,7 @@ export const getTimetableForClass = async (req: Request, res: Response, next: Ne
 
 
 
-/**
- * @description Get daily attendance for all students in a specific class.
- * @route GET /api/registrar/classes/:classId/attendance?date=YYYY-MM-DD
- */
+
 export const getDailyAttendanceForClass = async (
   req: Request,
   res: Response,
@@ -2714,47 +2711,44 @@ export const getDailyAttendanceForClass = async (
   }
 };
 
-/**
- * @description Get the attendance status for all teachers for a specific day.
- * @route GET /api/registrar/teacher-attendance?date=YYYY-MM-DD
- */
-export const getTeacherAttendance = async (req: Request, res: Response, next: NextFunction) => {
-    const branchId = getRegistrarBranchId(req);
-    const { date } = req.query;
 
-    if (!branchId) return res.status(401).json({ message: "Authentication required." });
-    if (!date || typeof date !== 'string') return res.status(400).json({ message: "A valid 'date' query parameter is required." });
+export const getTeacherAttendance = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  const { date } = req.query;
 
-    try {
-        const targetDate = new Date(date);
-        
-        const teachers = await prisma.teacher.findMany({
-            where: { branchId },
-            select: { id: true, name: true }
-        });
+  if (!branchId)
+    return res.status(401).json({ message: "Authentication required." });
+  if (!date || typeof date !== "string")
+    return res
+      .status(400)
+      .json({ message: "A valid 'date' query parameter is required." });
 
-        const attendanceRecords = await prisma.teacherAttendanceRecord.findMany({
-            where: { branchId, date: targetDate }
-        });
+  try {
+    const targetDate = new Date(date);
 
-        const attendanceMap = new Map(attendanceRecords.map(r => [r.teacherId, r.status]));
+    // 1. Fetch the raw attendance records for that day
+    const attendanceRecords = await prisma.teacherAttendanceRecord.findMany({
+      where: { branchId, date: targetDate },
+    });
 
-        const fullAttendance = teachers.map(teacher => ({
-            teacherId: teacher.id,
-            teacherName: teacher.name,
-            status: attendanceMap.get(teacher.id) || 'Not Marked'
-        }));
+    // 2. Determine if attendance is "saved" (i.e., if any records exist)
+    const isSaved = attendanceRecords.length > 0;
 
-        res.status(200).json(fullAttendance);
-    } catch (error) {
-        next(error);
-    }
+    // 3. Return the data in the object format the frontend expects
+    res.status(200).json({
+      isSaved: isSaved,
+      attendance: attendanceRecords, // Send the raw records
+    });
+  } catch (error) {
+    next(error);
+  }
 };
 
-/**
- * @description Save or update attendance for multiple teachers.
- * @route POST /api/registrar/teacher-attendance
- */
+
 export const saveTeacherAttendance = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     const { attendanceData } = req.body; // Expects array: [{ teacherId, status, date }]
@@ -2791,10 +2785,7 @@ export const saveTeacherAttendance = async (req: Request, res: Response, next: N
     }
 };
 
-/**
- * @description Get the leave settings for the registrar's branch.
- * @route GET /api/registrar/leave-settings
- */
+
 export const getLeaveSettingsForBranch = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     if (!branchId) return res.status(401).json({ message: "Authentication required." });
@@ -2815,10 +2806,7 @@ export const getLeaveSettingsForBranch = async (req: Request, res: Response, nex
     }
 };
 
-/**
- * @description Create or update the leave settings for the registrar's branch.
- * @route PATCH /api/registrar/leave-settings
- */
+
 export const updateLeaveSettingsForBranch = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     if (!branchId) return res.status(401).json({ message: "Authentication required." });
@@ -2835,10 +2823,7 @@ export const updateLeaveSettingsForBranch = async (req: Request, res: Response, 
     }
 };
 
-/**
- * @description Get all leave applications for the registrar's branch (students and staff).
- * @route GET /api/registrar/leave-applications
- */
+
 export const getLeaveApplicationsForRegistrar = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     if (!branchId) return res.status(401).json({ message: "Authentication required." });
@@ -2855,10 +2840,7 @@ export const getLeaveApplicationsForRegistrar = async (req: Request, res: Respon
     }
 };
 
-/**
- * @description Process a leave application (approve or reject).
- * @route PATCH /api/registrar/leave-applications/:id/process
- */
+
 export const processLeaveApplication = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     const { id } = req.params;
