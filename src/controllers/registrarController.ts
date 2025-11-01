@@ -2646,43 +2646,72 @@ export const getTimetableForClass = async (req: Request, res: Response, next: Ne
  * @description Get daily attendance for all students in a specific class.
  * @route GET /api/registrar/classes/:classId/attendance?date=YYYY-MM-DD
  */
-export const getDailyAttendanceForClass = async (req: Request, res: Response, next: NextFunction) => {
-    const branchId = getRegistrarBranchId(req);
-    const { classId } = req.params;
-    const { date } = req.query;
+export const getDailyAttendanceForClass = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  const { classId } = req.params;
+  const { date } = req.query;
 
-    if (!branchId) return res.status(401).json({ message: "Authentication required." });
-    if (!date || typeof date !== 'string') return res.status(400).json({ message: "A valid 'date' query parameter is required." });
+  if (!branchId)
+    return res.status(401).json({ message: "Authentication required." });
+  if (!date || typeof date !== "string")
+    return res
+      .status(400)
+      .json({ message: "A valid 'date' query parameter is required." });
 
-    try {
-        const schoolClass = await prisma.schoolClass.findFirst({
-            where: { id: classId, branchId }
-        });
-        if (!schoolClass) return res.status(404).json({ message: "Class not found in your branch." });
+  try {
+    const schoolClass = await prisma.schoolClass.findFirst({
+      where: { id: classId, branchId },
+    });
+    if (!schoolClass)
+      return res
+        .status(404)
+        .json({ message: "Class not found in your branch." });
 
-        const targetDate = new Date(date);
-        
-        const students = await prisma.student.findMany({
-            where: { classId },
-            select: { 
-                id: true, 
-                name: true, 
-                attendanceRecords: {
-                    where: { date: targetDate }
-                } 
-            }
-        });
+    const targetDate = new Date(date);
 
-        const attendanceReport = students.map(student => ({
-            studentId: student.id,
-            studentName: student.name,
-            status: student.attendanceRecords[0]?.status || 'Present' 
-        }));
+    // --- FIX: Check if attendance has been saved ---
+    // We check if even one record exists for this class on this date.
+    const attendanceCount = await prisma.attendanceRecord.count({
+      where: {
+        classId: classId,
+        date: targetDate,
+      },
+    });
 
-        res.status(200).json(attendanceReport);
-    } catch (error) {
-        next(error);
-    }
+    const isSaved = attendanceCount > 0;
+    // --- END FIX ---
+
+    const students = await prisma.student.findMany({
+      where: { classId },
+      select: {
+        id: true,
+        name: true,
+        attendanceRecords: {
+          where: { date: targetDate },
+        },
+      },
+    });
+
+    // The name 'attendanceList' is clearer than 'attendanceReport'
+    const attendanceList = students.map((student) => ({
+      studentId: student.id,
+      studentName: student.name,
+      // If saved, use the record's status. If not saved, default to 'Present'.
+      status: student.attendanceRecords[0]?.status || "Present",
+    }));
+
+    // --- FIX: Return the object the frontend expects ---
+    res.status(200).json({
+      isSaved: isSaved,
+      attendance: attendanceList,
+    });
+  } catch (error) {
+    next(error);
+  }
 };
 
 /**
