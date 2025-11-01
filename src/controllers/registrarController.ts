@@ -1677,38 +1677,62 @@ export const getAllStaffForBranch = async (
     "Librarian",
     "Principal",
     "SupportStaff",
-    ];
+  ];
 
   try {
+    // 1. Get all subjects in the branch for easy lookup
+    const allSubjects = await prisma.subject.findMany({
+      where: { branchId: branchId },
+      select: { id: true, name: true, teacherId: true }, // Select all we need
+    });
+
+    // 2. Get all staff users
     const staffUsers = await prisma.user.findMany({
       where: {
         branchId: branchId,
         role: { in: staffRoles },
       },
       include: {
-        // Include the FULL teacher record, not just specific fields
-        teacher: true,
+        teacher: true, // This is still needed for qualification, salary, etc.
       },
       orderBy: {
         name: "asc",
       },
     });
 
-    // We no longer need manual merging here.
-    // The data structure returned by Prisma with the include is already good:
-    // User { id, name, ..., teacher: Teacher | null }
+    // 3. Manually build the correct 'teacher' object for each user
+    const combinedStaff = staffUsers.map((user) => {
+      if (!user.teacher) {
+        return user; // Return non-teacher staff as-is
+      }
 
-    res.status(200).json(staffUsers); // Send the direct Prisma result
+      // --- THIS IS THE FIX ---
+      // Find all subjects that are assigned to this *teacher's ID*
+      const assignedSubjects = allSubjects.filter(
+        (subject) => subject.teacherId === user.teacher!.id
+      );
+
+      // Create a new 'subjectIds' array from the *real* source of truth
+      const subjectIds = assignedSubjects.map((subject) => subject.id);
+      // --- END OF FIX ---
+
+      // Return the User, merging in the teacher data and the *correct* subjectIds
+      return {
+        ...user,
+        teacher: {
+          ...user.teacher,
+          subjectIds: subjectIds, // Overwrite the stale subjectIds with the correct list
+        },
+      };
+    });
+
+    res.status(200).json(combinedStaff);
   } catch (error) {
     next(error);
   }
 };
 
 
-/**
- * @description Update a teacher's profile information.
- * @route PATCH /api/registrar/teachers/:id
- */
 export const updateTeacher = async (
   req: Request,
   res: Response,
@@ -1790,10 +1814,8 @@ export const updateTeacher = async (
   }
 };
 
-/**
- * @description Get all non-teaching support staff for the registrar's branch.
- * @route GET /api/registrar/support-staff
- */
+
+
 export const getSupportStaffByBranch = async (
   req: Request,
   res: Response,
