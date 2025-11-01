@@ -109,6 +109,7 @@ model User {
   teacher           Teacher?           @relation("UserTeacher")
   complaintsRaised  Complaint[]        @relation("ComplaintsRaisedBy")
   leaveApplications LeaveApplication[]
+  attendanceRecords StaffAttendanceRecord[]
 }
 
 
@@ -205,7 +206,7 @@ model Teacher {
 
   branch                                 Branch                                  @relation(fields: [branchId], references: [id])
   user                                   User                                    @relation("UserTeacher", fields: [userId], references: [id])
-  attendanceRecords                      TeacherAttendanceRecord[]
+  
   lectures                               Lecture[]
   courses                                Course[]
   examMarks                              ExamMark[]
@@ -218,6 +219,7 @@ model Teacher {
   timetableSlots                         TimetableSlot[]
   assignments                            Assignment[]                            @relation("TeacherToAssignments")
   meetingRequests                        MeetingRequest[]                        @relation("TeacherToMeetings")
+  attendanceRecords   TeacherAttendanceRecord[]
 }
 
 model Student {
@@ -593,6 +595,21 @@ model TeacherAttendanceRecord {
   updatedAt DateTime @updatedAt
 
   @@unique([teacherId, date])
+}
+
+
+model StaffAttendanceRecord {
+  id        String                  @id @default(uuid())
+  branchId  String
+  userId    String                  // Changed from teacherId
+  date      DateTime
+  status    TeacherAttendanceStatus
+  notes     String?
+  user      User                    @relation(fields: [userId], references: [id]) // Changed from teacher
+  createdAt DateTime                @default(now())
+  updatedAt DateTime                @updatedAt
+
+  @@unique([userId, date]) // Changed from teacherId
 }
 
 model Lecture {

@@ -427,6 +427,20 @@ CREATE TABLE "TeacherAttendanceRecord" (
 );
 
 -- CreateTable
+CREATE TABLE "StaffAttendanceRecord" (
+    "id" TEXT NOT NULL,
+    "branchId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "date" TIMESTAMP(3) NOT NULL,
+    "status" "TeacherAttendanceStatus" NOT NULL,
+    "notes" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "StaffAttendanceRecord_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "Lecture" (
     "id" TEXT NOT NULL,
     "branchId" TEXT NOT NULL,
@@ -832,6 +846,9 @@ CREATE INDEX "SuspensionRecord_studentId_idx" ON "SuspensionRecord"("studentId")
 CREATE UNIQUE INDEX "TeacherAttendanceRecord_teacherId_date_key" ON "TeacherAttendanceRecord"("teacherId", "date");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "StaffAttendanceRecord_userId_date_key" ON "StaffAttendanceRecord"("userId", "date");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "TimetableConfig_classId_branchId_key" ON "TimetableConfig"("classId", "branchId");
 
 -- CreateIndex
@@ -998,6 +1015,9 @@ ALTER TABLE "AttendanceRecord" ADD CONSTRAINT "AttendanceRecord_studentId_fkey" 
 
 -- AddForeignKey
 ALTER TABLE "TeacherAttendanceRecord" ADD CONSTRAINT "TeacherAttendanceRecord_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "Teacher"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "StaffAttendanceRecord" ADD CONSTRAINT "StaffAttendanceRecord_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Lecture" ADD CONSTRAINT "Lecture_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "Teacher"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

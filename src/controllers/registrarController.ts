@@ -2711,14 +2711,18 @@ export const getDailyAttendanceForClass = async (
   }
 };
 
-export const getStaffAttendanceAndLeaveForMonth = async (req: Request, res: Response, next: NextFunction) => {
+export const getStaffAttendanceAndLeaveForMonth = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   const branchId = getRegistrarBranchId(req);
-  const { staffId, year, month } = req.params;
+  const { staffId, year, month } = req.params; // staffId is now a UserId
 
   if (!branchId) {
     return res.status(401).json({ message: "Authentication required." });
   }
-  
+
   const yearNum = parseInt(year, 10);
   const monthNum = parseInt(month, 10); // 0-indexed (0=Jan, 11=Dec)
 
@@ -2730,120 +2734,118 @@ export const getStaffAttendanceAndLeaveForMonth = async (req: Request, res: Resp
     // 1. Verify the staff member belongs to the registrar's branch
     const staffUser = await prisma.user.findFirst({
       where: { id: staffId, branchId: branchId },
-      select: { id: true, teacher: { select: { id: true } } } // Get user ID and linked teacher ID
+      select: { id: true }, 
     });
 
     if (!staffUser) {
-      return res.status(404).json({ message: "Staff member not found in your branch." });
+      return res
+        .status(404)
+        .json({ message: "Staff member not found in your branch." });
     }
 
-    // 2. Define the date range for the selected month
     const startDate = new Date(Date.UTC(yearNum, monthNum, 1));
-    const endDate = new Date(Date.UTC(yearNum, monthNum + 1, 0, 23, 59, 59)); // Last day of the month
+    const endDate = new Date(Date.UTC(yearNum, monthNum + 1, 0, 23, 59, 59));
 
-    // 3. Fetch attendance and leave data in parallel
     const [attendance, leaves] = await Promise.all([
-      // Fetch attendance records (using the Teacher ID if it exists)
-      staffUser.teacher ? prisma.teacherAttendanceRecord.findMany({
+      // FIX: Fetch from StaffAttendanceRecord using the staffId (which is a User ID)
+      prisma.staffAttendanceRecord.findMany({
         where: {
-          teacherId: staffUser.teacher.id, // Use the Teacher ID for this table
-          date: { gte: startDate, lte: endDate }
-        }
-      }) : Promise.resolve([]), // If not a teacher, return empty array
+          userId: staffUser.id, // Use the User ID
+          date: { gte: startDate, lte: endDate },
+        },
+      }),
 
-      // Fetch leave applications (using the User ID)
       prisma.leaveApplication.findMany({
         where: {
-          applicantId: staffUser.id, // Use the User ID for this table
-          status: 'Approved',
-          // Check for date overlap
+          applicantId: staffUser.id,
+          status: "Approved",
           AND: [
             { fromDate: { lte: endDate.toISOString() } },
-            { toDate: { gte: startDate.toISOString() } }
-          ]
-        }
-      })
+            { toDate: { gte: startDate.toISOString() } },
+          ],
+        },
+      }),
     ]);
 
     res.status(200).json({ attendance, leaves });
-
   } catch (error) {
     console.error("Error fetching staff calendar data:", error);
     next(error);
   }
 };
 
-export const getTeacherAttendance = async (
+export const getTeacherAttendance = async (req: Request, res: Response, next: NextFunction) => {
+    const branchId = getRegistrarBranchId(req);
+    const { date } = req.query;
+
+    if (!branchId) return res.status(401).json({ message: "Authentication required." });
+    if (!date || typeof date !== 'string') return res.status(400).json({ message: "A valid 'date' query parameter is required." });
+
+    try {
+        const targetDate = new Date(date);
+
+        // FIX: Fetch from StaffAttendanceRecord
+        const attendanceRecords = await prisma.staffAttendanceRecord.findMany({
+            where: { branchId, date: targetDate }
+        });
+
+        const isSaved = attendanceRecords.length > 0;
+
+        res.status(200).json({
+            isSaved: isSaved,
+            attendance: attendanceRecords
+        });
+
+    } catch (error) {
+        next(error);
+    }
+};
+
+
+export const saveTeacherAttendance = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
   const branchId = getRegistrarBranchId(req);
-  const { date } = req.query;
+  // This 'records' array now contains 'userId' instead of 'teacherId'
+  const { attendanceData: records } = req.body;
 
   if (!branchId)
     return res.status(401).json({ message: "Authentication required." });
-  if (!date || typeof date !== "string")
+  if (!Array.isArray(records))
     return res
       .status(400)
-      .json({ message: "A valid 'date' query parameter is required." });
+      .json({ message: "attendanceData must be an array." });
 
   try {
-    const targetDate = new Date(date);
-
-    // 1. Fetch the raw attendance records for that day
-    const attendanceRecords = await prisma.teacherAttendanceRecord.findMany({
-      where: { branchId, date: targetDate },
+    const operations = records.map((record) => {
+      const recordDate = new Date(record.date);
+      // FIX: Save to StaffAttendanceRecord using userId
+      return prisma.staffAttendanceRecord.upsert({
+        where: {
+          userId_date: {
+            // Use the new @@unique constraint
+            userId: record.userId,
+            date: recordDate,
+          },
+        },
+        update: { status: record.status as TeacherAttendanceStatus },
+        create: {
+          userId: record.userId, // Use userId
+          date: recordDate,
+          status: record.status as TeacherAttendanceStatus,
+          branchId,
+        },
+      });
     });
 
-    // 2. Determine if attendance is "saved" (i.e., if any records exist)
-    const isSaved = attendanceRecords.length > 0;
+    await prisma.$transaction(operations);
 
-    // 3. Return the data in the object format the frontend expects
-    res.status(200).json({
-      isSaved: isSaved,
-      attendance: attendanceRecords, // Send the raw records
-    });
+    res.status(200).json({ message: "Teacher attendance saved successfully." });
   } catch (error) {
     next(error);
   }
-};
-
-
-export const saveTeacherAttendance = async (req: Request, res: Response, next: NextFunction) => {
-    const branchId = getRegistrarBranchId(req);
-    const { attendanceData } = req.body; // Expects array: [{ teacherId, status, date }]
-
-    if (!branchId) return res.status(401).json({ message: "Authentication required." });
-    if (!Array.isArray(attendanceData)) return res.status(400).json({ message: "attendanceData must be an array." });
-
-    try {
-        const operations = attendanceData.map(record => {
-            const recordDate = new Date(record.date);
-            return prisma.teacherAttendanceRecord.upsert({
-                where: {
-                    // FIX: Use the correct composite unique identifier syntax
-                    teacherId_date: {
-                        teacherId: record.teacherId,
-                        date: recordDate
-                    }
-                },
-                update: { status: record.status as TeacherAttendanceStatus },
-                create: {
-                    teacherId: record.teacherId,
-                    date: recordDate,
-                    status: record.status as TeacherAttendanceStatus,
-                    branchId // Security: Ensure created records belong to the branch
-                }
-            });
-        });
-
-        await prisma.$transaction(operations);
-
-        res.status(200).json({ message: "Teacher attendance saved successfully." });
-    } catch (error) {
-        next(error);
-    }
 };
 
 
