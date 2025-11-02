@@ -1570,7 +1570,7 @@ export const processTeacherAttendanceRectificationRequest = async (
 export const getLeaveApplicationsForPrincipal = async (
   req: Request,
   res: Response,
-  next: NextFunction // Added next for error handling
+  next: NextFunction
 ) => {
   const branchId = getPrincipalBranchId(req);
   if (!branchId) {
@@ -1580,40 +1580,74 @@ export const getLeaveApplicationsForPrincipal = async (
   try {
     const applications = await prisma.leaveApplication.findMany({
       where: {
-        // FIX: Query through the 'applicant' relation to filter by branchId and role
         applicant: {
           branchId: branchId,
-          role: { in: ["Teacher", "Registrar", "Librarian", "SupportStaff"] }, // Filter for staff roles
+          role: { in: ["Teacher", "Registrar", "Librarian", "SupportStaff"] },
         },
       },
       include: {
         applicant: {
-          select: { name: true, role: true }, // Include applicant's name and role
+          select: { name: true, role: true },
         },
       },
       orderBy: { fromDate: "desc" },
     });
-    res.status(200).json(applications);
+
+    // FIX: Manually map to the fields your frontend component expects
+    const formattedApplications = applications.map((app) => ({
+      ...app,
+      applicantName: app.applicant.name, // Add top-level applicantName
+      applicantRole: app.applicant.role, // Add top-level applicantRole
+      startDate: app.fromDate, // Copy fromDate to startDate
+      endDate: app.toDate, // Copy toDate to endDate
+    }));
+
+    res.status(200).json(formattedApplications);
   } catch (error) {
     next(error);
   }
 };
 
+export const processLeaveApplication = async (req: Request, res: Response, next: NextFunction) => {
+  const branchId = getPrincipalBranchId(req);
+  const { id: applicationId } = req.params;
+  const { status } = req.body; // "Approved" or "Rejected"
 
-export const processLeaveApplication = async (req: Request, res: Response) => {
+  if (!branchId || !req.user) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+  if (status !== 'Approved' && status !== 'Rejected') {
+    return res.status(400).json({ message: "Invalid status." });
+  }
+
   try {
-    if (!req.user) {
-      return res.status(401).json({ message: "Authentication required." });
+    // 1. Find the application to ensure it belongs to the principal's branch
+    const application = await prisma.leaveApplication.findFirst({
+        where: {
+            id: applicationId,
+            applicant: { branchId: branchId } // Security check
+        }
+    });
+
+    if (!application) {
+        return res.status(404).json({ message: "Leave application not found in your branch." });
     }
-    const { status } = req.body;
-    await principalApiService.processLeaveApplication(
-      req.params.id,
-      status,
-      req.user.id
-    );
-    res.status(200).json({ message: "Leave application processed." });
-  } catch (error: any) {
-    res.status(500).json({ message: error.message });
+
+    // 2. Update the application
+    const updatedApplication = await prisma.leaveApplication.update({
+      where: {
+        id: applicationId
+      },
+      data: { 
+        status: status,
+        // You MUST add 'reviewedBy' to your 'LeaveApplication' schema for this to work
+        // reviewedBy: req.user.name 
+      }
+    });
+    
+    res.status(200).json(updatedApplication);
+  } catch (error) {
+    next(error);
   }
 };
 
