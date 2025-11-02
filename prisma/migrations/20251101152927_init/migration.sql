@@ -40,7 +40,7 @@ CREATE TABLE "User" (
     "role" "UserRole" NOT NULL,
     "phone" TEXT,
     "branchId" TEXT,
-    "status" TEXT,
+    "status" TEXT DEFAULT 'active',
     "designation" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -667,6 +667,8 @@ CREATE TABLE "LeaveApplication" (
     "fromDate" TEXT NOT NULL,
     "toDate" TEXT NOT NULL,
     "applicantId" TEXT NOT NULL,
+    "leaveType" TEXT NOT NULL,
+    "isHalfDay" BOOLEAN NOT NULL DEFAULT false,
 
     CONSTRAINT "LeaveApplication_pkey" PRIMARY KEY ("id")
 );

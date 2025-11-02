@@ -1504,10 +1504,6 @@ export const removeStudentFromClass = async (req: Request, res: Response, next: 
 };
 
 
-/**
- * @description Assign a teacher as a mentor to a specific class.
- * @route PATCH /api/registrar/classes/:id/assign-mentor
- */
 export const assignClassMentor = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     const { id } = req.params; // Class ID
@@ -1547,10 +1543,7 @@ export const assignClassMentor = async (req: Request, res: Response, next: NextF
     }
 };
 
-/**
- * @description Assign a fee template to a specific class.
- * @route PATCH /api/registrar/classes/:id/assign-fee-template
- */
+
 export const assignFeeTemplateToClass = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     const { id } = req.params; // Class ID
@@ -1577,10 +1570,7 @@ export const assignFeeTemplateToClass = async (req: Request, res: Response, next
     }
 };
 
-/**
- * @description Get all teachers for the registrar's branch.
- * @route GET /api/registrar/teachers
- */
+
 export const getTeachersByBranch = async (req: Request, res: Response, next: NextFunction) => {
   const branchId = getRegistrarBranchId(req);
   if (!branchId) {
@@ -3709,6 +3699,7 @@ export const deleteSubject = async (
 };
 
 
+
 export const getSubjectsForBranch = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     if (!branchId) {
@@ -3742,6 +3733,45 @@ export const getTeacherAttendanceRequests = async (req: Request, res: Response, 
     }
 };
 
+
+// Add this function to your registrarController.ts file
+export const createLeaveApplication = async (req: Request, res: Response, next: NextFunction) => {
+  const applicantId = req.user?.id; // Get applicant ID from authenticated user
+
+  if (!applicantId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+  
+  // Destructure all expected fields from the body
+  const {
+    leaveType,
+    startDate,
+    endDate,
+    isHalfDay,
+    reason,
+  } = req.body;
+
+  if (!leaveType || !startDate || !endDate || !reason) {
+    return res.status(400).json({ message: "All fields are required." });
+  }
+
+  try {
+    const newApplication = await prisma.leaveApplication.create({
+      data: {
+        applicantId: applicantId, // Use the authenticated user's ID
+        reason: reason,
+        status: "Pending", 
+        fromDate: startDate, 
+        toDate: endDate,     
+        leaveType: leaveType, 
+        isHalfDay: isHalfDay,  
+      },
+    });
+    res.status(201).json(newApplication);
+  } catch (error) {
+    next(error);
+  }
+};
 
 export const getStudentLeaveApplications = async (
   req: Request,
@@ -4094,4 +4124,6 @@ export const updateSubject = async (
   } catch (error) {
     next(error);
   }
+
+  
 };

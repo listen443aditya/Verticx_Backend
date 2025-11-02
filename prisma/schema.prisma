@@ -90,7 +90,7 @@ model User {
   role             UserRole
   phone            String?
   branchId         String? // This field will be set to NULL automatically
-  status           String?
+  status           String?  @default("active")
   designation      String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
@@ -840,6 +840,8 @@ model LeaveApplication {
   // This is the single, required relation to the User who applied for leave.
   applicantId String
   applicant   User   @relation(fields: [applicantId], references: [id])
+  leaveType   String   // This will store "Sick", "Casual", etc.
+  isHalfDay   Boolean  @default(false)
 }
 
 model AdmissionApplication {
