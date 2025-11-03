@@ -2909,8 +2909,7 @@ export const saveTeacherAttendance = async (
 
   try {
     const operations = records.map((record) => {
-      const recordDate = new Date(record.date);
-      // FIX: Save to StaffAttendanceRecord using userId
+      const recordDate = new Date(`${record.date}T00:00:00.000Z`);  
       return prisma.staffAttendanceRecord.upsert({
         where: {
           userId_date: {
