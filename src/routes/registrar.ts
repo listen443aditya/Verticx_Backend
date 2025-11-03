@@ -164,7 +164,7 @@ router.put(
 ); 
 router.post("/exam-schedules", registrarController.createExamSchedule);
 router.get(
-  "/exam-schedules/:examinationId",
+  "/examinations/:examinationId/schedules",
   registrarController.getExamSchedulesForExamination
 );
 
