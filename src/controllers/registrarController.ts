@@ -176,27 +176,27 @@ export const getRegistrarDashboardData = async (
   }
 };
 
+
 export const getUserDetails = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
-  const branchId = getRegistrarBranchId(req); // Assumes getRegistrarBranchId helper exists
+  const branchId = getRegistrarBranchId(req);
   if (!branchId) {
     return res.status(401).json({ message: "Unauthorized." });
   }
 
-  const { userId } = req.params;
+  const { userId } = req.params; // This is the ID of the user to get details for
 
   try {
-    // Security Check: Only find the user if they are in the same branch.
+    // 1. Fetch the basic user data
     const user = await prisma.user.findFirst({
       where: {
         id: userId,
         branchId: branchId,
       },
       select: {
-        // Only return non-sensitive, necessary information
         id: true,
         name: true,
         email: true,
@@ -211,7 +211,67 @@ export const getUserDetails = async (
         .json({ message: "User not found in your branch." });
     }
 
-    res.status(200).json(user);
+    // 2. Fetch the branch's leave settings
+    const settings = await prisma.leaveSettings.findUnique({
+      where: { branchId },
+    });
+
+    // 3. Fetch all of this user's *approved* leave applications
+    const approvedLeaves = await prisma.leaveApplication.findMany({
+      where: {
+        applicantId: user.id,
+        status: "Approved",
+      },
+    });
+
+    // 4. Calculate total leave days used
+    const usedLeaves = { sick: 0, casual: 0 };
+    approvedLeaves.forEach((app) => {
+      let daysUsed = 0.5; // Default for half-day
+      if (!app.isHalfDay) {
+        const start = new Date(app.fromDate);
+        const end = new Date(app.toDate);
+        const diffTime = Math.abs(end.getTime() - start.getTime());
+        daysUsed = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // +1 for inclusive
+      }
+
+      const type = app.leaveType.toLowerCase();
+      if (type === "sick") {
+        usedLeaves.sick += daysUsed;
+      } else if (type === "casual") {
+        usedLeaves.casual += daysUsed;
+      }
+    });
+
+    // 5. Determine total available leaves based on user's role
+    const totalLeaves = { sick: 0, casual: 0 };
+    if (settings) {
+      if (user.role === "Student") {
+        totalLeaves.sick = settings.defaultStudentSick;
+        totalLeaves.casual = settings.defaultStudentCasual;
+      } else if (user.role === "Teacher") {
+        totalLeaves.sick = settings.defaultTeacherSick;
+        totalLeaves.casual = settings.defaultTeacherCasual;
+      } else if (
+        ["Registrar", "Librarian", "SupportStaff"].includes(user.role)
+      ) {
+        totalLeaves.sick = settings.defaultStaffSick;
+        totalLeaves.casual = settings.defaultStaffCasual;
+      }
+    }
+
+    // 6. Calculate remaining balances
+    const leaveBalances = {
+      sick: totalLeaves.sick - usedLeaves.sick,
+      casual: totalLeaves.casual - usedLeaves.casual,
+      // You can add 'planned' and 'earned' here if they are in your schema
+    };
+
+    // 7. Send the complete object to the frontend
+    res.status(200).json({
+      ...user,
+      leaveBalances: leaveBalances, // Attach the calculated balances
+    });
   } catch (error) {
     next(error);
   }
@@ -2916,6 +2976,28 @@ export const getLeaveApplicationsForRegistrar = async (req: Request, res: Respon
 };
 
 
+export const getMyLeaveApplications = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const applicantId = req.user?.id; // Get applicant ID from authenticated user
+
+  if (!applicantId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
+  try {
+    const applications = await prisma.leaveApplication.findMany({
+      where: { applicantId: applicantId },
+      orderBy: { fromDate: "desc" },
+    });
+    res.status(200).json(applications);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const processLeaveApplication = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     const { id } = req.params;
@@ -3734,7 +3816,6 @@ export const getTeacherAttendanceRequests = async (req: Request, res: Response, 
 };
 
 
-// Add this function to your registrarController.ts file
 export const createLeaveApplication = async (req: Request, res: Response, next: NextFunction) => {
   const applicantId = req.user?.id; // Get applicant ID from authenticated user
 

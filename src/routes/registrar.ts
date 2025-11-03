@@ -178,6 +178,10 @@ router.put(
   registrarController.processLeaveApplication
 ); 
 router.post("/leaves/applications", registrarController.createLeaveApplication);
+router.get(
+  "/leaves/my-applications",
+  registrarController.getMyLeaveApplications
+);
 
 // --- Fee Management ---
 router.get("/fees/templates", registrarController.getFeeTemplates); 
