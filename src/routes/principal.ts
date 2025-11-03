@@ -111,6 +111,19 @@ router.post("/erp-bill/pay", principalController.payErpBill);
 router.get("/manual-expenses", principalController.getManualExpenses);
 router.post("/manual-expenses", principalController.addManualExpense);
 
+
+router.get(
+  "/examinations",
+  principalController.getExaminationsWithResultStatus
+);
+
+// This is the endpoint for the "Publish Results" button
+router.post(
+  "/examinations/:examId/publish",
+  principalController.publishExaminationResults
+);
+
+
 // --- Staff Requests ---
 router.get(
   "/requests/fees",

@@ -12,6 +12,7 @@ import {
   FeeRecord,
   Branch,
   UserRole,
+  ExamResultStatus,
 } from "@prisma/client";
 import { generatePassword } from "../utils/helpers";
 import bcrypt from "bcryptjs";
@@ -1203,32 +1204,89 @@ export const getAttendanceOverview = async (
 
 export const getExaminationsWithResultStatus = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ) => {
+  const branchId = getPrincipalBranchId(req);
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
   try {
-    if (!req.user?.branchId) {
-      return res
-        .status(401)
-        .json({ message: "Authentication required with a valid branch." });
-    }
-    const exams = await principalApiService.getExaminationsWithResultStatus(
-      req.user.branchId
-    );
-    res.status(200).json(exams);
-  } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    const now = new Date();
+
+    // --- Dynamic Status Update ---
+    // First, update the status of any exams that have become
+    // ongoing or completed since they were last viewed.
+    await prisma.$transaction([
+      // Find UPCOMING exams where today is past the start date
+      prisma.examination.updateMany({
+        where: {
+          branchId,
+          status: "Upcoming",
+          startDate: { lte: now },
+        },
+        data: { status: "Ongoing" },
+      }),
+      // Find ONGOING exams where today is past the end date
+      prisma.examination.updateMany({
+        where: {
+          branchId,
+          status: "Ongoing",
+          endDate: { lt: now },
+        },
+        data: { status: "Completed" },
+      }),
+    ]);
+    // --- End of Dynamic Update ---
+
+    // Now, fetch all exams with their updated statuses
+    const examinations = await prisma.examination.findMany({
+      where: { branchId },
+      orderBy: { startDate: "desc" },
+    });
+
+    res.status(200).json(examinations);
+  } catch (error) {
+    next(error);
   }
 };
 
 export const publishExaminationResults = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ) => {
+  const branchId = getPrincipalBranchId(req);
+  const { examId } = req.params;
+
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
   try {
-    await principalApiService.publishExaminationResults(req.params.id);
-    res.status(200).json({ message: "Results published." });
-  } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    // Use updateMany for security to ensure the principal
+    // can only publish an exam in their own branch.
+    const result = await prisma.examination.updateMany({
+      where: {
+        id: examId,
+        branchId: branchId,
+        status: "Completed", // Can only publish completed exams
+      },
+      data: {
+        resultStatus: ExamResultStatus.Published,
+      },
+    });
+
+    if (result.count === 0) {
+      return res.status(404).json({
+        message: "Completed examination not found in your branch.",
+      });
+    }
+
+    res.status(200).json({ message: "Results published successfully." });
+  } catch (error) {
+    next(error);
   }
 };
 
