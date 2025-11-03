@@ -157,11 +157,17 @@ router.get(
   registrarController.getExamMarkRectificationRequestsByBranch
 );
 router.get("/examinations", registrarController.getExaminations);
-
+router.post("/examinations", registrarController.createExamination);
 router.put(
   "/requests/exam-marks/:id/process",
   registrarController.processExamMarkRectificationRequest
 ); 
+router.post("/exam-schedules", registrarController.createExamSchedule);
+router.get(
+  "/exam-schedules/:examinationId",
+  registrarController.getExamSchedulesForExamination
+);
+
 router.get(
   "/leaves/student-applications",
   registrarController.getStudentLeaveApplications

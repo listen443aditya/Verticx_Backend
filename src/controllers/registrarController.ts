@@ -9,6 +9,9 @@ import {
   UserRole,
   FeeAdjustment,
   TeacherAttendanceStatus,
+  Examination,
+  ExamStatus, 
+  ExamResultStatus,
 } from "@prisma/client"; 
 import { generatePassword } from "../utils/helpers"; 
 import bcrypt from "bcryptjs";
@@ -879,6 +882,173 @@ export const getExaminations = async (
   }
 };
 
+export const createExamination = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
+  const { name, startDate, endDate } = req.body;
+
+  if (!name || !startDate || !endDate) {
+    return res
+      .status(400)
+      .json({ message: "Name, Start Date, and End Date are required." });
+  }
+
+  // --- THIS IS THE FIX YOU SUGGESTED ---
+  const now = new Date();
+  const start = new Date(startDate); // The start of the exam day (e.g., 00:00:00)
+  const end = new Date(endDate); // The start of the end day
+
+  // To make the 'end' date inclusive, set it to the end of that day
+  end.setHours(23, 59, 59, 999);
+
+  let calculatedStatus: ExamStatus;
+
+  if (now > end) {
+    // If 'now' is already past the end of the exam's last day
+    calculatedStatus = ExamStatus.Completed;
+  } else if (now >= start) {
+    // If 'now' is after the start, but not after the end, it's ONGOING
+    calculatedStatus = ExamStatus.Ongoing;
+  } else {
+    // Otherwise, it must be in the future
+    calculatedStatus = ExamStatus.Upcoming;
+  }
+  // --- END OF FIX ---
+
+  try {
+    const newExamination = await prisma.examination.create({
+      data: {
+        name: name,
+        startDate: new Date(startDate), // Store the clean date
+        endDate: new Date(endDate), // Store the clean date
+        branchId: branchId,
+
+        // Use the dynamically calculated status
+        status: calculatedStatus,
+
+        // This default is still correct
+        resultStatus: ExamResultStatus.Pending,
+      },
+    });
+    res.status(201).json(newExamination);
+  } catch (error) {
+    next(error);
+  }
+};
+
+
+export const createExamSchedule = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  // FIX 1: Use your helper to get branchId
+  const branchId = getRegistrarBranchId(req);
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
+  try {
+    const {
+      examinationId,
+      classId,
+      subjectId,
+      date,
+      startTime,
+      endTime,
+      room,
+      totalMarks,
+    } = req.body;
+
+    // FIX 2: Use your JSON response pattern for validation
+    if (
+      !examinationId ||
+      !classId ||
+      !subjectId ||
+      !date ||
+      !startTime ||
+      !endTime ||
+      !totalMarks
+    ) {
+      return res
+        .status(400)
+        .json({ message: "Missing required fields for exam schedule." });
+    }
+
+    // 3. Create the new exam schedule in the database
+    const newSchedule = await prisma.examSchedule.create({
+      data: {
+        examinationId,
+        classId,
+        subjectId,
+        date: new Date(date), // Ensure date is stored as a Date object
+        startTime,
+        endTime,
+        room,
+        totalMarks: Number(totalMarks),
+        branchId, 
+      },
+    });
+
+    // 4. Send the successful response
+    res.status(201).json({
+      status: "success",
+      data: {
+        schedule: newSchedule,
+      },
+    });
+  } catch (error) {
+    // Pass any errors to your global error handler
+    next(error);
+  }
+};
+
+
+export const getExamSchedulesForExamination = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  // FIX 1: Use your helper to get branchId
+  const branchId = getRegistrarBranchId(req);
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
+  try {
+    // 1. Get the examinationId from the URL parameters
+    const { examinationId } = req.params;
+
+    // 2. Find all schedules that match BOTH the examination and the branch
+    const schedules = await prisma.examSchedule.findMany({
+      where: {
+        examinationId: examinationId,
+        branchId: branchId, // Security check
+      },
+      // Optional: Sort them logically
+      orderBy: [{ date: "asc" }, { startTime: "asc" }],
+    });
+
+    // 3. Send the successful response
+    res.status(200).json({
+      status: "success",
+      results: schedules.length,
+      data: {
+        schedules: schedules,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 /**
  * @description Suspend a student and create a suspension record.
  * @route PATCH /api/registrar/students/:id/suspend
@@ -932,6 +1102,9 @@ export const suspendStudent = async (req: Request, res: Response, next: NextFunc
     next(error);
   }
 };
+
+
+
 
 /**
  * @description Remove a student's suspension and deactivate the record.
