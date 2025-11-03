@@ -187,7 +187,7 @@ export const getUserDetails = async (
     return res.status(401).json({ message: "Unauthorized." });
   }
 
-  const { userId } = req.params; // This is the ID of the user to get details for
+  const { userId } = req.params;
 
   try {
     // 1. Fetch the basic user data
@@ -211,7 +211,7 @@ export const getUserDetails = async (
         .json({ message: "User not found in your branch." });
     }
 
-    // 2. Fetch the branch's leave settings
+    // 2. Fetch the branch's leave settings from the database
     const settings = await prisma.leaveSettings.findUnique({
       where: { branchId },
     });
@@ -243,8 +243,12 @@ export const getUserDetails = async (
       }
     });
 
-    // 5. Determine total available leaves based on user's role
+    // --- THIS IS THE FIX ---
+    // 5. Initialize totalLeaves to 0.
     const totalLeaves = { sick: 0, casual: 0 };
+
+    // If settings were found in the database, populate totalLeaves with that data.
+    // If 'settings' is null, totalLeaves will remain 0.
     if (settings) {
       if (user.role === "Student") {
         totalLeaves.sick = settings.defaultStudentSick;
@@ -259,12 +263,12 @@ export const getUserDetails = async (
         totalLeaves.casual = settings.defaultStaffCasual;
       }
     }
+    // --- END OF FIX ---
 
     // 6. Calculate remaining balances
     const leaveBalances = {
       sick: totalLeaves.sick - usedLeaves.sick,
       casual: totalLeaves.casual - usedLeaves.casual,
-      // You can add 'planned' and 'earned' here if they are in your schema
     };
 
     // 7. Send the complete object to the frontend
