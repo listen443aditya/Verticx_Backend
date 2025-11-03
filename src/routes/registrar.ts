@@ -156,6 +156,7 @@ router.get(
   "/requests/exam-marks",
   registrarController.getExamMarkRectificationRequestsByBranch
 );
+router.post("/examinations/schedules", registrarController.createExamSchedule);
 router.get("/examinations", registrarController.getExaminations);
 router.post("/examinations", registrarController.createExamination);
 router.put(
