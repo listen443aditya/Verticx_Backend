@@ -1665,67 +1665,6 @@ export const getTeachersByBranch = async (req: Request, res: Response, next: Nex
 };
 
 
-// export const getAllStaffForBranch = async (
-//   req: Request,
-//   res: Response,
-//   next: NextFunction
-// ) => {
-//   const branchId = getRegistrarBranchId(req);
-//   if (!branchId) {
-//     return res
-//       .status(401)
-//       .json({ message: "Authentication required with a valid branch." });
-//   }
-
-//   // Define the roles considered as staff for this branch
-//   const staffRoles: UserRole[] = [
-//     "Teacher",
-//     "Registrar",
-//     "Librarian",
-//     "Principal",
-//     // Add 'SupportStaff' or other relevant roles if needed
-//   ];
-
-//   try {
-//     // 1️⃣ Fetch users matching the staff roles and branch
-//     const staffUsers = await prisma.user.findMany({
-//       where: {
-//         branchId: branchId,
-//         role: { in: staffRoles },
-//       },
-//       // 2️⃣ Crucially, include the related Teacher data
-//       include: {
-//         teacher: true, // This fetches qualification, subjectIds, salary etc.
-//       },
-//       orderBy: {
-//         name: "asc", // Optional: Order alphabetically
-//       },
-//     });
-
-//     // 3️⃣ Combine User data with Teacher data where available
-//     const combinedStaff = staffUsers.map((user) => {
-//       // If the user has linked teacher data, merge it in
-//       if (user.teacher) {
-//         return {
-//           ...user, // Basic user info (id, name, email, role, status)
-//           ...user.teacher, // Teacher-specific info (qualification, subjectIds, salary)
-//           id: user.id, // Ensure the User ID overrides the Teacher ID if they differ
-//         };
-//       }
-//       // If not a teacher, return just the user data
-//       return user;
-//     });
-
-//     // We don't need attendance logic here, the frontend service can handle that if needed elsewhere
-
-//     res.status(200).json(combinedStaff);
-//   } catch (error) {
-//     next(error);
-//   }
-// };
-
-
-
 export const getAllStaffForBranch = async (
   req: Request,
   res: Response,
@@ -1750,7 +1689,7 @@ export const getAllStaffForBranch = async (
     // 1. Get all subjects in the branch for easy lookup
     const allSubjects = await prisma.subject.findMany({
       where: { branchId: branchId },
-      select: { id: true, name: true, teacherId: true }, // Select all we need
+      select: { id: true, name: true, teacherId: true },
     });
 
     // 2. Get all staff users
@@ -1760,36 +1699,55 @@ export const getAllStaffForBranch = async (
         role: { in: staffRoles },
       },
       include: {
-        teacher: true, // This is still needed for qualification, salary, etc.
+        teacher: true,
       },
       orderBy: {
         name: "asc",
       },
     });
 
-    // 3. Manually build the correct 'teacher' object for each user
+    // 3. --- NEW: Get all attendance records for the branch ---
+    const allAttendance = await prisma.staffAttendanceRecord.findMany({
+      where: { branchId },
+      select: { userId: true, status: true }, // Only get what we need
+    });
+
+    // 4. Manually build the correct object for each user
     const combinedStaff = staffUsers.map((user) => {
+      // --- NEW: Attendance Calculation ---
+      // Find all records for this specific user
+      const userRecords = allAttendance.filter((rec) => rec.userId === user.id);
+      const totalDays = userRecords.length;
+      // Count "Present" and "HalfDay" as present
+      const presentDays = userRecords.filter(
+        (rec) => rec.status === "Present" || rec.status === "HalfDay"
+      ).length;
+      // Calculate percentage, default to null if no records exist
+      const attendancePercentage =
+        totalDays === 0 ? null : (presentDays / totalDays) * 100;
+      // --- End of New Code ---
+
+      // This logic is for non-teacher staff
       if (!user.teacher) {
-        return user; // Return non-teacher staff as-is
+        return {
+          ...user,
+          attendancePercentage, // Add the percentage
+        };
       }
 
-      // --- THIS IS THE FIX ---
-      // Find all subjects that are assigned to this *teacher's ID*
+      // This logic is for teachers
       const assignedSubjects = allSubjects.filter(
         (subject) => subject.teacherId === user.teacher!.id
       );
-
-      // Create a new 'subjectIds' array from the *real* source of truth
       const subjectIds = assignedSubjects.map((subject) => subject.id);
-      // --- END OF FIX ---
 
-      // Return the User, merging in the teacher data and the *correct* subjectIds
       return {
         ...user,
         teacher: {
           ...user.teacher,
-          subjectIds: subjectIds, // Overwrite the stale subjectIds with the correct list
+          subjectIds: subjectIds,
         },
+        attendancePercentage, // Add the percentage here too
       };
     });
 
