@@ -11,6 +11,7 @@ import {
   ExamMark,
   FeeRecord,
   Branch,
+  UserRole,
 } from "@prisma/client";
 import { generatePassword } from "../utils/helpers";
 import bcrypt from "bcryptjs";
@@ -1054,19 +1055,152 @@ export const getPrincipalClassView = async (req: Request, res: Response) => {
   }
 };
 
-export const getAttendanceOverview = async (req: Request, res: Response) => {
+export const getAttendanceOverview = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getPrincipalBranchId(req);
+  if (!branchId) {
+    return res
+      .status(401)
+      .json({ message: "Authentication required with a valid branch." });
+  }
+
   try {
-    if (!req.user?.branchId) {
-      return res
-        .status(401)
-        .json({ message: "Authentication required with a valid branch." });
-    }
-    const overview = await principalApiService.getAttendanceOverview(
-      req.user.branchId
+    const today = new Date();
+    // Set to the very start of the day in UTC
+    const startDate = new Date(
+      Date.UTC(
+        today.getUTCFullYear(),
+        today.getUTCMonth(),
+        today.getUTCDate(),
+        0,
+        0,
+        0,
+        0
+      )
     );
+    // Set to the very end of the day in UTC
+    const endDate = new Date(
+      Date.UTC(
+        today.getUTCFullYear(),
+        today.getUTCMonth(),
+        today.getUTCDate(),
+        23,
+        59,
+        59,
+        999
+      )
+    );
+
+    // 1. Get Student Attendance
+    const [totalStudents, presentStudents, classAttendanceRaw] =
+      await Promise.all([
+        prisma.student.count({ where: { branchId } }),
+        prisma.attendanceRecord.count({
+          where: {
+            student: { branchId },
+            date: { gte: startDate, lte: endDate },
+            status: "Present",
+          },
+        }),
+        prisma.schoolClass.findMany({
+          where: { branchId },
+          select: {
+            id: true,
+            gradeLevel: true,
+            section: true,
+            students: {
+              select: {
+                id: true,
+                name: true,
+                attendanceRecords: {
+                  where: { date: { gte: startDate, lte: endDate } },
+                },
+              },
+            },
+          },
+        }),
+      ]);
+
+    // 2. Process Student Attendance
+    const classAttendance = classAttendanceRaw.map((c) => {
+      let present = 0;
+      const absentees: { id: string; name: string }[] = [];
+      c.students.forEach((s) => {
+        const record = s.attendanceRecords[0];
+        if (
+          record &&
+          (record.status === "Present" || record.status === "Tardy")
+        ) {
+          present++;
+        } else if (!record || record.status === "Absent") {
+          absentees.push({ id: s.id, name: s.name });
+        }
+      });
+      return {
+        classId: c.id,
+        className: `Grade ${c.gradeLevel} - ${c.section}`,
+        total: c.students.length,
+        present: present,
+        absentees: absentees,
+      };
+    });
+
+    // 3. Get Staff Attendance
+    // --- THIS IS THE FIX ---
+    // Explicitly cast the array to UserRole[]
+    const allStaffRoles: UserRole[] = [
+      "Teacher",
+      "Registrar",
+      "Librarian",
+      "SupportStaff",
+      "Principal",
+    ];
+    // --- END OF FIX ---
+
+    const [totalStaff, staffAttendanceRecords] = await Promise.all([
+      prisma.user.count({
+        where: { branchId, role: { in: allStaffRoles } },
+      }),
+      prisma.staffAttendanceRecord.findMany({
+        where: {
+          branchId: branchId,
+          date: { gte: startDate, lte: endDate },
+        },
+        include: {
+          user: { select: { name: true } },
+        },
+      }),
+    ]);
+
+    // 4. Process Staff Attendance
+    const staffPresent = staffAttendanceRecords.filter(
+      (s) => s.status === "Present" || s.status === "HalfDay"
+    ).length;
+
+    const staffAttendance = staffAttendanceRecords.map((s) => ({
+      teacherId: s.userId, // Use userId
+      teacherName: s.user.name,
+      status: s.status,
+    }));
+
+    // 5. Assemble final payload
+    const overview = {
+      summary: {
+        studentsPresent: presentStudents,
+        studentsTotal: totalStudents,
+        staffPresent: staffPresent,
+        staffTotal: totalStaff,
+      },
+      classAttendance,
+      staffAttendance,
+    };
+
     res.status(200).json(overview);
-  } catch (error: any) {
-    res.status(500).json({ message: error.message });
+  } catch (error) {
+    next(error);
   }
 };
 
