@@ -256,6 +256,14 @@ router.delete(
   registrarController.removeMemberFromRoute
 ); 
 
+router.get("/hostels/all-rooms", registrarController.getAllRoomsByBranch);
+
+router.get("/hostels/:id/rooms", registrarController.getRooms);
+router.post(
+  "/hostels/rooms/:roomId/assign-student",
+  registrarController.assignStudentToRoom
+);
+
 // --- Inventory ---
 router.get("/inventory/items", registrarController.getInventory); 
 router.get("/inventory/logs", registrarController.getInventoryLogs);

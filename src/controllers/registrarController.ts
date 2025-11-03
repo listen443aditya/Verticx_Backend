@@ -1104,7 +1104,56 @@ export const suspendStudent = async (req: Request, res: Response, next: NextFunc
 };
 
 
+export const getAllRoomsByBranch = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
 
+  try {
+    // 1. Get all rooms that belong to hostels in the registrar's branch
+    const rooms = await prisma.room.findMany({
+      where: {
+        hostel: {
+          branchId: branchId,
+        },
+      },
+    });
+
+    // 2. Get all students who are assigned to *any* of these rooms
+    const studentsInHostels = await prisma.student.findMany({
+      where: {
+        roomId: { in: rooms.map((r) => r.id) },
+        branchId: branchId, // Security check
+      },
+      select: {
+        id: true,
+        roomId: true,
+      },
+    });
+
+    // 3. Map the students back to their rooms to create the 'occupantIds' array
+    //    that your 'HostelManagement.tsx' component expects.
+    const roomsWithOccupants = rooms.map((room) => {
+      const occupantIds = studentsInHostels
+        .filter((s) => s.roomId === room.id)
+        .map((s) => s.id);
+
+      return {
+        ...room,
+        occupantIds: occupantIds, // This now matches your frontend's type
+      };
+    });
+
+    res.status(200).json(roomsWithOccupants);
+  } catch (error) {
+    next(error);
+  }
+};
 
 /**
  * @description Remove a student's suspension and deactivate the record.
