@@ -2055,7 +2055,17 @@ export const getStaffMemberAttendance = async (
     return res.status(401).json({ message: "Unauthorized." });
   }
 
-  const { staffId, year, month } = req.params;
+  const { staffId, year, month } = req.params; 
+  const yearNum = parseInt(year, 10);
+  const monthNum = parseInt(month, 10); // 0-indexed (0=Jan, 11=Dec)
+
+  if (isNaN(yearNum) || isNaN(monthNum) || monthNum < 0 || monthNum > 11) {
+    return res.status(400).json({ message: "Invalid year or month." });
+  }
+
+  const startDate = new Date(Date.UTC(yearNum, monthNum, 1));
+  const endDate = new Date(Date.UTC(yearNum, monthNum + 1, 0, 23, 59, 59));
+  // --- END FIX 1 ---
 
   try {
     const staffMember = await prisma.user.findFirst({
@@ -2068,33 +2078,24 @@ export const getStaffMemberAttendance = async (
         .json({ message: "Staff member not found in your branch." });
     }
 
-    const yearNum = parseInt(year, 10);
-    const monthNum = parseInt(month, 10);
-
-    const startDate = new Date(yearNum, monthNum, 1);
-    const endDate = new Date(yearNum, monthNum + 1, 0);
-
-    const startDateString = startDate.toISOString().split("T")[0];
-    const endDateString = endDate.toISOString().split("T")[0];
-
     const [attendance, leaves] = await prisma.$transaction([
-      prisma.teacherAttendanceRecord.findMany({
+      prisma.staffAttendanceRecord.findMany({
         where: {
-          teacherId: staffId,
+          userId: staffId,
           date: {
-            gte: new Date(startDateString),
-            lte: new Date(endDateString),
+            gte: startDate,
+            lte: endDate,
           },
         },
       }),
+
       prisma.leaveApplication.findMany({
         where: {
-          // FIX: Use the correct 'applicantId' field from the refactored schema
           applicantId: staffId,
           status: "Approved",
           AND: [
-            { fromDate: { lte: endDateString } },
-            { toDate: { gte: startDateString } },
+            { fromDate: { lte: endDate.toISOString() } },
+            { toDate: { gte: startDate.toISOString() } },
           ],
         },
       }),
