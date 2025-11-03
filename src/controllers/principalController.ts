@@ -1213,13 +1213,12 @@ export const getExaminationsWithResultStatus = async (
   }
 
   try {
-    const now = new Date();
+    const now = new Date(); 
 
-    // --- Dynamic Status Update ---
-    // First, update the status of any exams that have become
-    // ongoing or completed since they were last viewed.
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
     await prisma.$transaction([
-      // Find UPCOMING exams where today is past the start date
+
       prisma.examination.updateMany({
         where: {
           branchId,
@@ -1228,19 +1227,15 @@ export const getExaminationsWithResultStatus = async (
         },
         data: { status: "Ongoing" },
       }),
-      // Find ONGOING exams where today is past the end date
       prisma.examination.updateMany({
         where: {
           branchId,
           status: "Ongoing",
-          endDate: { lt: now },
+          endDate: { lt: today },
         },
         data: { status: "Completed" },
       }),
     ]);
-    // --- End of Dynamic Update ---
-
-    // Now, fetch all exams with their updated statuses
     const examinations = await prisma.examination.findMany({
       where: { branchId },
       orderBy: { startDate: "desc" },
@@ -1251,7 +1246,6 @@ export const getExaminationsWithResultStatus = async (
     next(error);
   }
 };
-
 export const publishExaminationResults = async (
   req: Request,
   res: Response,
