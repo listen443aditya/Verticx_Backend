@@ -229,7 +229,7 @@ export const getUserDetails = async (
         defaultTeacherCasual: 10,
         defaultStaffSick: 12,
         defaultStaffCasual: 7,
-      };
+      } as any; // Use 'as any' to satisfy type, since we're creating a partial object
     }
     // --- END OF FIX ---
 
@@ -263,16 +263,20 @@ export const getUserDetails = async (
     // 5. Determine total available leaves based on user's role
     // This logic is now safe because 'settings' will always be an object
     const totalLeaves = { sick: 0, casual: 0 };
-    if (user.role === "Student") {
-      totalLeaves.sick = settings.defaultStudentSick;
-      totalLeaves.casual = settings.defaultStudentCasual;
-    } else if (user.role === "Teacher") {
-      totalLeaves.sick = settings.defaultTeacherSick;
-      totalLeaves.casual = settings.defaultTeacherCasual;
-    } else if (["Registrar", "Librarian", "SupportStaff"].includes(user.role)) {
-      totalLeaves.sick = settings.defaultStaffSick;
-      totalLeaves.casual = settings.defaultStaffCasual;
-    }
+   if (settings) {
+     if (user.role === "Student") {
+       totalLeaves.sick = settings.defaultStudentSick;
+       totalLeaves.casual = settings.defaultStudentCasual;
+     } else if (user.role === "Teacher") {
+       totalLeaves.sick = settings.defaultTeacherSick;
+       totalLeaves.casual = settings.defaultTeacherCasual;
+     } else if (
+       ["Registrar", "Librarian", "SupportStaff"].includes(user.role)
+     ) {
+       totalLeaves.sick = settings.defaultStaffSick;
+       totalLeaves.casual = settings.defaultStaffCasual;
+     }
+   }
 
     // 6. Calculate remaining balances
     const leaveBalances = {
