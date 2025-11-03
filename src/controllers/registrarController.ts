@@ -187,7 +187,7 @@ export const getUserDetails = async (
     return res.status(401).json({ message: "Unauthorized." });
   }
 
-  const { userId } = req.params;
+  const { userId } = req.params; // This is the ID of the user to get details for
 
   try {
     // 1. Fetch the basic user data
@@ -211,10 +211,27 @@ export const getUserDetails = async (
         .json({ message: "User not found in your branch." });
     }
 
-    // 2. Fetch the branch's leave settings from the database
-    const settings = await prisma.leaveSettings.findUnique({
+    // 2. Fetch the branch's leave settings
+    let settings = await prisma.leaveSettings.findUnique({
       where: { branchId },
     });
+
+    // --- THIS IS THE FIX ---
+    // If no settings are found in the DB, create a default fallback object
+    // This logic now *matches* your getLeaveSettingsForBranch function
+    if (!settings) {
+      settings = {
+        id: "default", // Placeholder ID
+        branchId: branchId,
+        defaultStudentSick: 10,
+        defaultStudentCasual: 5,
+        defaultTeacherSick: 12,
+        defaultTeacherCasual: 10,
+        defaultStaffSick: 12,
+        defaultStaffCasual: 7,
+      };
+    }
+    // --- END OF FIX ---
 
     // 3. Fetch all of this user's *approved* leave applications
     const approvedLeaves = await prisma.leaveApplication.findMany({
@@ -243,31 +260,23 @@ export const getUserDetails = async (
       }
     });
 
-    // --- THIS IS THE FIX ---
-    // 5. Initialize totalLeaves to 0.
+    // 5. Determine total available leaves based on user's role
+    // This logic is now safe because 'settings' will always be an object
     const totalLeaves = { sick: 0, casual: 0 };
-
-    // If settings were found in the database, populate totalLeaves with that data.
-    // If 'settings' is null, totalLeaves will remain 0.
-    if (settings) {
-      if (user.role === "Student") {
-        totalLeaves.sick = settings.defaultStudentSick;
-        totalLeaves.casual = settings.defaultStudentCasual;
-      } else if (user.role === "Teacher") {
-        totalLeaves.sick = settings.defaultTeacherSick;
-        totalLeaves.casual = settings.defaultTeacherCasual;
-      } else if (
-        ["Registrar", "Librarian", "SupportStaff"].includes(user.role)
-      ) {
-        totalLeaves.sick = settings.defaultStaffSick;
-        totalLeaves.casual = settings.defaultStaffCasual;
-      }
+    if (user.role === "Student") {
+      totalLeaves.sick = settings.defaultStudentSick;
+      totalLeaves.casual = settings.defaultStudentCasual;
+    } else if (user.role === "Teacher") {
+      totalLeaves.sick = settings.defaultTeacherSick;
+      totalLeaves.casual = settings.defaultTeacherCasual;
+    } else if (["Registrar", "Librarian", "SupportStaff"].includes(user.role)) {
+      totalLeaves.sick = settings.defaultStaffSick;
+      totalLeaves.casual = settings.defaultStaffCasual;
     }
-    // --- END OF FIX ---
 
     // 6. Calculate remaining balances
     const leaveBalances = {
-      sick: totalLeaves.sick - usedLeaves.sick,
+      sick: totalLeaves.sick - usedLeaves.sick, // Will now be 12 - 10 = 2
       casual: totalLeaves.casual - usedLeaves.casual,
     };
 
