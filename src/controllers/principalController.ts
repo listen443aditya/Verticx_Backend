@@ -1149,7 +1149,6 @@ export const getAttendanceOverview = async (
     });
 
     // 3. Get Staff Attendance
-    // --- THIS IS THE FIX ---
     // Explicitly cast the array to UserRole[]
     const allStaffRoles: UserRole[] = [
       "Teacher",
@@ -1158,8 +1157,6 @@ export const getAttendanceOverview = async (
       "SupportStaff",
       "Principal",
     ];
-    // --- END OF FIX ---
-
     const [totalStaff, staffAttendanceRecords] = await Promise.all([
       prisma.user.count({
         where: { branchId, role: { in: allStaffRoles } },
