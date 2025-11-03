@@ -688,6 +688,7 @@ export const getFaculty = async (req: Request, res: Response) => {
         role: true,
         status: true,
         createdAt: true,
+        teacher: true,
       },
       orderBy: { createdAt: "desc" },
     });
