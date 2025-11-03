@@ -156,6 +156,8 @@ router.get(
   "/requests/exam-marks",
   registrarController.getExamMarkRectificationRequestsByBranch
 );
+router.get("/examinations", registrarController.getExaminations);
+
 router.put(
   "/requests/exam-marks/:id/process",
   registrarController.processExamMarkRectificationRequest

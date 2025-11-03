@@ -819,67 +819,6 @@ export const demoteStudents = async (req: Request, res: Response, next: NextFunc
 };
 
 
-/**
- * @description Permanently delete a student and all their associated records.
- * @route DELETE /api/registrar/students/:id
- */
-
-
-// export const deleteStudent = async (
-//   req: Request,
-//   res: Response,
-//   next: NextFunction
-// ) => {
-//   const branchId = getRegistrarBranchId(req);
-//   const { id } = req.params;
-
-//   if (!branchId) {
-//     return res.status(401).json({ message: "Authentication required." });
-//   }
-
-//   try {
-//     // 1. Security Check: Verify the student belongs to the registrar's branch.
-//     const student = await prisma.student.findFirst({
-//       where: { id, branchId },
-//     });
-
-//     if (!student) {
-//       return res
-//         .status(404)
-//         .json({ message: "Student not found in your branch." });
-//     }
-
-//     // 2. Delete all dependent records sequentially.
-//     // We are removing the transaction to avoid the timeout error.
-//     await prisma.feeAdjustment.deleteMany({ where: { studentId: id } });
-//     await prisma.feePayment.deleteMany({ where: { studentId: id } });
-//     await prisma.feeRecord.deleteMany({ where: { studentId: id } });
-//     await prisma.attendanceRecord.deleteMany({ where: { studentId: id } });
-//     await prisma.examMark.deleteMany({ where: { studentId: id } });
-//     await prisma.complaint.deleteMany({ where: { studentId: id } });
-//     await prisma.suspensionRecord.deleteMany({ where: { studentId: id } });
-//     await prisma.rectificationRequest.deleteMany({ where: { studentId: id } });
-
-//     // 3. Finally, delete the student record itself.
-//     await prisma.student.delete({ where: { id } });
-
-//     res.status(204).send(); // Success, no content to return.
-//   } catch (error: any) {
-//     // Catch foreign key errors, which are now possible if a dependency is missed
-//     if (error.code === "P2003") {
-//       return res
-//         .status(409)
-//         .json({
-//           message:
-//             "Could not delete student. Other records (like leave applications) might still depend on it.",
-//         });
-//     }
-//     // Handle other errors
-//     next(error);
-//   }
-// };
-
-
 
 export const deleteStudent = async (
   req: Request,
@@ -915,7 +854,30 @@ export const deleteStudent = async (
   }
 };
 
+export const getExaminations = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
 
+  try {
+    const examinations = await prisma.examination.findMany({
+      where: {
+        branchId: branchId,
+      },
+      orderBy: {
+        startDate: "desc",
+      },
+    });
+    res.status(200).json(examinations);
+  } catch (error) {
+    next(error);
+  }
+};
 
 /**
  * @description Suspend a student and create a suspension record.
@@ -1353,10 +1315,6 @@ export const updateClassSubjects = async (req: Request, res: Response, next: Nex
     }
 };
 
-/**
- * @description Assign a list of students to a specific class.
- * @route POST /api/registrar/classes/:id/assign-students
- */
 export const assignStudentsToClass = async (req: Request, res: Response, next: NextFunction) => {
   const branchId = getRegistrarBranchId(req);
   const { id } = req.params; // Class ID
@@ -1542,14 +1500,6 @@ export const getClassDetails = async (
   }
 };
 
-
-
-
-
-/**
- * @description Remove a single student from their currently assigned class.
- * @route PATCH /api/registrar/students/:studentId/remove-from-class
- */
 export const removeStudentFromClass = async (req: Request, res: Response, next: NextFunction) => {
   const branchId = getRegistrarBranchId(req);
   const { studentId } = req.params;
@@ -1664,7 +1614,6 @@ export const getTeachersByBranch = async (req: Request, res: Response, next: Nex
   }
 };
 
-
 export const getAllStaffForBranch = async (
   req: Request,
   res: Response,
@@ -1757,7 +1706,6 @@ export const getAllStaffForBranch = async (
   }
 };
 
-
 export const updateTeacher = async (
   req: Request,
   res: Response,
@@ -1840,7 +1788,6 @@ export const updateTeacher = async (
 };
 
 
-
 export const getSupportStaffByBranch = async (
   req: Request,
   res: Response,
@@ -1879,10 +1826,7 @@ export const getSupportStaffByBranch = async (
     next(error);
   }
 };
-/**
- * @description Create a new support staff user account.
- * @route POST /api/registrar/support-staff
- */
+
 export const createSupportStaff = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     if (!branchId) {
