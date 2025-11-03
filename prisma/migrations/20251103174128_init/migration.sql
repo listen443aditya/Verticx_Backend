@@ -2,6 +2,9 @@
 CREATE TYPE "UserRole" AS ENUM ('Admin', 'Principal', 'Registrar', 'Teacher', 'Student', 'Parent', 'Librarian', 'SuperAdmin', 'SupportStaff');
 
 -- CreateEnum
+CREATE TYPE "StudentCategory" AS ENUM ('General', 'OBC', 'SC', 'ST', 'PreferNotToSay');
+
+-- CreateEnum
 CREATE TYPE "Day" AS ENUM ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday');
 
 -- CreateEnum
@@ -109,6 +112,12 @@ CREATE TABLE "Teacher" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "transportRouteId" TEXT,
     "busStopId" TEXT,
+    "bloodGroup" TEXT,
+    "alternatePhone" TEXT,
+    "address" TEXT,
+    "governmentDocNumber" TEXT,
+    "fatherName" TEXT,
+    "motherName" TEXT,
 
     CONSTRAINT "Teacher_pkey" PRIMARY KEY ("id")
 );
@@ -130,6 +139,17 @@ CREATE TABLE "Student" (
     "profilePictureUrl" TEXT,
     "leaveBalances" JSONB,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "admissionNumber" TEXT,
+    "dateOfAdmission" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP,
+    "classRollNumber" TEXT,
+    "bloodGroup" TEXT,
+    "guardianRelation" TEXT,
+    "isDisabled" BOOLEAN DEFAULT false,
+    "religion" TEXT,
+    "category" "StudentCategory",
+    "fatherName" TEXT,
+    "motherName" TEXT,
+    "governmentDocNumber" TEXT,
     "transportRouteId" TEXT,
     "busStopId" TEXT,
     "roomId" TEXT,
@@ -487,6 +507,7 @@ CREATE TABLE "Hostel" (
     "branchId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "warden" TEXT NOT NULL,
+    "wardenNumber" TEXT,
 
     CONSTRAINT "Hostel_pkey" PRIMARY KEY ("id")
 );
@@ -655,6 +676,15 @@ CREATE TABLE "FacultyApplication" (
     "branchId" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'Pending',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "subjectIds" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "gender" TEXT,
+    "doj" TIMESTAMP(3),
+    "bloodGroup" TEXT,
+    "alternatePhone" TEXT,
+    "address" TEXT,
+    "governmentDocNumber" TEXT,
+    "fatherName" TEXT,
+    "motherName" TEXT,
 
     CONSTRAINT "FacultyApplication_pkey" PRIMARY KEY ("id")
 );
@@ -831,6 +861,9 @@ CREATE UNIQUE INDEX "Teacher_email_key" ON "Teacher"("email");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Student_userId_key" ON "Student"("userId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Student_admissionNumber_key" ON "Student"("admissionNumber");
 
 -- CreateIndex
 CREATE INDEX "Complaint_studentId_idx" ON "Complaint"("studentId");

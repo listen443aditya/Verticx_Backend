@@ -22,7 +22,13 @@ enum UserRole {
   SuperAdmin
   SupportStaff
 }
-
+enum StudentCategory {
+  General
+  OBC
+  SC
+  ST
+  PreferNotToSay
+}
 enum Day {
   Monday
   Tuesday
@@ -204,6 +210,13 @@ model Teacher {
   transportRouteId String?
   busStopId        String?
 
+  bloodGroup          String?
+  alternatePhone      String?
+  address             String?
+  governmentDocNumber String?
+  fatherName          String?
+  motherName          String?
+
   branch                                 Branch                                  @relation(fields: [branchId], references: [id])
   user                                   User                                    @relation("UserTeacher", fields: [userId], references: [id])
   
@@ -238,6 +251,18 @@ model Student {
   profilePictureUrl String?
   leaveBalances     Json?
   createdAt         DateTime  @default(now())
+
+  admissionNumber     String?         @unique // Admission numbers should be unique
+  dateOfAdmission     DateTime?       @default(now())
+  classRollNumber     String?
+  bloodGroup          String?
+  guardianRelation    String?         
+  isDisabled          Boolean?        @default(false)
+  religion            String?
+  category            StudentCategory? // Uses the new enum
+  fatherName          String?
+  motherName          String?
+  governmentDocNumber String?
 
   branch            Branch             @relation(fields: [branchId], references: [id])
   feeRecords        FeeRecord[]
@@ -659,7 +684,7 @@ model Hostel {
   branchId String
   name     String
   warden   String
-
+  wardenNumber String?
   branch Branch @relation(fields: [branchId], references: [id])
   rooms  Room[]
 }
@@ -828,6 +853,15 @@ model FacultyApplication {
   status        String   @default("Pending")
   branch        Branch   @relation(fields: [branchId], references: [id])
   createdAt     DateTime @default(now())
+  subjectIds          String[] @default([]) // You should add this!
+  gender              String?
+  doj                 DateTime?
+  bloodGroup          String?
+  alternatePhone      String?
+  address             String?
+  governmentDocNumber String?
+  fatherName          String?
+  motherName          String?
 }
 
 model LeaveApplication {

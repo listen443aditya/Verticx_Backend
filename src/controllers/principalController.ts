@@ -497,13 +497,14 @@ export const approveFacultyApplication = async (
 ) => {
   const { id } = req.params;
   const { salary } = req.body;
-  const branchId = getPrincipalBranchId(req);
+  const branchId = getPrincipalBranchId(req); // Assuming this helper exists
 
   if (!branchId) {
     return res.status(401).json({ message: "Unauthorized." });
   }
 
   try {
+    // 1. Find the application and verify it's in the principal's branch
     const application = await prisma.facultyApplication.findUnique({
       where: { id },
     });
@@ -514,6 +515,7 @@ export const approveFacultyApplication = async (
     const tempPassword = generatePassword();
     const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
+    // 2. Create the User record
     const newTeacherUser = await prisma.user.create({
       data: {
         name: application.name,
@@ -525,9 +527,12 @@ export const approveFacultyApplication = async (
         userId: `VRTX-${branchId.substring(0, 4)}-TCH-${Date.now()
           .toString()
           .slice(-4)}`,
+        // --- Copy new fields to the User model if they exist there ---
+        // (e.g., address, alternatePhone could be on User)
       },
     });
 
+    // 3. Create the Teacher record, copying all data
     await prisma.teacher.create({
       data: {
         user: { connect: { id: newTeacherUser.id } },
@@ -537,9 +542,21 @@ export const approveFacultyApplication = async (
         qualification: application.qualification,
         branch: { connect: { id: branchId } },
         salary: salary,
+
+        // --- COPY ALL THE NEW FIELDS ---
+        subjectIds: application.subjectIds,
+        gender: application.gender,
+        doj: application.doj,
+        bloodGroup: application.bloodGroup,
+        alternatePhone: application.alternatePhone,
+        address: application.address,
+        governmentDocNumber: application.governmentDocNumber,
+        fatherName: application.fatherName,
+        motherName: application.motherName,
       },
     });
 
+    // 4. Update the application status
     await prisma.facultyApplication.update({
       where: { id },
       data: { status: "Approved" },

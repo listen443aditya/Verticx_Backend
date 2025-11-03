@@ -24,7 +24,16 @@ interface TeacherUpdatePayload {
   qualification?: string;
   salary?: number;
   subjectIds?: string[];
-  // Add other updatable fields as needed (e.g., status, doj)
+
+  bloodGroup?: string;
+  alternatePhone?: string;
+  address?: string;
+  governmentDocNumber?: string;
+  fatherName?: string;
+  motherName?: string;
+  gender?: string; // (You may want to add any other editable fields)
+  doj?: string | Date;
+  status?: string;
 }
 interface SupportStaffUpdatePayload {
   name?: string;
@@ -374,10 +383,7 @@ export const updateApplicationStatus = async (
   }
 };
 
-/**
- * @description Admit a student from an application, creating student and parent user accounts.
- * @route POST /api/registrar/admit-student
- */
+
 export const admitStudent = async (
   req: Request,
   res: Response,
@@ -491,17 +497,49 @@ export const admitStudent = async (
           name: applicantName,
           gradeLevel,
           branchId,
-          parentId: parentUser.id, // Link to parent's database ID
-          userId: studentUser.id, // <-- Link to student's User record database ID
+          parentId: parentUser.id,
+          userId: studentUser.id,
           status: "active",
-          // Include other details from studentData if available
+
+          // --- EXISTING OPTIONAL FIELDS ---
           ...(studentData?.dob && { dob: new Date(studentData.dob) }),
           ...(studentData?.address && { address: studentData.address }),
           ...(studentData?.gender && { gender: studentData.gender }),
           ...(studentData?.classId && { classId: studentData.classId }),
           guardianInfo: studentData?.guardianInfo
             ? studentData.guardianInfo
-            : undefined, // Save guardian info if direct admission
+            : undefined,
+
+          // --- ADD THESE NEW OPTIONAL FIELDS ---
+          ...(studentData?.admissionNumber && {
+            admissionNumber: studentData.admissionNumber,
+          }),
+          ...(studentData?.dateOfAdmission && {
+            dateOfAdmission: new Date(studentData.dateOfAdmission),
+          }),
+          ...(studentData?.classRollNumber && {
+            classRollNumber: studentData.classRollNumber,
+          }),
+          ...(studentData?.bloodGroup && {
+            bloodGroup: studentData.bloodGroup,
+          }),
+          ...(studentData?.guardianRelation && {
+            guardianRelation: studentData.guardianRelation,
+          }),
+          ...(studentData?.isDisabled && {
+            isDisabled: studentData.isDisabled,
+          }),
+          ...(studentData?.religion && { religion: studentData.religion }),
+          ...(studentData?.category && { category: studentData.category }), // This will pass "General", "OBC", etc.
+          ...(studentData?.fatherName && {
+            fatherName: studentData.fatherName,
+          }),
+          ...(studentData?.motherName && {
+            motherName: studentData.motherName,
+          }),
+          ...(studentData?.governmentDocNumber && {
+            governmentDocNumber: studentData.governmentDocNumber,
+          }),
         },
       });
 
@@ -525,10 +563,7 @@ export const admitStudent = async (
   }
 };
 
-/**
- * @description Submit a new faculty application.
- * @route POST /api/registrar/faculty-applications
- */
+
 export const submitFacultyApplication = async (
   req: Request,
   res: Response,
@@ -539,21 +574,46 @@ export const submitFacultyApplication = async (
     return res.status(401).json({ message: "Authentication required." });
   }
 
-  const { name, email, phone, qualification } = req.body;
+  // 1. Destructure ALL fields from the body
+  const {
+    name,
+    email,
+    phone,
+    qualification,
+    subjectIds,
+    gender,
+    doj,
+    bloodGroup,
+    alternatePhone,
+    address,
+    governmentDocNumber,
+    fatherName,
+    motherName,
+  } = req.body;
 
+  // 2. Keep the original validation for essential fields
   if (!name || !email || !phone || !qualification) {
     return res.status(400).json({ message: "Missing required fields." });
   }
 
   try {
+    // 3. Create the application with all the new data
     await prisma.facultyApplication.create({
       data: {
         name,
         email,
         phone,
         qualification,
-        // Security: The branchId is from the authenticated registrar, not the request body.
-        branchId,
+        branchId, // Security
+        subjectIds: subjectIds || [],
+        gender: gender,
+        doj: doj ? new Date(doj) : null,
+        bloodGroup: bloodGroup,
+        alternatePhone: alternatePhone,
+        address: address,
+        governmentDocNumber: governmentDocNumber,
+        fatherName: fatherName,
+        motherName: motherName,
       },
     });
     res
@@ -565,7 +625,6 @@ export const submitFacultyApplication = async (
 };
 
 
-// Add this new function to registrarController.ts
 export const getUnifiedApplications = async (
   req: Request,
   res: Response,
@@ -715,10 +774,6 @@ export const getClassFeeSummaries = async (
 };
 
 
-/**
- * @description Get all faculty applications for the registrar's branch.
- * @route GET /api/registrar/faculty-applications
- */
 export const getFacultyApplicationsByBranch = async (req: Request, res: Response, next: NextFunction) => {
   const branchId = getRegistrarBranchId(req);
   if (!branchId) {
@@ -735,10 +790,7 @@ export const getFacultyApplicationsByBranch = async (req: Request, res: Response
   }
 };
 
-/**
- * @description Promote a list of students to a new, higher-grade class.
- * @route PATCH /api/registrar/students/promote
- */
+
 export const promoteStudents = async (req: Request, res: Response, next: NextFunction) => {
   const branchId = getRegistrarBranchId(req);
   if (!branchId) {
@@ -778,10 +830,6 @@ export const promoteStudents = async (req: Request, res: Response, next: NextFun
   }
 };
 
-/**
- * @description Demote (or move) a list of students to a new class.
- * @route PATCH /api/registrar/students/demote
- */
 export const demoteStudents = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     if (!branchId) {
@@ -1049,10 +1097,7 @@ export const getExamSchedulesForExamination = async (
   }
 };
 
-/**
- * @description Suspend a student and create a suspension record.
- * @route PATCH /api/registrar/students/:id/suspend
- */
+
 export const suspendStudent = async (req: Request, res: Response, next: NextFunction) => {
   const branchId = getRegistrarBranchId(req);
   const { id } = req.params;
@@ -3172,10 +3217,6 @@ export const processLeaveApplication = async (req: Request, res: Response, next:
 
 // --- Hostel Management ---
 
-/**
- * @description Get all hostels for the registrar's branch.
- * @route GET /api/registrar/hostels
- */
 export const getHostels = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     if (!branchId) {
@@ -3192,67 +3233,144 @@ export const getHostels = async (req: Request, res: Response, next: NextFunction
     }
 };
 
-/**
- * @description Create a new hostel in the registrar's branch.
- * @route POST /api/registrar/hostels
- */
-export const createHostel = async (req: Request, res: Response, next: NextFunction) => {
-    const branchId = getRegistrarBranchId(req);
-    if (!branchId) {
-        return res.status(401).json({ message: "Authentication required." });
-    }
-    const { name, warden } = req.body;
-    if (!name || !warden) {
-        return res.status(400).json({ message: "Hostel name and warden are required." });
-    }
+export const createHostel = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
 
-    try {
-        const newHostel = await prisma.hostel.create({
-            data: {
-                name,
-                warden,
-                branchId, // Security: branchId is from the token, not the request body
-            },
+  // 1. Destructure ALL data from the body, including the rooms array
+  const { name, warden, wardenNumber, rooms = [] } = req.body;
+
+  if (!name || !warden) {
+    return res
+      .status(400)
+      .json({ message: "Hostel name and warden are required." });
+  }
+
+  try {
+    // 2. Use a transaction to create the hostel AND its rooms
+    const newHostel = await prisma.$transaction(async (tx) => {
+      // 3. Create the hostel first
+      const hostel = await tx.hostel.create({
+        data: {
+          name,
+          warden,
+          wardenNumber, // Added this field
+          branchId,
+        },
+      });
+
+      // 4. If the frontend sent any rooms...
+      if (rooms.length > 0) {
+        // 5. ...create them all, linked to the new hostel's ID
+        await tx.room.createMany({
+          data: rooms.map((room: any) => ({
+            roomNumber: room.roomNumber,
+            roomType: room.roomType,
+            capacity: room.capacity,
+            fee: room.fee,
+            hostelId: hostel.id, // This links the room to the hostel
+          })),
         });
-        res.status(201).json(newHostel);
-    } catch (error) {
-        next(error);
-    }
+      }
+
+      return hostel; // Return the created hostel
+    });
+
+    res.status(201).json(newHostel);
+  } catch (error) {
+    next(error);
+  }
 };
 
-/**
- * @description Update a hostel's details.
- * @route PATCH /api/registrar/hostels/:id
- */
-export const updateHostel = async (req: Request, res: Response, next: NextFunction) => {
-    const branchId = getRegistrarBranchId(req);
-    const { id } = req.params;
-    const { name, warden } = req.body;
+export const updateHostel = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  const { id: hostelId } = req.params; // This is the hostel's ID
 
-    if (!branchId) {
-        return res.status(401).json({ message: "Authentication required." });
-    }
+  // 1. Destructure ALL data from the body
+  const { name, warden, wardenNumber, rooms = [] } = req.body;
 
-    try {
-        // Security: Use updateMany to ensure the update only happens if the hostel is in the correct branch.
-        const result = await prisma.hostel.updateMany({
-            where: { id, branchId },
-            data: { name, warden },
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      // 2. Update the hostel's main details (name, warden, etc.)
+      await tx.hostel.update({
+        where: { id: hostelId, branchId: branchId }, // Security check
+        data: {
+          name,
+          warden,
+          wardenNumber,
+        },
+      });
+
+      // 3. Separate new rooms from existing rooms
+      const newRooms = rooms.filter((room: any) => room.id.startsWith("new-"));
+      const existingRoomIds = rooms
+        .filter((room: any) => !room.id.startsWith("new-"))
+        .map((room: any) => room.id);
+
+      // 4. Find any rooms in the DB that are no longer in our list
+      const roomsToDelete = await tx.room.findMany({
+        where: {
+          hostelId: hostelId,
+          id: { notIn: existingRoomIds }, // Find rooms NOT in the list
+        },
+        select: { id: true },
+      });
+      const roomIdsToDelete = roomsToDelete.map((r) => r.id);
+
+      // 5. If we have rooms to delete...
+      if (roomIdsToDelete.length > 0) {
+        // 5a. ...first un-assign all students from those rooms
+        await tx.student.updateMany({
+          where: { roomId: { in: roomIdsToDelete } },
+          data: { roomId: null },
         });
 
-        if (result.count === 0) {
-            return res.status(404).json({ message: "Hostel not found in your branch." });
-        }
-        res.status(200).json({ message: "Hostel updated successfully." });
-    } catch (error) {
-        next(error);
+        // 5b. ...then safely delete the empty rooms
+        await tx.room.deleteMany({
+          where: { id: { in: roomIdsToDelete } },
+        });
+      }
+
+      // 6. Create all the new rooms
+      if (newRooms.length > 0) {
+        await tx.room.createMany({
+          data: newRooms.map((room: any) => ({
+            roomNumber: room.roomNumber,
+            roomType: room.roomType,
+            capacity: room.capacity,
+            fee: room.fee,
+            hostelId: hostelId, // Link to this hostel
+          })),
+        });
+      }
+    });
+
+    res.status(200).json({ message: "Hostel updated successfully." });
+  } catch (error: any) {
+    // Handle case where the hostel ID wasn't found
+    if (error.code === "P2025") {
+      return res
+        .status(404)
+        .json({ message: "Hostel not found in your branch." });
     }
+    next(error);
+  }
 };
 
-/**
- * @description Delete a hostel, only if it contains no rooms.
- * @route DELETE /api/registrar/hostels/:id
- */
 export const deleteHostel = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     const { id } = req.params;
@@ -3282,10 +3400,7 @@ export const deleteHostel = async (req: Request, res: Response, next: NextFuncti
     }
 };
 
-/**
- * @description Get all rooms for a specific hostel.
- * @route GET /api/registrar/hostels/:id/rooms
- */
+
 export const getRooms = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     const { id } = req.params; // Hostel ID
@@ -3312,10 +3427,6 @@ export const getRooms = async (req: Request, res: Response, next: NextFunction) 
     }
 };
 
-/**
- * @description Assign a student to a specific hostel room.
- * @route PATCH /api/registrar/rooms/:roomId/assign-student
- */
 export const assignStudentToRoom = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     const { roomId } = req.params;
@@ -3355,10 +3466,6 @@ export const assignStudentToRoom = async (req: Request, res: Response, next: Nex
     }
 };
 
-/**
- * @description Remove a student from any room they are currently in.
- * @route PATCH /api/registrar/students/:studentId/remove-from-room
- */
 export const removeStudentFromRoom = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     const { studentId } = req.params;
