@@ -2806,7 +2806,7 @@ export const getStaffAttendanceAndLeaveForMonth = async (
   next: NextFunction
 ) => {
   const branchId = getRegistrarBranchId(req);
-  const { staffId, year, month } = req.params; // staffId is now a UserId
+  const { staffId, year, month } = req.params; // staffId is the User ID
 
   if (!branchId) {
     return res.status(401).json({ message: "Authentication required." });
@@ -2823,7 +2823,7 @@ export const getStaffAttendanceAndLeaveForMonth = async (
     // 1. Verify the staff member belongs to the registrar's branch
     const staffUser = await prisma.user.findFirst({
       where: { id: staffId, branchId: branchId },
-      select: { id: true }, 
+      select: { id: true }, // We only need to confirm they exist in this branch
     });
 
     if (!staffUser) {
@@ -2836,17 +2836,19 @@ export const getStaffAttendanceAndLeaveForMonth = async (
     const endDate = new Date(Date.UTC(yearNum, monthNum + 1, 0, 23, 59, 59));
 
     const [attendance, leaves] = await Promise.all([
-      // FIX: Fetch from StaffAttendanceRecord using the staffId (which is a User ID)
+      // --- THIS IS THE FIX ---
+      // We now correctly read from 'staffAttendanceRecord' using the 'userId'
       prisma.staffAttendanceRecord.findMany({
         where: {
-          userId: staffUser.id, // Use the User ID
+          userId: staffUser.id, // Use the User ID (which is staffId)
           date: { gte: startDate, lte: endDate },
         },
       }),
+      // --- END OF FIX ---
 
       prisma.leaveApplication.findMany({
         where: {
-          applicantId: staffUser.id,
+          applicantId: staffUser.id, // This was already correct
           status: "Approved",
           AND: [
             { fromDate: { lte: endDate.toISOString() } },
