@@ -8,6 +8,9 @@ const router = Router();
 
 // This router now guards all paths for BOTH Admin and SuperAdmin.
 router.use(protect);
+
+router.get("/contact-details", adminController.getSuperAdminContactDetails);
+
 router.use(restrictTo("Admin", "SuperAdmin")); // The law is amended. Both may pass.
 
 // --- SHARED ADMIN & SUPERADMIN ROUTES ---
@@ -92,10 +95,6 @@ router.get(
   "/audit-logs",
   restrictTo("SuperAdmin"),
   adminController.getAuditLogs
-);
-router.get(
-  "/contact-details",
-  adminController.getSuperAdminContactDetails
 );
 
 export default router;

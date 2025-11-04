@@ -1,6 +1,5 @@
 // src/routes/auth.ts
 import { Router } from "express";
-// ✨ FIX: Use named imports for controller functions
 import {
   login,
   verifyOtp,
