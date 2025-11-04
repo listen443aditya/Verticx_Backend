@@ -44,6 +44,14 @@ interface SupportStaffUpdatePayload {
   status?: string | null; // Or use your specific status enum/type if available
   salary?: number; // Add salary here
 }
+
+const getAuthenticatedBranchId = (req: Request): string | null => {
+  if (req.user && req.user.branchId) {
+    return req.user.branchId;
+  }
+  return null;
+};
+
 const getRegistrarBranchId = (req: Request): string | null => {
   if (req.user?.role === "Registrar" && req.user.branchId) {
     return req.user.branchId;
@@ -212,7 +220,7 @@ export const getUserDetails = async (
   res: Response,
   next: NextFunction
 ) => {
-  const branchId = getRegistrarBranchId(req);
+  const branchId = getAuthenticatedBranchId(req);
   if (!branchId) {
     return res.status(401).json({ message: "Unauthorized." });
   }
