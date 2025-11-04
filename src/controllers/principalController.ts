@@ -367,11 +367,12 @@ prisma.erpPayment.findFirst({
 const myBranchDetails = allBranches.find((b) => b.id === branchId);
     const dashboardData = {
       branch: {
+        name: myBranchDetails?.name,
         email: myBranchDetails?.email,
         helplineNumber: myBranchDetails?.helplineNumber,
-        nextDueDate: myBranchDetails?.nextDueDate, 
+        nextDueDate: myBranchDetails?.nextDueDate,
         billingCycle: myBranchDetails?.billingCycle,
-        location: myBranchDetails?.location, 
+        location: myBranchDetails?.location,
       },
       summary: {
         totalStudents,
