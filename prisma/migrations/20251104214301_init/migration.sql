@@ -556,6 +556,8 @@ CREATE TABLE "BookIssuance" (
     "returnedDate" TIMESTAMP(3),
     "finePerDay" DOUBLE PRECISION NOT NULL,
     "branchId" TEXT,
+    "studentId" TEXT,
+    "teacherId" TEXT,
 
     CONSTRAINT "BookIssuance_pkey" PRIMARY KEY ("id")
 );
@@ -1086,6 +1088,12 @@ ALTER TABLE "LibraryBook" ADD CONSTRAINT "LibraryBook_branchId_fkey" FOREIGN KEY
 
 -- AddForeignKey
 ALTER TABLE "BookIssuance" ADD CONSTRAINT "BookIssuance_bookId_fkey" FOREIGN KEY ("bookId") REFERENCES "LibraryBook"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "BookIssuance" ADD CONSTRAINT "BookIssuance_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "Student"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "BookIssuance" ADD CONSTRAINT "BookIssuance_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "Teacher"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "InventoryItem" ADD CONSTRAINT "InventoryItem_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

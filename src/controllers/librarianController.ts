@@ -284,20 +284,34 @@ export const getBookIssuancesWithMemberDetails = async (
       where: { branchId: branchId },
       include: {
         book: { select: { title: true } },
-        // You need to fetch member details. This requires relations.
-        // This part of your schema is complex and needs more info.
-        // We'll return placeholder names for now.
+        // --- THIS IS THE FIX ---
+        // We must include the related member profiles to get their names
+        studentMember: {
+          select: {
+            name: true,
+            class: { select: { gradeLevel: true, section: true } },
+          },
+        },
+        teacherMember: { select: { name: true } },
+        // --- END OF FIX ---
       },
       orderBy: { issuedDate: "desc" },
     });
 
-    // Mock data for member names until relations are fixed
-    const hydratedIssuances = issuances.map((iss) => ({
-      ...iss,
-      bookTitle: iss.book.title,
-      memberName: "Demo Member",
-      memberDetails: "Demo Role",
-    }));
+    // Map the data to the flat structure your frontend expects
+    const hydratedIssuances = issuances.map((iss) => {
+      const member = iss.studentMember || iss.teacherMember;
+      const memberDetails = iss.studentMember
+        ? `Grade ${iss.studentMember.class?.gradeLevel}-${iss.studentMember.class?.section}`
+        : "Teacher";
+
+      return {
+        ...iss,
+        bookTitle: iss.book.title,
+        memberName: member?.name || "Unknown Member",
+        memberDetails: memberDetails,
+      };
+    });
 
     res.status(200).json(hydratedIssuances);
   } catch (error: any) {
@@ -319,7 +333,7 @@ export const issueBookByIsbnOrId = async (
     }
     const { bookIdentifier, memberId, dueDate, finePerDay } = req.body;
 
-    // 1. Find the book (This logic is correct)
+    // 1. Find the book
     const book = await prisma.libraryBook.findFirst({
       where: {
         branchId: branchId,
@@ -335,47 +349,56 @@ export const issueBookByIsbnOrId = async (
         .json({ message: "All copies are currently issued." });
     }
 
-    // --- THIS IS THE FIX ---
-    // 2. Find the member by EITHER their primary 'id' OR their 'userId'
-    const [student, teacher] = await Promise.all([
-      prisma.student.findFirst({
-        where: {
-          branchId: branchId,
-          OR: [
-            { id: memberId }, // Check the primary key (for when suggestions work)
-            { userId: memberId }, // Check the human-readable ID (for manual entry)
-          ],
-        },
-      }),
-      prisma.teacher.findFirst({
-        where: {
-          branchId: branchId,
-          OR: [
-            { id: memberId }, // Check the primary key
-            { userId: memberId }, // Check the human-readable ID
-          ],
-        },
-      }),
-    ]);
-    // --- END OF FIX ---
+    // 2. Find the MEMBER (USER)
+    const memberUser = await prisma.user.findFirst({
+      where: {
+        branchId: branchId,
+        OR: [{ id: memberId }, { userId: memberId }],
+      },
+      include: {
+        studentProfile: { select: { id: true } }, 
+        teacher: { select: { id: true } },
+      },
+    });
 
-    const member = student || teacher;
-    const memberType = student ? "Student" : teacher ? "Teacher" : null;
-
-    if (!member || !memberType) {
+    if (!memberUser) {
       return res
         .status(404)
         .json({ message: "Member not found in this branch." });
     }
+    
+    // 3. Get the correct profile ID (Student or Teacher)
+    let memberProfileId: string | undefined;
+    let memberRole: "Student" | "Teacher" | null = null;
 
-    // 3. Create the issuance (This logic is correct)
+    if (memberUser.role === "Student" && memberUser.studentProfile) {
+      memberProfileId = memberUser.studentProfile.id;
+      memberRole = "Student";
+    } else if (memberUser.role === "Teacher" && memberUser.teacher) {
+      memberProfileId = memberUser.teacher.id;
+      memberRole = "Teacher";
+    }
+
+    if (!memberProfileId || !memberRole) {
+      return res.status(404).json({ message: "Member exists as a user, but has no valid Student or Teacher profile." });
+    }
+
+    // 4. Create the issuance and decrement book count
     await prisma.$transaction([
       prisma.bookIssuance.create({
         data: {
           bookId: book.id,
-          memberId: member.id, // Use the database primary 'id'
-          memberType: memberType,
           branchId: branchId,
+          
+          // --- THIS IS THE FIX ---
+          memberId: memberProfileId, // Log the profile ID
+          memberType: memberRole,     // Log the role
+          
+          // Set the correct relational foreign key
+          studentId: memberRole === "Student" ? memberProfileId : null,
+          teacherId: memberRole === "Teacher" ? memberProfileId : null,
+          // --- END OF FIX ---
+
           issuedDate: new Date(),
           dueDate: new Date(dueDate),
           finePerDay: parseFloat(finePerDay),
@@ -388,9 +411,9 @@ export const issueBookByIsbnOrId = async (
     ]);
 
     res.status(200).json({
-      message: `Issued "${book.title}" to ${member.name}.`,
+      message: `Issued "${book.title}" to ${memberUser.name}.`,
       bookTitle: book.title,
-      memberName: member.name,
+      memberName: memberUser.name,
     });
   } catch (error: any) {
     next(error);

@@ -238,7 +238,8 @@ model Teacher {
   timetableSlots                         TimetableSlot[]
   assignments                            Assignment[]                            @relation("TeacherToAssignments")
   meetingRequests                        MeetingRequest[]                        @relation("TeacherToMeetings")
-  attendanceRecords   TeacherAttendanceRecord[]
+  attendanceRecords                      TeacherAttendanceRecord[]
+  bookIssuances                          BookIssuance[] @relation("TeacherIssuances")
 }
 
 model Student {
@@ -287,6 +288,7 @@ model Student {
   rectificationRequests RectificationRequest[]
   room                  Room?                  @relation(fields: [roomId], references: [id])
   user              User?     @relation(fields: [userId], references: [id])
+  bookIssuances BookIssuance[] @relation("StudentIssuances")
 }
 
 // ============================================================================
@@ -728,8 +730,8 @@ model LibraryBook {
 model BookIssuance {
   id           String    @id @default(uuid())
   bookId       String
-  memberId     String
-  memberType   String
+  memberId     String 
+  memberType   String // "Student" or "Teacher"
   issuedDate   DateTime
   dueDate      DateTime
   returnedDate DateTime?
@@ -737,6 +739,12 @@ model BookIssuance {
   branchId     String?
 
   book LibraryBook @relation(fields: [bookId], references: [id])
+  studentId String?
+  teacherId String?
+
+  // These relations now point to the correct fields
+  studentMember Student? @relation("StudentIssuances", fields: [studentId], references: [id])
+  teacherMember Teacher? @relation("TeacherIssuances", fields: [teacherId], references: [id])
 }
 
 model InventoryItem {
