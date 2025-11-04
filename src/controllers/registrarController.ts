@@ -10,8 +10,9 @@ import {
   FeeAdjustment,
   TeacherAttendanceStatus,
   Examination,
-  ExamStatus, 
+  ExamStatus,
   ExamResultStatus,
+  EventStatus,
 } from "@prisma/client"; 
 import { generatePassword } from "../utils/helpers"; 
 import bcrypt from "bcryptjs";
@@ -3524,96 +3525,181 @@ export const removeStudentFromRoom = async (req: Request, res: Response, next: N
 
 // --- Transport Management ---
 
-/**
- * @description Get all transport routes for the registrar's branch.
- * @route GET /api/registrar/transport-routes
- */
+
 export const getTransportRoutes = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     if (!branchId) {
         return res.status(401).json({ message: "Authentication required with a valid branch." });
     }
     try {
+        // 1. Get routes AND include their stops
         const routes = await prisma.transportRoute.findMany({
             where: { branchId },
-            include: { _count: { select: { busStops: true } } }
+            include: { 
+                busStops: { orderBy: { name: 'asc' } } // Fixes frontend .map() crash
+            }
         });
-        res.status(200).json(routes);
+
+        // 2. Get member counts separately
+        const [studentCounts, teacherCounts] = await Promise.all([
+            prisma.student.groupBy({
+                by: ['transportRouteId'],
+                _count: { id: true },
+                where: { branchId, transportRouteId: { not: null } }
+            }),
+            prisma.teacher.groupBy({
+                by: ['transportRouteId'],
+                _count: { id: true },
+                where: { branchId, transportRouteId: { not: null } }
+            })
+        ]);
+
+        const studentCountMap = new Map(studentCounts.map(c => [c.transportRouteId, c._count.id]));
+        const teacherCountMap = new Map(teacherCounts.map(c => [c.transportRouteId, c._count.id]));
+
+        // 3. Combine data into the shape the frontend expects
+        const routesWithCounts = routes.map(route => {
+            const memberCount = (studentCountMap.get(route.id) || 0) + (teacherCountMap.get(route.id) || 0);
+            return {
+                ...route,
+                // This provides the `length` property the frontend needs
+                assignedMembers: { length: memberCount } // Fixes frontend .length crash
+            };
+        });
+
+        res.status(200).json(routesWithCounts);
     } catch (error) {
         next(error);
     }
 };
 
-/**
- * @description Create a new transport route in the registrar's branch.
- * @route POST /api/registrar/transport-routes
- */
 export const createTransportRoute = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     if (!branchId) {
         return res.status(401).json({ message: "Authentication required." });
     }
-    const { routeName, busNumber, driverName, capacity } = req.body;
+
+    const { busStops = [], ...routeData } = req.body;
+    const { routeName, busNumber, driverName, capacity, driverNumber, conductorName, conductorNumber } = routeData;
+
     if (!routeName || !busNumber || !driverName || !capacity) {
-        return res.status(400).json({ message: "All fields are required." });
+        return res.status(400).json({ message: "Route name, bus number, driver name, and capacity are required." });
     }
 
     try {
-        const newRoute = await prisma.transportRoute.create({
-            data: {
-                ...req.body,
-                capacity: parseInt(capacity, 10),
-                branchId, // Security: Enforce branchId from token
-            },
+        const newRoute = await prisma.$transaction(async (tx) => {
+            const route = await tx.transportRoute.create({
+                data: {
+                    branchId,
+                    routeName,
+                    busNumber,
+                    driverName,
+                    capacity: parseInt(capacity, 10),
+                    driverNumber,      // <-- New field
+                    conductorName,     // <-- New field
+                    conductorNumber,   // <-- New field
+                    assignedMembers: [], // <-- Initialize JSON field
+                },
+            });
+
+            if (busStops.length > 0) {
+                await tx.busStop.createMany({
+                    data: busStops.map((stop: any) => ({
+                        name: stop.name,
+                        pickupTime: stop.pickupTime,
+                        dropTime: stop.dropTime,
+                        charges: stop.charges,
+                        routeId: route.id, // Link to the new route
+                    })),
+                });
+            }
+            return route;
         });
+
         res.status(201).json(newRoute);
     } catch (error) {
         next(error);
     }
 };
 
-
-
-
-
-
-// --- Transport Management ---
-
-/**
- * @description Update a transport route's details.
- * @route PATCH /api/registrar/transport-routes/:id
- */
 export const updateTransportRoute = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
-    const { id } = req.params;
-    const { routeName, busNumber, driverName, capacity } = req.body;
-    
+    const { id: routeId } = req.params;
+    const { busStops = [], ...routeData } = req.body;
+
     if (!branchId) return res.status(401).json({ message: "Authentication required." });
 
     try {
-        const result = await prisma.transportRoute.updateMany({
-            where: { id, branchId }, // Security: Scoped to the registrar's branch
-            data: { 
-                routeName, 
-                busNumber, 
-                driverName, 
-                capacity: capacity ? parseInt(capacity, 10) : undefined 
-            },
+        await prisma.$transaction(async (tx) => {
+            await tx.transportRoute.update({
+                where: { id: routeId, branchId: branchId }, // Security check
+                data: {
+                    routeName: routeData.routeName,
+                    busNumber: routeData.busNumber,
+                    driverName: routeData.driverName,
+                    capacity: routeData.capacity ? parseInt(routeData.capacity, 10) : undefined,
+                    driverNumber: routeData.driverNumber,      // <-- New field
+                    conductorName: routeData.conductorName,     // <-- New field
+                    conductorNumber: routeData.conductorNumber,   // <-- New field
+                },
+            });
+
+            // Separate new stops from existing ones
+            const newStops = busStops.filter((stop: any) => stop.id.startsWith("new-"));
+            const existingStopIds = busStops
+                .filter((stop: any) => !stop.id.startsWith("new-"))
+                .map((stop: any) => stop.id);
+
+            // Find and delete stops that were removed from the UI
+            const stopsToDelete = await tx.busStop.findMany({
+                where: {
+                    routeId: routeId,
+                    id: { notIn: existingStopIds },
+                },
+                select: { id: true }
+            });
+            const stopIdsToDelete = stopsToDelete.map(s => s.id);
+
+            if (stopIdsToDelete.length > 0) {
+                // Un-assign members from these stops first
+                await tx.student.updateMany({
+                    where: { busStopId: { in: stopIdsToDelete } },
+                    data: { busStopId: null, transportRouteId: null }
+                });
+                await tx.teacher.updateMany({
+                    where: { busStopId: { in: stopIdsToDelete } },
+                    data: { busStopId: null, transportRouteId: null }
+                });
+
+                // Delete the stops
+                await tx.busStop.deleteMany({
+                    where: { id: { in: stopIdsToDelete } }
+                });
+            }
+
+            // Create the new stops
+            if (newStops.length > 0) {
+                await tx.busStop.createMany({
+                    data: newStops.map((stop: any) => ({
+                        name: stop.name,
+                        pickupTime: stop.pickupTime,
+                        dropTime: stop.dropTime,
+                        charges: stop.charges,
+                        routeId: routeId,
+                    })),
+                });
+            }
         });
 
-        if (result.count === 0) {
+        res.status(200).json({ message: "Route updated successfully." });
+    } catch (error: any) {
+        if (error.code === 'P2025') {
             return res.status(404).json({ message: "Transport route not found in your branch." });
         }
-        res.status(200).json({ message: "Route updated successfully." });
-    } catch (error) {
         next(error);
     }
 };
 
-/**
- * @description Delete a transport route, only if no members are assigned.
- * @route DELETE /api/registrar/transport-routes/:id
- */
 export const deleteTransportRoute = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     const { id } = req.params;
@@ -3646,10 +3732,6 @@ export const deleteTransportRoute = async (req: Request, res: Response, next: Ne
     }
 };
 
-/**
- * @description Get students and teachers in the branch who are not assigned to any transport route.
- * @route GET /api/registrar/transport/unassigned-members
- */
 export const getUnassignedMembers = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     if (!branchId) return res.status(401).json({ message: "Authentication required." });
@@ -3677,10 +3759,7 @@ export const getUnassignedMembers = async (req: Request, res: Response, next: Ne
     }
 };
 
-/**
- * @description Assign a member (Student or Teacher) to a specific bus stop on a transport route.
- * @route POST /api/registrar/transport/assign-member
- */
+
 export const assignMemberToRoute = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     const { routeId, memberId, memberType, stopId } = req.body;
@@ -3724,10 +3803,7 @@ export const assignMemberToRoute = async (req: Request, res: Response, next: Nex
     }
 };
 
-/**
- * @description Remove a member from their assigned transport route.
- * @route POST /api/registrar/transport/remove-member
- */
+
 export const removeMemberFromRoute = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     const { memberId, memberType } = req.body; // memberType is optional but good for clarity
@@ -3755,10 +3831,7 @@ export const removeMemberFromRoute = async (req: Request, res: Response, next: N
 
 // --- Inventory Management ---
 
-/**
- * @description Get all inventory items for the registrar's branch.
- * @route GET /api/registrar/inventory
- */
+
 export const getInventory = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     if (!branchId) {
@@ -3838,10 +3911,6 @@ export const createSchoolDocument = async (req: Request, res: Response, next: Ne
   }
 };
 
-/**
- * @description Get all inventory logs for the registrar's branch, with item details.
- * @route GET /api/registrar/inventory/logs
- */
 export const getInventoryLogs = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     if (!branchId) {
@@ -3863,10 +3932,6 @@ export const getInventoryLogs = async (req: Request, res: Response, next: NextFu
     }
 };
 
-/**
- * @description Create a new inventory item and log the initial stock.
- * @route POST /api/registrar/inventory/items
- */
 export const createInventoryItem = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     if (!branchId || !req.user?.name) { // Also check for user's name for logging
@@ -3909,10 +3974,6 @@ export const createInventoryItem = async (req: Request, res: Response, next: Nex
     }
 };
 
-/**
- * @description Update an inventory item's quantity and log the change.
- * @route PATCH /api/registrar/inventory/items/:id
- */
 export const updateInventoryItem = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     const { id } = req.params;
@@ -3967,10 +4028,7 @@ export const updateInventoryItem = async (req: Request, res: Response, next: Nex
     }
 };
 
-/**
- * @description Delete an inventory item, only if it has no history.
- * @route DELETE /api/registrar/inventory/items/:id
- */
+
 export const deleteInventoryItem = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     const { id } = req.params;
@@ -4489,4 +4547,236 @@ export const updateSubject = async (
   }
 
   
+};
+
+
+export const getSchoolEvents = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
+  try {
+    const events = await prisma.schoolEvent.findMany({
+      where: { branchId: branchId },
+      orderBy: { date: "asc" },
+    });
+    res.status(200).json(events);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const createSchoolEvent = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  if (!branchId || !req.user?.name) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
+  const { name, date, description, location, category, audience } = req.body;
+
+  if (!name || !date || !category) {
+    return res
+      .status(400)
+      .json({ message: "Name, date, and category are required." });
+  }
+
+  try {
+    const newEvent = await prisma.schoolEvent.create({
+      data: {
+        branchId,
+        name,
+        date: new Date(date),
+        description,
+        location,
+        category,
+        audience,
+        createdBy: req.user.name,
+        status: EventStatus.Pending, // Events require approval
+      },
+    });
+    res.status(201).json(newEvent);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateSchoolEvent = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  const { id } = req.params;
+  const { name, date, description, location, category, audience } = req.body;
+
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
+  try {
+    const result = await prisma.schoolEvent.updateMany({
+      where: {
+        id: id,
+        branchId: branchId, // Security check
+      },
+      data: {
+        name,
+        date: new Date(date),
+        description,
+        location,
+        category,
+        audience,
+        status: EventStatus.Pending, // Re-set to Pending after edit
+      },
+    });
+
+    if (result.count === 0) {
+      return res
+        .status(404)
+        .json({ message: "Event not found in your branch." });
+    }
+    res.status(200).json({ message: "Event updated successfully." });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deleteSchoolEvent = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  const { id } = req.params;
+
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
+  try {
+    const result = await prisma.schoolEvent.deleteMany({
+      where: {
+        id: id,
+        branchId: branchId, // Security check
+      },
+    });
+
+    if (result.count === 0) {
+      return res
+        .status(404)
+        .json({ message: "Event not found in your branch." });
+    }
+    res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+};
+
+// --- Communication Management ---
+
+export const getAnnouncements = async (req: Request, res: Response, next: NextFunction) => {
+  const branchId = getRegistrarBranchId(req);
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
+  try {
+    const announcements = await prisma.announcement.findMany({
+      where: { branchId },
+      orderBy: { sentAt: "desc" },
+    });
+    res.status(200).json(announcements);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const sendAnnouncement = async (req: Request, res: Response, next: NextFunction) => {
+  const branchId = getRegistrarBranchId(req);
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
+  const { title, message, audience } = req.body;
+  if (!title || !message || !audience) {
+    return res.status(400).json({ message: "Title, message, and audience are required." });
+  }
+
+  try {
+    const newAnnouncement = await prisma.announcement.create({
+      data: {
+        branchId,
+        title,
+        message,
+        audience,
+      },
+    });
+    res.status(201).json(newAnnouncement);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getSmsHistory = async (req: Request, res: Response, next: NextFunction) => {
+  const branchId = getRegistrarBranchId(req);
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
+  try {
+    const smsHistory = await prisma.smsMessage.findMany({
+      where: { branchId },
+      orderBy: { sentAt: "desc" },
+    });
+    res.status(200).json(smsHistory);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const sendSmsToStudents = async (req: Request, res: Response, next: NextFunction) => {
+  const branchId = getRegistrarBranchId(req);
+  const sentBy = req.user?.name || "Registrar";
+
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
+  const { studentIds, message } = req.body;
+  if (!studentIds || !Array.isArray(studentIds) || !message) {
+    return res.status(400).json({ message: "Student IDs array and message are required." });
+  }
+
+  try {
+    // In a real app, you would fetch parents' phone numbers here
+    // and send the SMS via an external gateway (e.g., Twilio).
+
+    // For now, we will just LOG the action to the SmsMessage table.
+    const newSmsLog = await prisma.smsMessage.create({
+      data: {
+        branchId,
+        message,
+        recipientCount: studentIds.length,
+        sentBy,
+      },
+    });
+
+    // We return the response the frontend expects
+    res.status(201).json({
+      success: true,
+      count: studentIds.length,
+      log: newSmsLog,
+    });
+  } catch (error) {
+    next(error);
+  }
 };

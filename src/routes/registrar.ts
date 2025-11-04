@@ -271,4 +271,29 @@ router.post("/inventory/items", registrarController.createInventoryItem);
 router.put("/inventory/items/:id", registrarController.updateInventoryItem); 
 router.delete("/inventory/items/:id", registrarController.deleteInventoryItem); 
 
+
+// --- Event Management ---
+router.get("/events", registrarController.getSchoolEvents);
+router.post("/events", registrarController.createSchoolEvent);
+router.put("/events/:id", registrarController.updateSchoolEvent);
+router.delete("/events/:id", registrarController.deleteSchoolEvent);
+
+// --- Communication Management ---
+router.get(
+  "/communication/announcements",
+  registrarController.getAnnouncements
+);
+router.post(
+  "/communication/announcements",
+  registrarController.sendAnnouncement
+);
+router.get(
+  "/communication/sms-history",
+  registrarController.getSmsHistory
+);
+router.post(
+  "/communication/sms",
+  registrarController.sendSmsToStudents
+);
+
 export default router;

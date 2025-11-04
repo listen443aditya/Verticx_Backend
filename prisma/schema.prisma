@@ -37,6 +37,12 @@ enum Day {
   Friday
 }
 
+enum EventStatus {
+  Pending
+  Approved
+  Rejected
+}
+
 enum BranchStatus {
   active
   pending
@@ -662,6 +668,9 @@ model TransportRoute {
   routeName       String
   busNumber       String
   driverName      String
+  driverNumber    String?
+  conductorName   String?
+  conductorNumber String?
   capacity        Int
   assignedMembers Json?
   branch          Branch    @relation(fields: [branchId], references: [id])
@@ -764,7 +773,8 @@ model SchoolEvent {
   category    String
   createdBy   String
   createdAt   DateTime @default(now())
-  status      String
+  status      EventStatus @default(Pending) // Use the new enum
+  audience    String[]    @default(["All"])
 
   branch Branch @relation(fields: [branchId], references: [id])
 }

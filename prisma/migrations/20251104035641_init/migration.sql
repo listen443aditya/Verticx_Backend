@@ -8,6 +8,9 @@ CREATE TYPE "StudentCategory" AS ENUM ('General', 'OBC', 'SC', 'ST', 'PreferNotT
 CREATE TYPE "Day" AS ENUM ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday');
 
 -- CreateEnum
+CREATE TYPE "EventStatus" AS ENUM ('Pending', 'Approved', 'Rejected');
+
+-- CreateEnum
 CREATE TYPE "BranchStatus" AS ENUM ('active', 'pending', 'suspended');
 
 -- CreateEnum
@@ -483,6 +486,9 @@ CREATE TABLE "TransportRoute" (
     "routeName" TEXT NOT NULL,
     "busNumber" TEXT NOT NULL,
     "driverName" TEXT NOT NULL,
+    "driverNumber" TEXT,
+    "conductorName" TEXT,
+    "conductorNumber" TEXT,
     "capacity" INTEGER NOT NULL,
     "assignedMembers" JSONB,
 
@@ -587,7 +593,8 @@ CREATE TABLE "SchoolEvent" (
     "category" TEXT NOT NULL,
     "createdBy" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "status" TEXT NOT NULL,
+    "status" "EventStatus" NOT NULL DEFAULT 'Pending',
+    "audience" TEXT[] DEFAULT ARRAY['All']::TEXT[],
 
     CONSTRAINT "SchoolEvent_pkey" PRIMARY KEY ("id")
 );
