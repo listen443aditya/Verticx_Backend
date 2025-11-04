@@ -71,11 +71,11 @@ router.patch(
 
 // Issuance Management
 router.get("/issuances", librarianController.getBookIssuancesWithMemberDetails);
+router.patch("/issuances/:id/return", librarianController.returnBook);
 router.post(
   "/issuances/by-identifier",
   librarianController.issueBookByIsbnOrId
 );
-router.patch("/issuances/:id/return", librarianController.returnBook);
 
 // General
 router.get("/attendance", librarianController.getLibrarianAttendance);
