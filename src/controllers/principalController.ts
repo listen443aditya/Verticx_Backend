@@ -247,11 +247,19 @@ export const getPrincipalDashboardData = async (
           status: "Pending",
           applicant: {
             branchId: branchId,
-            role: { in: ['Teacher', 'Registrar', 'Librarian', 'SupportStaff'] }
-          }
+            role: { in: ["Teacher", "Registrar", "Librarian", "SupportStaff"] },
+          },
         },
       }),
-      prisma.branch.findMany({ select: { id: true, name: true, stats: true } }),
+      prisma.branch.findMany({
+        select: {
+          id: true,
+          name: true,
+          stats: true,
+          email: true,
+          helplineNumber: true,
+        },
+      }),
     ]);
 
     // --- All data transformation logic below remains the same and is correct ---
@@ -350,8 +358,12 @@ export const getPrincipalDashboardData = async (
         (acc: number, s: { score: number }) => acc + s.score,
         0
       ) / (allScores.length || 1);
-
+const myBranchDetails = allBranches.find((b) => b.id === branchId);
     const dashboardData = {
+      branch: {
+        email: myBranchDetails?.email,
+        helplineNumber: myBranchDetails?.helplineNumber,
+      },
       summary: {
         totalStudents,
         totalTeachers,

@@ -69,7 +69,10 @@ export const getRegistrarDashboardData = async (
     const now = new Date();
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
-
+const branchDetails = await prisma.branch.findUnique({
+  where: { id: branchId },
+  select: { email: true, helplineNumber: true, location: true },
+});
     // --- Comprehensive Data Fetching in a Single Transaction ---
     const [
       pendingAdmissions,
@@ -152,35 +155,49 @@ export const getRegistrarDashboardData = async (
 
     // --- Final Data Shaping to Match Frontend Contract ---
     const dashboardData = {
+      branch: branchDetails,
       summary: {
         pendingAdmissions,
         pendingAcademicRequests,
-        feesPending: (feesPendingAggregate._sum.totalAmount || 0) - (feesPendingAggregate._sum.paidAmount || 0),
+        feesPending:
+          (feesPendingAggregate._sum.totalAmount || 0) -
+          (feesPendingAggregate._sum.paidAmount || 0),
         unassignedFaculty,
       },
-      admissionRequests: admissionRequests.map(app => ({...app, type: 'Student', subject: ''})),
+      admissionRequests: admissionRequests.map((app) => ({
+        ...app,
+        type: "Student",
+        subject: "",
+      })),
       feeOverview,
       pendingEvents,
-      classFeeSummaries: classFeeSummaries.map(c => {
-        const defaulters = c.students.filter(s => s.feeRecords.length > 0);
-        const pendingAmount = defaulters.reduce((sum, s) => 
-            sum + s.feeRecords.reduce((recSum, rec) => recSum + (rec.totalAmount - rec.paidAmount), 0), 0);
+      classFeeSummaries: classFeeSummaries.map((c) => {
+        const defaulters = c.students.filter((s) => s.feeRecords.length > 0);
+        const pendingAmount = defaulters.reduce(
+          (sum, s) =>
+            sum +
+            s.feeRecords.reduce(
+              (recSum, rec) => recSum + (rec.totalAmount - rec.paidAmount),
+              0
+            ),
+          0
+        );
         return {
-            classId: c.id,
-            className: `Grade ${c.gradeLevel}-${c.section}`,
-            defaulterCount: defaulters.length,
-            pendingAmount,
+          classId: c.id,
+          className: `Grade ${c.gradeLevel}-${c.section}`,
+          defaulterCount: defaulters.length,
+          pendingAmount,
         };
       }),
-      teacherAttendanceStatus: teacherAttendanceStatus.map(att => ({
-          teacherId: att.teacherId,
-          teacherName: att.teacher.name,
-          status: att.status
+      teacherAttendanceStatus: teacherAttendanceStatus.map((att) => ({
+        teacherId: att.teacherId,
+        teacherName: att.teacher.name,
+        status: att.status,
       })),
       academicRequests: {
-          count: pendingAcademicRequests,
-          requests: [], // This can be populated with a more detailed query if needed for the UI
-      }
+        count: pendingAcademicRequests,
+        requests: [], // This can be populated with a more detailed query if needed for the UI
+      },
     };
 
     res.status(200).json(dashboardData);
