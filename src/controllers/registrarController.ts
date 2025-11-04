@@ -3401,30 +3401,63 @@ export const deleteHostel = async (req: Request, res: Response, next: NextFuncti
 };
 
 
-export const getRooms = async (req: Request, res: Response, next: NextFunction) => {
-    const branchId = getRegistrarBranchId(req);
-    const { id } = req.params; // Hostel ID
+export const getRooms = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  const { id: hostelId } = req.params; // Renamed to hostelId for clarity
 
-    if (!branchId) {
-        return res.status(401).json({ message: "Authentication required." });
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
+  try {
+    // 1. Security Check: Ensure the parent hostel belongs to the registrar's branch.
+    const hostel = await prisma.hostel.findFirst({
+      where: { id: hostelId, branchId },
+    });
+    if (!hostel) {
+      return res
+        .status(404)
+        .json({ message: "Hostel not found in your branch." });
     }
 
-    try {
-        // Security Check: Ensure the parent hostel belongs to the registrar's branch.
-        const hostel = await prisma.hostel.findFirst({
-            where: { id, branchId }
-        });
-        if (!hostel) {
-            return res.status(404).json({ message: "Hostel not found in your branch." });
-        }
-        
-        const rooms = await prisma.room.findMany({
-            where: { hostelId: id }
-        });
-        res.status(200).json(rooms);
-    } catch (error) {
-        next(error);
-    }
+    // 2. Get all rooms for this specific hostel
+    const rooms = await prisma.room.findMany({
+      where: { hostelId: hostelId },
+    });
+
+    // 3. Get all students who are assigned to *any* of these rooms
+    const studentsInHostel = await prisma.student.findMany({
+      where: {
+        roomId: { in: rooms.map((r) => r.id) },
+        branchId: branchId, // Security check
+      },
+      select: {
+        id: true,
+        roomId: true,
+      },
+    });
+
+    // 4. Map the students back to their rooms to create the 'occupantIds' array
+    //    that your 'ManageHostelOccupantsModal.tsx' component expects.
+    const roomsWithOccupants = rooms.map((room) => {
+      const occupantIds = studentsInHostel
+        .filter((s) => s.roomId === room.id)
+        .map((s) => s.id);
+
+      return {
+        ...room,
+        occupantIds: occupantIds, // This now matches your frontend's type
+      };
+    });
+
+    res.status(200).json(roomsWithOccupants);
+  } catch (error) {
+    next(error);
+  }
 };
 
 export const assignStudentToRoom = async (req: Request, res: Response, next: NextFunction) => {
