@@ -699,18 +699,28 @@ export interface BusStop {
     charges: number;
 }
 
+// types.ts (THE CORRECT VERSION)
 export interface TransportRoute {
-    id: string;
-    branchId: string;
-    routeName: string;
-    busNumber: string;
-    driverName: string;
-    driverNumber?: string;
-    conductorName?: string;
-    conductorNumber?: string;
-    capacity: number;
-    assignedMembers: { memberId: string; memberType: 'Student' | 'Teacher'; stopId: string }[];
-    busStops: BusStop[];
+  id: string;
+  branchId: string;
+  routeName: string;
+  busNumber: string;
+  driverName: string;
+  capacity: number;
+  
+  // Revert to 'string | null'
+  driverNumber: string | null;
+  conductorName: string | null;
+  conductorNumber: string | null;
+
+  // Revert to the full array
+  assignedMembers: {
+    memberId: string;
+    memberType: "Student" | "Teacher";
+    stopId: string;
+  }[];
+  
+  busStops: BusStop[];
 }
 
 export interface Hostel {
