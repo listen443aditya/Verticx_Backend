@@ -17,6 +17,8 @@ router.get(
   registrarController.getMyLeaveApplications
 );
 
+router.post("/leaves/applications", registrarController.createLeaveApplication);
+
 router.use(restrictTo("Registrar"));
 
 // --- Dashboard ---
@@ -196,7 +198,7 @@ router.put(
   "/leaves/applications/:id/process",
   registrarController.processLeaveApplication
 ); 
-router.post("/leaves/applications", registrarController.createLeaveApplication);
+// router.post("/leaves/applications", registrarController.createLeaveApplication);
 
 // --- Fee Management ---
 router.get("/fees/templates", registrarController.getFeeTemplates); 
