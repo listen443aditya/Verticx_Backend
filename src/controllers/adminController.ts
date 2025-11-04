@@ -58,6 +58,13 @@ export const approveRequest = async (
     const roleSuffix = "PRN"; // Principal
     const newUserId = `VRTX-${request.registrationId}-${roleSuffix}`;
 
+    // --- FIX: Define default ERP values ---
+    const today = new Date();
+    // Set default due date to 30 days from now
+    const defaultNextDueDate = new Date(today.setDate(today.getDate() + 30));
+    const defaultBillingCycle = "monthly";
+    // --- END OF FIX ---
+
     await prisma.$transaction(async (tx) => {
       const newBranch = await tx.branch.create({
         data: {
@@ -65,6 +72,13 @@ export const approveRequest = async (
           location: request.location,
           registrationId: request.registrationId,
           status: "active",
+
+          // --- FIX: Add missing default fields ---
+          email: request.email,
+          helplineNumber: request.phone,
+          nextDueDate: defaultNextDueDate,
+          billingCycle: defaultBillingCycle,
+          // --- END OF FIX ---
         },
       });
 
@@ -118,7 +132,11 @@ export const approveRequest = async (
 
     res.status(200).json({
       message: `Request for ${request.schoolName} approved.`,
-      credentials: { userId: newUserId, password: tempPassword, email: request.email },
+      credentials: {
+        userId: newUserId,
+        password: tempPassword,
+        email: request.email,
+      },
     });
   } catch (error) {
     console.error("Error during request approval:", error);
@@ -451,21 +469,7 @@ export const updateBranchDetails = async (
 };
 
 
-// export const updateBranchDetails = async (
-//   req: Request,
-//   res: Response,
-//   next: NextFunction
-// ) => {
-//   try {
-//     await prisma.branch.update({
-//       where: { id: req.params.id },
-//       data: req.body,
-//     });
-//     res.status(200).json({ message: "Branch details updated." });
-//   } catch (error) {
-//     next(error);
-//   }
-// };
+
 
 // --- Dashboard, Analytics, and Other Complex Read Operations ---
 export const getAdminDashboardData = async (

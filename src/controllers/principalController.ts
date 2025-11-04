@@ -242,7 +242,6 @@ export const getPrincipalDashboardData = async (
         },
       }),
       prisma.schoolEvent.findMany({ where: { branchId } }),
-      // --- FIX: Use the correct 'applicant' relation to filter by branch and role ---
       prisma.leaveApplication.count({
         where: {
           status: "Pending",
@@ -270,7 +269,6 @@ export const getPrincipalDashboardData = async (
 }),
     ]);
 
-    // --- All data transformation logic below remains the same and is correct ---
     const transformedClassPerformance = classPerformance.map(
       (c: {
         gradeLevel: number;
