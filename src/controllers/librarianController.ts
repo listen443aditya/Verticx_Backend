@@ -435,3 +435,25 @@ export const getLibrarianAttendance = async (
     next(error);
   }
 };
+
+export const getMyLeaveApplications = async (
+  req: Request,
+  res: Response,
+  next: NextFunction 
+) => {
+  const applicantId = req.user?.id; 
+
+  if (!applicantId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
+  try {
+    const applications = await prisma.leaveApplication.findMany({
+      where: { applicantId: applicantId },
+      orderBy: { fromDate: "desc" },
+    });
+    res.status(200).json(applications);
+  } catch (error) {
+    next(error); 
+  }
+};

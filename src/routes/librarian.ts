@@ -36,5 +36,9 @@ router.patch("/issuances/:id/return", librarianController.returnBook);
 
 // General
 router.get('/attendance', librarianController.getLibrarianAttendance);
+router.get(
+  "/leaves/my-applications",
+  librarianController.getMyLeaveApplications
+);
 
 export default router;
