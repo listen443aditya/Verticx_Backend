@@ -718,6 +718,8 @@ model LibraryBook {
   isbn            String
   totalCopies     Int
   availableCopies Int
+  price           Float?   
+  pdfUrl          String?
 
   branch    Branch         @relation(fields: [branchId], references: [id])
   issuances BookIssuance[]

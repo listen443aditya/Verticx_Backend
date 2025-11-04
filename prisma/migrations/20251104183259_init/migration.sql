@@ -539,6 +539,8 @@ CREATE TABLE "LibraryBook" (
     "isbn" TEXT NOT NULL,
     "totalCopies" INTEGER NOT NULL,
     "availableCopies" INTEGER NOT NULL,
+    "price" DOUBLE PRECISION,
+    "pdfUrl" TEXT,
 
     CONSTRAINT "LibraryBook_pkey" PRIMARY KEY ("id")
 );

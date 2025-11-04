@@ -1,5 +1,8 @@
-import { Request, Response } from "express";
+import { Request, Response, NextFunction} from "express";
 import { librarianApiService } from "../services";
+import prisma from "../prisma";
+import { LibraryBook } from "@prisma/client";
+import { put } from "@vercel/blob";
 
 export const getLibrarianDashboardData = async (
   req: Request,
@@ -34,29 +37,134 @@ export const getLibraryBooks = async (req: Request, res: Response) => {
   }
 };
 
-export const createBook = async (req: Request, res: Response) => {
+export const createBook = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
     if (!req.user?.branchId) {
       return res
         .status(401)
         .json({ message: "Authentication required with a valid branch." });
     }
-    // NOTE: In a real implementation, middleware like 'multer' would handle req.file
-    await librarianApiService.createBook(req.user.branchId, req.body);
-    res.status(201).json({ message: "Book created successfully." });
+
+    const bookData = req.body;
+    const pdfFile = req.file; 
+    let fileUrl: string | undefined = undefined;
+
+    // --- 2. Handle File Upload ---
+    if (pdfFile) {
+      // This creates a unique filename, e.g., "books/my-book-title.pdf"
+      const blob = await put(
+        `books/${bookData.title.replace(/\s+/g, "-")}-${Date.now()}.pdf`,
+        pdfFile.buffer,
+        {
+          access: "public",
+          contentType: pdfFile.mimetype,
+        }
+      );
+      fileUrl = blob.url; // Get the public URL of the uploaded file
+    }
+    // --- End of File Upload ---
+
+    const totalCopies = parseInt(bookData.totalCopies, 10) || 1;
+    const price = parseFloat(bookData.price) || 0;
+
+    // 3. Create the book in the database, now with the pdfUrl
+    const newBook = await prisma.libraryBook.create({
+      data: {
+        branchId: req.user.branchId,
+        title: bookData.title,
+        author: bookData.author,
+        isbn: bookData.isbn,
+        price: price,
+        totalCopies: totalCopies,
+        availableCopies: totalCopies,
+        pdfUrl: fileUrl, // <-- 4. Save the new URL
+      },
+    });
+
+    res.status(201).json(newBook);
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 };
 
-export const updateBook = async (req: Request, res: Response) => {
+// You can apply the same logic to your 'updateBook' function
+export const updateBook = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
-    await librarianApiService.updateBook(req.params.id, req.body);
-    res.status(200).json({ message: "Book updated successfully." });
+    const { id: bookId } = req.params;
+    const bookData = req.body;
+    const pdfFile = req.file;
+    let fileUrl: string | undefined = undefined;
+
+    // --- Handle File Upload ---
+    if (pdfFile) {
+      // In a real app, you would also delete the OLD file from Vercel Blob
+      const blob = await put(
+        `books/${bookData.title.replace(/\s+/g, "-")}-${Date.now()}.pdf`,
+        pdfFile.buffer,
+        {
+          access: "public",
+          contentType: pdfFile.mimetype,
+        }
+      );
+      fileUrl = blob.url;
+    }
+    // --- End of File Upload ---
+
+    const totalCopies = parseInt(bookData.totalCopies, 10);
+    const price = parseFloat(bookData.price);
+
+    const existingBook = await prisma.libraryBook.findUnique({
+      where: { id: bookId },
+      select: { totalCopies: true, availableCopies: true },
+    });
+
+    if (!existingBook) {
+      return res.status(404).json({ message: "Book not found" });
+    }
+
+    let availableCopies = existingBook.availableCopies;
+    if (totalCopies && totalCopies !== existingBook.totalCopies) {
+      const diff = totalCopies - existingBook.totalCopies;
+      availableCopies = existingBook.availableCopies + diff;
+      if (availableCopies < 0) {
+        availableCopies = 0;
+      }
+    }
+
+    // Create an update object
+    const updateData: any = {
+      title: bookData.title,
+      author: bookData.author,
+      isbn: bookData.isbn,
+      price: price,
+      totalCopies: totalCopies,
+      availableCopies: availableCopies,
+    };
+
+    // Only add pdfUrl to the update if a new file was uploaded
+    if (fileUrl) {
+      updateData.pdfUrl = fileUrl;
+    }
+
+    const updatedBook = await prisma.libraryBook.update({
+      where: { id: bookId },
+      data: updateData,
+    });
+
+    res.status(200).json(updatedBook);
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 };
+
 
 export const deleteBook = async (req: Request, res: Response) => {
   try {
