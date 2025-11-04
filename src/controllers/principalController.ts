@@ -186,6 +186,7 @@ export const getPrincipalDashboardData = async (
       allEvents,
       pendingStaffRequests,
       allBranches,
+      lastPayment,
     ] = await prisma.$transaction([
       prisma.student.count({ where: { branchId } }),
       prisma.teacher.count({ where: { branchId } }),
@@ -258,16 +259,17 @@ export const getPrincipalDashboardData = async (
           stats: true,
           email: true,
           helplineNumber: true,
-          nextDueDate: true, 
+          nextDueDate: true,
           billingCycle: true,
-          location:true,
+          location: true,
         },
       }),
-    ]);
-prisma.erpPayment.findFirst({
+      prisma.erpPayment.findFirst({
   where: { branchId: branchId },
   orderBy: { paymentDate: "desc" },
-});
+}),
+    ]);
+
     // --- All data transformation logic below remains the same and is correct ---
     const transformedClassPerformance = classPerformance.map(
       (c: {
@@ -364,7 +366,7 @@ prisma.erpPayment.findFirst({
         (acc: number, s: { score: number }) => acc + s.score,
         0
       ) / (allScores.length || 1);
-const myBranchDetails = allBranches.find((b) => b.id === branchId);
+    const myBranchDetails = allBranches.find((b) => b.id === branchId);
     const dashboardData = {
       branch: {
         name: myBranchDetails?.name,
@@ -374,6 +376,7 @@ const myBranchDetails = allBranches.find((b) => b.id === branchId);
         billingCycle: myBranchDetails?.billingCycle,
         location: myBranchDetails?.location,
       },
+      lastPayment: lastPayment || null,
       summary: {
         totalStudents,
         totalTeachers,
