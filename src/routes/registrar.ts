@@ -8,12 +8,17 @@ const router = Router();
 // Apply security middleware to all registrar routes
 router.use(protect);
 router.get("/user-details/:userId", registrarController.getUserDetails);
+router.get("/students", registrarController.getStudentsForBranch);
+router.get("/teachers", registrarController.getTeachersByBranch);
+
+
 
 router.use(restrictTo("Registrar"));
 
 // --- Dashboard ---
 router.get("/dashboard", registrarController.getRegistrarDashboardData);
-router.get("/user-details/:userId", registrarController.getUserDetails);
+// router.get("/user-details/:userId", registrarController.getUserDetails);
+router.get("/teachers", registrarController.getTeachersByBranch);
 
 // --- Admissions & Faculty Applications ---
 // FIX: Consolidated to a single, clear route for admission applications
@@ -41,7 +46,7 @@ router.get(
 );
 
 // --- Student Information System (SIS) ---
-router.get("/students", registrarController.getStudentsForBranch);
+// router.get("/students", registrarController.getStudentsForBranch);
 router.patch("/students/:id", registrarController.updateStudent); 
 router.delete("/students/:id", registrarController.deleteStudent);
 router.post("/students/promote", registrarController.promoteStudents);
@@ -124,7 +129,6 @@ router.put("/classes/:id/subjects", registrarController.updateClassSubjects);
 
 
 // --- Faculty & Staff Management ---
-router.get("/teachers", registrarController.getTeachersByBranch);
 router.put("/teachers/:id", registrarController.updateTeacher); 
 router.get("/staff/support", registrarController.getSupportStaffByBranch); 
 router.post("/staff/support", registrarController.createSupportStaff); 
