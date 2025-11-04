@@ -7,6 +7,8 @@ const router = Router();
 
 // Apply security middleware to all registrar routes
 router.use(protect);
+router.get("/user-details/:userId", registrarController.getUserDetails);
+
 router.use(restrictTo("Registrar"));
 
 // --- Dashboard ---
