@@ -113,6 +113,7 @@ export const approveRequest = async (
             passwordHash: hashedPassword,
             phone: request.phone,
             role: "Principal",
+            designation: "Principal",
             branchId: newBranch.id,
             status: "active",
           },

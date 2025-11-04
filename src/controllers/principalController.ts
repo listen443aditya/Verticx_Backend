@@ -546,12 +546,11 @@ export const approveFacultyApplication = async (
         phone: application.phone,
         branchId: branchId,
         role: "Teacher",
+        designation: "Teacher",
         passwordHash: hashedPassword,
         userId: `VRTX-${branchId.substring(0, 4)}-TCH-${Date.now()
           .toString()
           .slice(-4)}`,
-        // --- Copy new fields to the User model if they exist there ---
-        // (e.g., address, alternatePhone could be on User)
       },
     });
 
@@ -565,8 +564,6 @@ export const approveFacultyApplication = async (
         qualification: application.qualification,
         branch: { connect: { id: branchId } },
         salary: salary,
-
-        // --- COPY ALL THE NEW FIELDS ---
         subjectIds: application.subjectIds,
         gender: application.gender,
         doj: application.doj,
