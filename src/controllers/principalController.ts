@@ -258,10 +258,15 @@ export const getPrincipalDashboardData = async (
           stats: true,
           email: true,
           helplineNumber: true,
+          nextDueDate: true, 
+          billingCycle: true,
         },
       }),
     ]);
-
+prisma.erpPayment.findFirst({
+  where: { branchId: branchId },
+  orderBy: { paymentDate: "desc" },
+});
     // --- All data transformation logic below remains the same and is correct ---
     const transformedClassPerformance = classPerformance.map(
       (c: {
@@ -363,6 +368,8 @@ const myBranchDetails = allBranches.find((b) => b.id === branchId);
       branch: {
         email: myBranchDetails?.email,
         helplineNumber: myBranchDetails?.helplineNumber,
+        nextDueDate: myBranchDetails?.nextDueDate, 
+        billingCycle: myBranchDetails?.billingCycle, 
       },
       summary: {
         totalStudents,
