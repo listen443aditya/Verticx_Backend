@@ -11,7 +11,11 @@ router.get("/user-details/:userId", registrarController.getUserDetails);
 router.get("/students", registrarController.getStudentsForBranch);
 router.get("/teachers", registrarController.getTeachersByBranch);
 
-
+router.get("/leaves/settings", registrarController.getLeaveSettingsForBranch);
+router.get(
+  "/leaves/my-applications",
+  registrarController.getMyLeaveApplications
+);
 
 router.use(restrictTo("Registrar"));
 
@@ -179,7 +183,7 @@ router.get(
   "/leaves/student-applications",
   registrarController.getStudentLeaveApplications
 );
-router.get("/leaves/settings", registrarController.getLeaveSettingsForBranch); 
+
 router.put(
   "/leaves/settings",
   registrarController.updateLeaveSettingsForBranch
@@ -193,10 +197,6 @@ router.put(
   registrarController.processLeaveApplication
 ); 
 router.post("/leaves/applications", registrarController.createLeaveApplication);
-router.get(
-  "/leaves/my-applications",
-  registrarController.getMyLeaveApplications
-);
 
 // --- Fee Management ---
 router.get("/fees/templates", registrarController.getFeeTemplates); 

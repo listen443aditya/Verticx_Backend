@@ -3135,8 +3135,8 @@ export const saveTeacherAttendance = async (
 
 
 export const getLeaveSettingsForBranch = async (req: Request, res: Response, next: NextFunction) => {
-    const branchId = getRegistrarBranchId(req);
-    if (!branchId) return res.status(401).json({ message: "Authentication required." });
+const branchId = getAuthenticatedBranchId(req);
+if (!branchId) return res.status(401).json({ message: "Authentication required." });
     
     try {
         const settings = await prisma.leaveSettings.findUnique({
