@@ -50,62 +50,12 @@ export const createBook = async (
     }
 
     const bookData = req.body;
-    const pdfFile = req.file; 
+
+    // FIX: Cast req.file to tell TypeScript it exists
+const pdfFile = (req as any).file;
     let fileUrl: string | undefined = undefined;
 
-    // --- 2. Handle File Upload ---
     if (pdfFile) {
-      // This creates a unique filename, e.g., "books/my-book-title.pdf"
-      const blob = await put(
-        `books/${bookData.title.replace(/\s+/g, "-")}-${Date.now()}.pdf`,
-        pdfFile.buffer,
-        {
-          access: "public",
-          contentType: pdfFile.mimetype,
-        }
-      );
-      fileUrl = blob.url; // Get the public URL of the uploaded file
-    }
-    // --- End of File Upload ---
-
-    const totalCopies = parseInt(bookData.totalCopies, 10) || 1;
-    const price = parseFloat(bookData.price) || 0;
-
-    // 3. Create the book in the database, now with the pdfUrl
-    const newBook = await prisma.libraryBook.create({
-      data: {
-        branchId: req.user.branchId,
-        title: bookData.title,
-        author: bookData.author,
-        isbn: bookData.isbn,
-        price: price,
-        totalCopies: totalCopies,
-        availableCopies: totalCopies,
-        pdfUrl: fileUrl, // <-- 4. Save the new URL
-      },
-    });
-
-    res.status(201).json(newBook);
-  } catch (error: any) {
-    next(error);
-  }
-};
-
-// You can apply the same logic to your 'updateBook' function
-export const updateBook = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const { id: bookId } = req.params;
-    const bookData = req.body;
-    const pdfFile = req.file;
-    let fileUrl: string | undefined = undefined;
-
-    // --- Handle File Upload ---
-    if (pdfFile) {
-      // In a real app, you would also delete the OLD file from Vercel Blob
       const blob = await put(
         `books/${bookData.title.replace(/\s+/g, "-")}-${Date.now()}.pdf`,
         pdfFile.buffer,
@@ -116,7 +66,53 @@ export const updateBook = async (
       );
       fileUrl = blob.url;
     }
-    // --- End of File Upload ---
+
+    const totalCopies = parseInt(bookData.totalCopies, 10) || 1;
+    const price = parseFloat(bookData.price) || 0;
+
+    const newBook = await prisma.libraryBook.create({
+      data: {
+        branchId: req.user.branchId,
+        title: bookData.title,
+        author: bookData.author,
+        isbn: bookData.isbn,
+        price: price,
+        totalCopies: totalCopies,
+        availableCopies: totalCopies,
+        pdfUrl: fileUrl,
+      },
+    });
+
+    res.status(201).json(newBook);
+  } catch (error: any) {
+    next(error); // Pass error to global handler
+  }
+};
+
+export const updateBook = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { id: bookId } = req.params;
+    const bookData = req.body;
+
+    // FIX: Cast req.file to tell TypeScript it exists
+const pdfFile = (req as any).file;
+    let fileUrl: string | undefined = undefined;
+
+    if (pdfFile) {
+      const blob = await put(
+        `books/${bookData.title.replace(/\s+/g, "-")}-${Date.now()}.pdf`,
+        pdfFile.buffer,
+        {
+          access: "public",
+          contentType: pdfFile.mimetype,
+        }
+      );
+      fileUrl = blob.url;
+    }
 
     const totalCopies = parseInt(bookData.totalCopies, 10);
     const price = parseFloat(bookData.price);
@@ -127,7 +123,7 @@ export const updateBook = async (
     });
 
     if (!existingBook) {
-      return res.status(404).json({ message: "Book not found" });
+      return res.status(44).json({ message: "Book not found" });
     }
 
     let availableCopies = existingBook.availableCopies;
@@ -139,7 +135,6 @@ export const updateBook = async (
       }
     }
 
-    // Create an update object
     const updateData: any = {
       title: bookData.title,
       author: bookData.author,
@@ -149,7 +144,6 @@ export const updateBook = async (
       availableCopies: availableCopies,
     };
 
-    // Only add pdfUrl to the update if a new file was uploaded
     if (fileUrl) {
       updateData.pdfUrl = fileUrl;
     }
@@ -161,7 +155,7 @@ export const updateBook = async (
 
     res.status(200).json(updatedBook);
   } catch (error: any) {
-    next(error);
+    next(error); // Pass error to global handler
   }
 };
 
