@@ -319,7 +319,7 @@ export const issueBookByIsbnOrId = async (
     }
     const { bookIdentifier, memberId, dueDate, finePerDay } = req.body;
 
-    // 1. Find the book
+    // 1. Find the book (This logic is correct)
     const book = await prisma.libraryBook.findFirst({
       where: {
         branchId: branchId,
@@ -335,11 +335,30 @@ export const issueBookByIsbnOrId = async (
         .json({ message: "All copies are currently issued." });
     }
 
-    // 2. Find the member (Student or Teacher)
+    // --- THIS IS THE FIX ---
+    // 2. Find the member by EITHER their primary 'id' OR their 'userId'
     const [student, teacher] = await Promise.all([
-      prisma.student.findFirst({ where: { id: memberId, branchId: branchId } }),
-      prisma.teacher.findFirst({ where: { id: memberId, branchId: branchId } }),
+      prisma.student.findFirst({
+        where: {
+          branchId: branchId,
+          OR: [
+            { id: memberId }, // Check the primary key (for when suggestions work)
+            { userId: memberId }, // Check the human-readable ID (for manual entry)
+          ],
+        },
+      }),
+      prisma.teacher.findFirst({
+        where: {
+          branchId: branchId,
+          OR: [
+            { id: memberId }, // Check the primary key
+            { userId: memberId }, // Check the human-readable ID
+          ],
+        },
+      }),
     ]);
+    // --- END OF FIX ---
+
     const member = student || teacher;
     const memberType = student ? "Student" : teacher ? "Teacher" : null;
 
@@ -349,12 +368,12 @@ export const issueBookByIsbnOrId = async (
         .json({ message: "Member not found in this branch." });
     }
 
-    // 3. Create the issuance and decrement book count
+    // 3. Create the issuance (This logic is correct)
     await prisma.$transaction([
       prisma.bookIssuance.create({
         data: {
           bookId: book.id,
-          memberId: member.id,
+          memberId: member.id, // Use the database primary 'id'
           memberType: memberType,
           branchId: branchId,
           issuedDate: new Date(),
