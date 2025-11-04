@@ -260,6 +260,7 @@ export const getPrincipalDashboardData = async (
           helplineNumber: true,
           nextDueDate: true, 
           billingCycle: true,
+          location:true,
         },
       }),
     ]);
@@ -369,7 +370,8 @@ const myBranchDetails = allBranches.find((b) => b.id === branchId);
         email: myBranchDetails?.email,
         helplineNumber: myBranchDetails?.helplineNumber,
         nextDueDate: myBranchDetails?.nextDueDate, 
-        billingCycle: myBranchDetails?.billingCycle, 
+        billingCycle: myBranchDetails?.billingCycle,
+        location: myBranchDetails?.location, 
       },
       summary: {
         totalStudents,
