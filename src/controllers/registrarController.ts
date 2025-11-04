@@ -1892,7 +1892,7 @@ export const assignFeeTemplateToClass = async (req: Request, res: Response, next
 
 
 export const getTeachersByBranch = async (req: Request, res: Response, next: NextFunction) => {
-  const branchId = getRegistrarBranchId(req);
+const branchId = getAuthenticatedBranchId(req);
   if (!branchId) {
     return res.status(401).json({ message: "Authentication required with a valid branch." });
   }
@@ -4253,7 +4253,7 @@ export const getStudentLeaveApplications = async (
 
 
 export const getStudentsForBranch = async (req: Request, res: Response, next: NextFunction) => {
-    const branchId = getRegistrarBranchId(req);
+    const branchId = getAuthenticatedBranchId(req);
     if (!branchId) {
         return res.status(401).json({ message: "Unauthorized." });
     }
