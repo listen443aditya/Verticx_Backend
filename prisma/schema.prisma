@@ -91,6 +91,23 @@ enum ManualExpenseCategory {
   Miscellaneous
 }
 
+enum RequestStatus {
+  Pending
+  Approved
+  Rejected
+}
+
+enum QuizStatus {
+  draft
+  published
+  paused
+}
+
+enum StudentQuizStatus {
+  pending
+  completed
+}
+
 // ============================================================================
 // CORE MODELS
 // ============================================================================
@@ -122,6 +139,10 @@ model User {
   complaintsRaised  Complaint[]        @relation("ComplaintsRaisedBy")
   leaveApplications LeaveApplication[]
   attendanceRecords StaffAttendanceRecord[]
+
+  raisedFeeRectifications    FeeRectificationRequest[] @relation("RegistrarFeeRectifications")
+  reviewedFeeRectifications  FeeRectificationRequest[] @relation("PrincipalFeeRectifications")
+  reviewedConcessionRequests ConcessionRequest[]       @relation("PrincipalConcessionReviews")
 }
 
 
@@ -184,6 +205,16 @@ model Branch {
   timetableSlots                         TimetableSlot[]
   leaveSettings                          LeaveSettings?
   assignments                            Assignment[]                            @relation("BranchToAssignments")
+
+  content                CourseContent[]
+  quizzes                Quiz[]
+  concessionRequests     ConcessionRequest[]
+  feeRectificationRequests FeeRectificationRequest[]
+  adminSms               AdminSms[]
+  adminEmails            AdminEmail[]
+  adminNotifications     AdminNotification[]
+  archivedStudents       ArchivedStudentRecord[]
+  syllabusProgress       SyllabusProgress[]
 }
 
 model RegistrationRequest {
@@ -240,6 +271,12 @@ model Teacher {
   meetingRequests                        MeetingRequest[]                        @relation("TeacherToMeetings")
   attendanceRecords                      TeacherAttendanceRecord[]
   bookIssuances                          BookIssuance[] @relation("TeacherIssuances")
+
+  content               CourseContent[]
+  markingTemplates      MarkingTemplate[]
+  quizzes               Quiz[]
+  feedbackGiven         TeacherFeedback[]
+  skillAssessmentsGiven SkillAssessment[]
 }
 
 model Student {
@@ -289,6 +326,14 @@ model Student {
   room                  Room?                  @relation(fields: [roomId], references: [id])
   user              User?     @relation(fields: [userId], references: [id])
   bookIssuances BookIssuance[] @relation("StudentIssuances")
+
+  studentMarks       StudentMark[]
+  quizzes            StudentQuiz[]
+  grades             Grade[]
+  concessionRequests ConcessionRequest[]
+  feedbackReceived   TeacherFeedback[]
+  skillAssessments   SkillAssessment[]
+  syllabusProgress   StudentSyllabusProgress[]
 }
 
 // ============================================================================
@@ -359,6 +404,9 @@ model SchoolClass {
   feeTemplateId  String?
   feeTemplate    FeeTemplate?    @relation(fields: [feeTemplateId], references: [id])
   timetableSlots TimetableSlot[]
+
+  quizzes          Quiz[]
+  syllabusProgress SyllabusProgress[]
 }
 
 model Subject {
@@ -375,6 +423,8 @@ model Subject {
   schoolClassId          String?
   syllabusChangeRequests SyllabusChangeRequest[]
   timetableSlots         TimetableSlot[]
+
+  syllabusProgress SyllabusProgress[]
 }
 
 model Course {
@@ -391,6 +441,10 @@ model Course {
   examMarks          ExamMark[]
   schoolClass        SchoolClass? @relation(fields: [schoolClassId], references: [id])
   syllabusCompletion Float? // Added: so your controller can select syllabusCompletion
+
+  content          CourseContent[]
+  markingTemplates MarkingTemplate[]
+  grades           Grade[]
 }
 
 model Examination {
@@ -500,6 +554,7 @@ model FeeTemplate {
   schoolClasses    SchoolClass[]
 
   branch Branch @relation(fields: [branchId], references: [id])
+  feeRectificationRequests FeeRectificationRequest[]
 }
 
 model FeeRecord {
@@ -659,6 +714,8 @@ model Lecture {
   branch    Branch   @relation(fields: [branchId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  studentCompletions StudentSyllabusProgress[]
 }
 
 // ============================================================================
@@ -1036,4 +1093,319 @@ model SchoolDocument {
 
   @@index([branchId])
   @@index([ownerId]) // Good to add an index for lookups
+}
+
+
+// ============================================================================
+// GRADEBOOK & SKILLS (NEW)
+// ============================================================================
+
+// For teacher-created gradebook items (e.g., "Homework 1", "Midterm")
+model MarkingTemplate {
+  id         String  @id @default(cuid())
+  teacherId  String
+  courseId   String
+  name       String  // e.g., "Midterm Exam", "Assignment 1"
+  totalMarks Float
+  weightage  Float // Percentage, e.g., 20 for 20%
+
+  teacher Teacher @relation(fields: [teacherId], references: [id])
+  course  Course  @relation(fields: [courseId], references: [id])
+  marks   StudentMark[] // Relation to marks
+
+  @@index([courseId])
+}
+
+// Stores an individual student's mark for a MarkingTemplate item
+model StudentMark {
+  id            String    @id @default(cuid())
+  studentId     String
+  templateId    String
+  marksObtained Float
+  enteredAt     DateTime  @default(now())
+
+  student   Student         @relation(fields: [studentId], references: [id])
+  template  MarkingTemplate @relation(fields: [templateId], references: [id])
+
+  @@unique([studentId, templateId])
+  @@index([templateId])
+}
+
+// For non-exam, continuous assessment grades
+model Grade {
+  id         String   @id @default(cuid())
+  studentId  String
+  courseId   String
+  assessment String // e.g., "Homework 1", "Class Participation"
+  score      Float
+  term       String // e.g., "Term 1", "Final"
+  enteredAt  DateTime @default(now())
+
+  student Student @relation(fields: [studentId], references: [id])
+  course  Course  @relation(fields: [courseId], references: [id])
+
+  @@unique([studentId, courseId, assessment])
+  @@index([courseId])
+}
+
+// For teacher feedback on a student
+model TeacherFeedback {
+  id           String   @id @default(cuid())
+  studentId    String
+  teacherId    String
+  parameters   Json // { "Clarity": 5, "Knowledge": 4 }
+  feedbackDate DateTime @default(now())
+
+  student Student @relation(fields: [studentId], references: [id])
+  teacher Teacher @relation(fields: [teacherId], references: [id])
+
+  @@unique([studentId, teacherId, feedbackDate])
+  @@index([studentId])
+  @@index([teacherId])
+}
+
+// For teacher assessment of student skills
+model SkillAssessment {
+  id         String   @id @default(cuid())
+  studentId  String
+  teacherId  String
+  skills     Json // { "Problem Solving": 8, "Creativity": 7 }
+  assessedAt DateTime @default(now())
+
+  student Student @relation(fields: [studentId], references: [id])
+  teacher Teacher @relation(fields: [teacherId], references: [id])
+
+  @@index([studentId])
+  @@index([teacherId])
+}
+
+// ============================================================================
+// COURSE CONTENT & SYLLABUS (NEW)
+// ============================================================================
+
+// Model for uploaded course materials (PDFs, videos, etc.)
+model CourseContent {
+  id          String   @id @default(cuid())
+  branchId    String
+  courseId    String
+  teacherId   String
+  title       String
+  description String?
+  fileName    String
+  fileType    String
+  fileUrl     String
+  uploadedAt  DateTime @default(now())
+
+  branch  Branch  @relation(fields: [branchId], references: [id])
+  course  Course  @relation(fields: [courseId], references: [id])
+  teacher Teacher @relation(fields: [teacherId], references: [id])
+
+  @@index([branchId])
+  @@index([courseId])
+}
+
+// Tracks syllabus completion per class/subject
+model SyllabusProgress {
+  id                   String   @id @default(cuid())
+  branchId             String
+  classId              String
+  subjectId            String
+  completionPercentage Float    @default(0)
+  updatedAt            DateTime @updatedAt
+
+  branch  Branch      @relation(fields: [branchId], references: [id])
+  class   SchoolClass @relation(fields: [classId], references: [id])
+  subject Subject     @relation(fields: [subjectId], references: [id])
+
+  @@unique([branchId, classId, subjectId])
+}
+
+// Tracks an individual student's lecture completion
+model StudentSyllabusProgress {
+  id          String   @id @default(cuid())
+  studentId   String
+  lectureId   String
+  completedAt DateTime @default(now())
+
+  student Student @relation(fields: [studentId], references: [id])
+  lecture Lecture @relation(fields: [lectureId], references: [id])
+
+  @@unique([studentId, lectureId])
+  @@index([lectureId])
+}
+
+// ============================================================================
+// QUIZZES (NEW)
+// ============================================================================
+
+model Quiz {
+  id                  String    @id @default(cuid())
+  teacherId           String
+  branchId            String
+  title               String
+  classId             String
+  status              QuizStatus @default(draft)
+  questionsPerStudent Int
+  createdAt           DateTime  @default(now())
+
+  teacher   Teacher      @relation(fields: [teacherId], references: [id])
+  branch    Branch       @relation(fields: [branchId], references: [id])
+  class     SchoolClass  @relation(fields: [classId], references: [id])
+  questions QuizQuestion[]
+  instances StudentQuiz[]
+
+  @@index([teacherId])
+  @@index([classId])
+}
+
+model QuizQuestion {
+  id                 String   @id @default(cuid())
+  quizId             String
+  questionText       String
+  options            String[]
+  correctOptionIndex Int
+
+  quiz    Quiz            @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  answers StudentAnswer[]
+
+  @@index([quizId])
+}
+
+model StudentQuiz {
+  id                  String            @id @default(cuid())
+  studentId           String
+  quizId              String
+  assignedQuestionIds String[]
+  status              StudentQuizStatus @default(pending)
+  score               Float?
+  submittedAt         DateTime?
+
+  student Student @relation(fields: [studentId], references: [id])
+  quiz    Quiz    @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  answers StudentAnswer[]
+
+  @@unique([studentId, quizId])
+  @@index([quizId])
+}
+
+model StudentAnswer {
+  id                  String   @id @default(cuid())
+  studentQuizId       String
+  questionId          String
+  selectedOptionIndex Int
+
+  studentQuiz StudentQuiz  @relation(fields: [studentQuizId], references: [id], onDelete: Cascade)
+  question    QuizQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([studentQuizId, questionId])
+}
+
+
+// ============================================================================
+// NEW REQUESTS & RECORDS
+// ============================================================================
+
+// For parent/student requests for fee concessions
+model ConcessionRequest {
+  id              String        @id @default(cuid())
+  branchId        String
+  studentId       String
+  amount          Float
+  reason          String
+  status          RequestStatus @default(Pending)
+  requestedById   String // User ID of parent or student
+  requestedByName String
+  requestedAt     DateTime      @default(now())
+  reviewedById    String? // Principal's User ID
+  reviewedAt      DateTime?
+
+  branch  Branch  @relation(fields: [branchId], references: [id])
+  student Student @relation(fields: [studentId], references: [id])
+  reviewer User?  @relation("PrincipalConcessionReviews", fields: [reviewedById], references: [id])
+
+  @@index([branchId])
+  @@index([studentId])
+}
+
+// For registrar requests to modify fee templates
+model FeeRectificationRequest {
+  id            String        @id @default(cuid())
+  branchId      String
+  registrarId   String // User ID
+  registrarName String
+  templateId    String
+  requestType   String // "update" or "delete"
+  originalData  Json
+  newData       Json?
+  reason        String
+  status        RequestStatus @default(Pending)
+  requestedAt   DateTime      @default(now())
+  reviewedById  String? // Principal's User ID
+  reviewedAt    DateTime?
+
+  branch    Branch      @relation(fields: [branchId], references: [id])
+  registrar User        @relation("RegistrarFeeRectifications", fields: [registrarId], references: [id])
+  template  FeeTemplate @relation(fields: [templateId], references: [id])
+  reviewer  User?       @relation("PrincipalFeeRectifications", fields: [reviewedById], references: [id])
+
+  @@index([branchId])
+  @@index([templateId])
+}
+
+// For long-term storage of graduated/left students
+model ArchivedStudentRecord {
+  id              String   @id @default(cuid())
+  studentId       String // This is the original student ID
+  name            String
+  admissionNumber String?
+  branchId        String
+  academicSession String // e.g., "2023-2024"
+  grades          Json // Store array of Grade/ExamMark objects
+  attendance      Json // Store array of AttendanceRecord objects
+  finalClass      String // e.g., "Grade 10 - A"
+  archivedAt      DateTime @default(now())
+
+  branch Branch @relation(fields: [branchId], references: [id])
+
+  @@index([studentId])
+  @@index([branchId])
+}
+
+// ============================================================================
+// SUPERADMIN COMMUNICATION (NEW)
+// ============================================================================
+
+// For messages sent by SuperAdmin
+model AdminSms {
+  id             String   @id @default(cuid())
+  message        String
+  recipientCount Int
+  sentAt         DateTime @default(now())
+  sentBy         String // SuperAdmin name/ID
+  branchId       String? // Optional: if targeted to one branch
+
+  branch Branch? @relation(fields: [branchId], references: [id])
+}
+
+model AdminEmail {
+  id       String   @id @default(cuid())
+  subject  String
+  body     String
+  sentAt   DateTime @default(now())
+  sentBy   String // SuperAdmin name/ID
+  branchId String? // Optional: if targeted to one branch
+
+  branch Branch? @relation(fields: [branchId], references: [id])
+}
+
+model AdminNotification {
+  id       String   @id @default(cuid())
+  title    String
+  message  String
+  sentAt   DateTime @default(now())
+  sentBy   String // SuperAdmin name/ID
+  audience String // e.g., "All Principals", "All Users"
+  branchId String? // Optional: if targeted to one branch
+
+  branch Branch? @relation(fields: [branchId], references: [id])
 }

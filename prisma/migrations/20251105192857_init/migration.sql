@@ -35,6 +35,15 @@ CREATE TYPE "FeeAdjustmentType" AS ENUM ('concession', 'charge');
 CREATE TYPE "ManualExpenseCategory" AS ENUM ('Utilities', 'Supplies', 'Maintenance', 'Events', 'Miscellaneous');
 
 -- CreateEnum
+CREATE TYPE "RequestStatus" AS ENUM ('Pending', 'Approved', 'Rejected');
+
+-- CreateEnum
+CREATE TYPE "QuizStatus" AS ENUM ('draft', 'published', 'paused');
+
+-- CreateEnum
+CREATE TYPE "StudentQuizStatus" AS ENUM ('pending', 'completed');
+
+-- CreateEnum
 CREATE TYPE "ComplaintStatus" AS ENUM ('Open', 'UnderReview', 'Resolved', 'Closed');
 
 -- CreateTable
@@ -846,6 +855,239 @@ CREATE TABLE "SchoolDocument" (
     CONSTRAINT "SchoolDocument_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "MarkingTemplate" (
+    "id" TEXT NOT NULL,
+    "teacherId" TEXT NOT NULL,
+    "courseId" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "totalMarks" DOUBLE PRECISION NOT NULL,
+    "weightage" DOUBLE PRECISION NOT NULL,
+
+    CONSTRAINT "MarkingTemplate_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "StudentMark" (
+    "id" TEXT NOT NULL,
+    "studentId" TEXT NOT NULL,
+    "templateId" TEXT NOT NULL,
+    "marksObtained" DOUBLE PRECISION NOT NULL,
+    "enteredAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "StudentMark_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Grade" (
+    "id" TEXT NOT NULL,
+    "studentId" TEXT NOT NULL,
+    "courseId" TEXT NOT NULL,
+    "assessment" TEXT NOT NULL,
+    "score" DOUBLE PRECISION NOT NULL,
+    "term" TEXT NOT NULL,
+    "enteredAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Grade_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "TeacherFeedback" (
+    "id" TEXT NOT NULL,
+    "studentId" TEXT NOT NULL,
+    "teacherId" TEXT NOT NULL,
+    "parameters" JSONB NOT NULL,
+    "feedbackDate" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "TeacherFeedback_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "SkillAssessment" (
+    "id" TEXT NOT NULL,
+    "studentId" TEXT NOT NULL,
+    "teacherId" TEXT NOT NULL,
+    "skills" JSONB NOT NULL,
+    "assessedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "SkillAssessment_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "CourseContent" (
+    "id" TEXT NOT NULL,
+    "branchId" TEXT NOT NULL,
+    "courseId" TEXT NOT NULL,
+    "teacherId" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "description" TEXT,
+    "fileName" TEXT NOT NULL,
+    "fileType" TEXT NOT NULL,
+    "fileUrl" TEXT NOT NULL,
+    "uploadedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "CourseContent_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "SyllabusProgress" (
+    "id" TEXT NOT NULL,
+    "branchId" TEXT NOT NULL,
+    "classId" TEXT NOT NULL,
+    "subjectId" TEXT NOT NULL,
+    "completionPercentage" DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "SyllabusProgress_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "StudentSyllabusProgress" (
+    "id" TEXT NOT NULL,
+    "studentId" TEXT NOT NULL,
+    "lectureId" TEXT NOT NULL,
+    "completedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "StudentSyllabusProgress_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Quiz" (
+    "id" TEXT NOT NULL,
+    "teacherId" TEXT NOT NULL,
+    "branchId" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "classId" TEXT NOT NULL,
+    "status" "QuizStatus" NOT NULL DEFAULT 'draft',
+    "questionsPerStudent" INTEGER NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Quiz_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "QuizQuestion" (
+    "id" TEXT NOT NULL,
+    "quizId" TEXT NOT NULL,
+    "questionText" TEXT NOT NULL,
+    "options" TEXT[],
+    "correctOptionIndex" INTEGER NOT NULL,
+
+    CONSTRAINT "QuizQuestion_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "StudentQuiz" (
+    "id" TEXT NOT NULL,
+    "studentId" TEXT NOT NULL,
+    "quizId" TEXT NOT NULL,
+    "assignedQuestionIds" TEXT[],
+    "status" "StudentQuizStatus" NOT NULL DEFAULT 'pending',
+    "score" DOUBLE PRECISION,
+    "submittedAt" TIMESTAMP(3),
+
+    CONSTRAINT "StudentQuiz_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "StudentAnswer" (
+    "id" TEXT NOT NULL,
+    "studentQuizId" TEXT NOT NULL,
+    "questionId" TEXT NOT NULL,
+    "selectedOptionIndex" INTEGER NOT NULL,
+
+    CONSTRAINT "StudentAnswer_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "ConcessionRequest" (
+    "id" TEXT NOT NULL,
+    "branchId" TEXT NOT NULL,
+    "studentId" TEXT NOT NULL,
+    "amount" DOUBLE PRECISION NOT NULL,
+    "reason" TEXT NOT NULL,
+    "status" "RequestStatus" NOT NULL DEFAULT 'Pending',
+    "requestedById" TEXT NOT NULL,
+    "requestedByName" TEXT NOT NULL,
+    "requestedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "reviewedById" TEXT,
+    "reviewedAt" TIMESTAMP(3),
+
+    CONSTRAINT "ConcessionRequest_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "FeeRectificationRequest" (
+    "id" TEXT NOT NULL,
+    "branchId" TEXT NOT NULL,
+    "registrarId" TEXT NOT NULL,
+    "registrarName" TEXT NOT NULL,
+    "templateId" TEXT NOT NULL,
+    "requestType" TEXT NOT NULL,
+    "originalData" JSONB NOT NULL,
+    "newData" JSONB,
+    "reason" TEXT NOT NULL,
+    "status" "RequestStatus" NOT NULL DEFAULT 'Pending',
+    "requestedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "reviewedById" TEXT,
+    "reviewedAt" TIMESTAMP(3),
+
+    CONSTRAINT "FeeRectificationRequest_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "ArchivedStudentRecord" (
+    "id" TEXT NOT NULL,
+    "studentId" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "admissionNumber" TEXT,
+    "branchId" TEXT NOT NULL,
+    "academicSession" TEXT NOT NULL,
+    "grades" JSONB NOT NULL,
+    "attendance" JSONB NOT NULL,
+    "finalClass" TEXT NOT NULL,
+    "archivedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "ArchivedStudentRecord_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "AdminSms" (
+    "id" TEXT NOT NULL,
+    "message" TEXT NOT NULL,
+    "recipientCount" INTEGER NOT NULL,
+    "sentAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "sentBy" TEXT NOT NULL,
+    "branchId" TEXT,
+
+    CONSTRAINT "AdminSms_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "AdminEmail" (
+    "id" TEXT NOT NULL,
+    "subject" TEXT NOT NULL,
+    "body" TEXT NOT NULL,
+    "sentAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "sentBy" TEXT NOT NULL,
+    "branchId" TEXT,
+
+    CONSTRAINT "AdminEmail_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "AdminNotification" (
+    "id" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "message" TEXT NOT NULL,
+    "sentAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "sentBy" TEXT NOT NULL,
+    "audience" TEXT NOT NULL,
+    "branchId" TEXT,
+
+    CONSTRAINT "AdminNotification_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "User_userId_key" ON "User"("userId");
 
@@ -911,6 +1153,87 @@ CREATE INDEX "SchoolDocument_branchId_idx" ON "SchoolDocument"("branchId");
 
 -- CreateIndex
 CREATE INDEX "SchoolDocument_ownerId_idx" ON "SchoolDocument"("ownerId");
+
+-- CreateIndex
+CREATE INDEX "MarkingTemplate_courseId_idx" ON "MarkingTemplate"("courseId");
+
+-- CreateIndex
+CREATE INDEX "StudentMark_templateId_idx" ON "StudentMark"("templateId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "StudentMark_studentId_templateId_key" ON "StudentMark"("studentId", "templateId");
+
+-- CreateIndex
+CREATE INDEX "Grade_courseId_idx" ON "Grade"("courseId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Grade_studentId_courseId_assessment_key" ON "Grade"("studentId", "courseId", "assessment");
+
+-- CreateIndex
+CREATE INDEX "TeacherFeedback_studentId_idx" ON "TeacherFeedback"("studentId");
+
+-- CreateIndex
+CREATE INDEX "TeacherFeedback_teacherId_idx" ON "TeacherFeedback"("teacherId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "TeacherFeedback_studentId_teacherId_feedbackDate_key" ON "TeacherFeedback"("studentId", "teacherId", "feedbackDate");
+
+-- CreateIndex
+CREATE INDEX "SkillAssessment_studentId_idx" ON "SkillAssessment"("studentId");
+
+-- CreateIndex
+CREATE INDEX "SkillAssessment_teacherId_idx" ON "SkillAssessment"("teacherId");
+
+-- CreateIndex
+CREATE INDEX "CourseContent_branchId_idx" ON "CourseContent"("branchId");
+
+-- CreateIndex
+CREATE INDEX "CourseContent_courseId_idx" ON "CourseContent"("courseId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "SyllabusProgress_branchId_classId_subjectId_key" ON "SyllabusProgress"("branchId", "classId", "subjectId");
+
+-- CreateIndex
+CREATE INDEX "StudentSyllabusProgress_lectureId_idx" ON "StudentSyllabusProgress"("lectureId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "StudentSyllabusProgress_studentId_lectureId_key" ON "StudentSyllabusProgress"("studentId", "lectureId");
+
+-- CreateIndex
+CREATE INDEX "Quiz_teacherId_idx" ON "Quiz"("teacherId");
+
+-- CreateIndex
+CREATE INDEX "Quiz_classId_idx" ON "Quiz"("classId");
+
+-- CreateIndex
+CREATE INDEX "QuizQuestion_quizId_idx" ON "QuizQuestion"("quizId");
+
+-- CreateIndex
+CREATE INDEX "StudentQuiz_quizId_idx" ON "StudentQuiz"("quizId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "StudentQuiz_studentId_quizId_key" ON "StudentQuiz"("studentId", "quizId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "StudentAnswer_studentQuizId_questionId_key" ON "StudentAnswer"("studentQuizId", "questionId");
+
+-- CreateIndex
+CREATE INDEX "ConcessionRequest_branchId_idx" ON "ConcessionRequest"("branchId");
+
+-- CreateIndex
+CREATE INDEX "ConcessionRequest_studentId_idx" ON "ConcessionRequest"("studentId");
+
+-- CreateIndex
+CREATE INDEX "FeeRectificationRequest_branchId_idx" ON "FeeRectificationRequest"("branchId");
+
+-- CreateIndex
+CREATE INDEX "FeeRectificationRequest_templateId_idx" ON "FeeRectificationRequest"("templateId");
+
+-- CreateIndex
+CREATE INDEX "ArchivedStudentRecord_studentId_idx" ON "ArchivedStudentRecord"("studentId");
+
+-- CreateIndex
+CREATE INDEX "ArchivedStudentRecord_branchId_idx" ON "ArchivedStudentRecord"("branchId");
 
 -- AddForeignKey
 ALTER TABLE "User" ADD CONSTRAINT "User_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -1178,3 +1501,114 @@ ALTER TABLE "LeaveSettings" ADD CONSTRAINT "LeaveSettings_branchId_fkey" FOREIGN
 
 -- AddForeignKey
 ALTER TABLE "SchoolDocument" ADD CONSTRAINT "SchoolDocument_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "MarkingTemplate" ADD CONSTRAINT "MarkingTemplate_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "Teacher"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "MarkingTemplate" ADD CONSTRAINT "MarkingTemplate_courseId_fkey" FOREIGN KEY ("courseId") REFERENCES "Course"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "StudentMark" ADD CONSTRAINT "StudentMark_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "Student"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "StudentMark" ADD CONSTRAINT "StudentMark_templateId_fkey" FOREIGN KEY ("templateId") REFERENCES "MarkingTemplate"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Grade" ADD CONSTRAINT "Grade_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "Student"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Grade" ADD CONSTRAINT "Grade_courseId_fkey" FOREIGN KEY ("courseId") REFERENCES "Course"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "TeacherFeedback" ADD CONSTRAINT "TeacherFeedback_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "Student"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "TeacherFeedback" ADD CONSTRAINT "TeacherFeedback_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "Teacher"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SkillAssessment" ADD CONSTRAINT "SkillAssessment_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "Student"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SkillAssessment" ADD CONSTRAINT "SkillAssessment_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "Teacher"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "CourseContent" ADD CONSTRAINT "CourseContent_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "CourseContent" ADD CONSTRAINT "CourseContent_courseId_fkey" FOREIGN KEY ("courseId") REFERENCES "Course"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "CourseContent" ADD CONSTRAINT "CourseContent_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "Teacher"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SyllabusProgress" ADD CONSTRAINT "SyllabusProgress_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SyllabusProgress" ADD CONSTRAINT "SyllabusProgress_classId_fkey" FOREIGN KEY ("classId") REFERENCES "SchoolClass"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SyllabusProgress" ADD CONSTRAINT "SyllabusProgress_subjectId_fkey" FOREIGN KEY ("subjectId") REFERENCES "Subject"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "StudentSyllabusProgress" ADD CONSTRAINT "StudentSyllabusProgress_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "Student"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "StudentSyllabusProgress" ADD CONSTRAINT "StudentSyllabusProgress_lectureId_fkey" FOREIGN KEY ("lectureId") REFERENCES "Lecture"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Quiz" ADD CONSTRAINT "Quiz_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "Teacher"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Quiz" ADD CONSTRAINT "Quiz_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Quiz" ADD CONSTRAINT "Quiz_classId_fkey" FOREIGN KEY ("classId") REFERENCES "SchoolClass"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "QuizQuestion" ADD CONSTRAINT "QuizQuestion_quizId_fkey" FOREIGN KEY ("quizId") REFERENCES "Quiz"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "StudentQuiz" ADD CONSTRAINT "StudentQuiz_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "Student"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "StudentQuiz" ADD CONSTRAINT "StudentQuiz_quizId_fkey" FOREIGN KEY ("quizId") REFERENCES "Quiz"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "StudentAnswer" ADD CONSTRAINT "StudentAnswer_studentQuizId_fkey" FOREIGN KEY ("studentQuizId") REFERENCES "StudentQuiz"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "StudentAnswer" ADD CONSTRAINT "StudentAnswer_questionId_fkey" FOREIGN KEY ("questionId") REFERENCES "QuizQuestion"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ConcessionRequest" ADD CONSTRAINT "ConcessionRequest_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ConcessionRequest" ADD CONSTRAINT "ConcessionRequest_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "Student"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ConcessionRequest" ADD CONSTRAINT "ConcessionRequest_reviewedById_fkey" FOREIGN KEY ("reviewedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "FeeRectificationRequest" ADD CONSTRAINT "FeeRectificationRequest_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "FeeRectificationRequest" ADD CONSTRAINT "FeeRectificationRequest_registrarId_fkey" FOREIGN KEY ("registrarId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "FeeRectificationRequest" ADD CONSTRAINT "FeeRectificationRequest_templateId_fkey" FOREIGN KEY ("templateId") REFERENCES "FeeTemplate"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "FeeRectificationRequest" ADD CONSTRAINT "FeeRectificationRequest_reviewedById_fkey" FOREIGN KEY ("reviewedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ArchivedStudentRecord" ADD CONSTRAINT "ArchivedStudentRecord_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "AdminSms" ADD CONSTRAINT "AdminSms_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "AdminEmail" ADD CONSTRAINT "AdminEmail_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "AdminNotification" ADD CONSTRAINT "AdminNotification_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE SET NULL ON UPDATE CASCADE;

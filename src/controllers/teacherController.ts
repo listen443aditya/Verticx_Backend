@@ -3,7 +3,13 @@
 import { Request, Response, NextFunction } from "express";
 import prisma from "../prisma";
 import { put } from "@vercel/blob";
-import { Prisma } from "@prisma/client";
+// Added all necessary enums
+import {
+  Prisma,
+  LectureStatus,
+  QuizStatus,
+  StudentQuizStatus,
+} from "@prisma/client";
 
 // --- HELPER FUNCTION ---
 const getTeacherAuth = async (req: Request) => {
@@ -56,10 +62,17 @@ export const getTeacherDashboardData = async (
       issuedBooks,
       allBranchClasses,
       allBranchSubjects,
+      teacherAttendanceRects,
+      syllabusRects,
+      examMarkRects,
     ] = await prisma.$transaction([
       // 1. Weekly Schedule
       prisma.timetableSlot.findMany({
         where: { teacherId: teacherId, branchId: branchId },
+        include: {
+          class: { select: { gradeLevel: true, section: true } },
+          subject: { select: { name: true } },
+        },
       }),
       // 2. Assignments to Review
       prisma.assignmentSubmission.count({
@@ -90,7 +103,6 @@ export const getTeacherDashboardData = async (
       prisma.student.findMany({
         where: {
           branchId: branchId,
-          // This is a placeholder. Real at-risk logic is complex.
           attendanceRecords: {
             some: { status: "Absent" },
           },
@@ -110,8 +122,7 @@ export const getTeacherDashboardData = async (
       // 8. Library Books
       prisma.bookIssuance.findMany({
         where: {
-          memberId: teacherId,
-          memberType: "Teacher",
+          teacherId: teacherId,
           returnedDate: null,
         },
         include: { book: { select: { title: true } } },
@@ -125,6 +136,18 @@ export const getTeacherDashboardData = async (
       prisma.subject.findMany({
         where: { branchId: branchId },
         select: { id: true, name: true },
+      }),
+      // 11. Count for attendance rectification requests
+      prisma.teacherAttendanceRectificationRequest.count({
+        where: { teacherId: teacherId, status: "Pending" },
+      }),
+      // 12. Count for syllabus change requests
+      prisma.syllabusChangeRequest.count({
+        where: { teacherId: teacherId, status: "Pending" },
+      }),
+      // 13. Count for exam mark rectification requests
+      prisma.examMarkRectificationRequest.count({
+        where: { teacherId: teacherId, status: "Pending" },
       }),
     ]);
 
@@ -144,6 +167,9 @@ export const getTeacherDashboardData = async (
       reason: "Low Attendance", // Placeholder
       value: "N/A",
     }));
+
+    const rectificationRequestCount =
+      teacherAttendanceRects + syllabusRects + examMarkRects;
 
     res.status(200).json({
       weeklySchedule,
@@ -167,9 +193,8 @@ export const getTeacherDashboardData = async (
       },
       allBranchClasses,
       allBranchSubjects,
-      // subjectMarksTrend and rectificationRequestCount are not implemented here
       subjectMarksTrend: [],
-      rectificationRequestCount: 0,
+      rectificationRequestCount,
     });
   } catch (error: any) {
     next(error);
@@ -190,22 +215,28 @@ export const getStudentsForTeacher = async (
     if (!teacherId || !branchId) {
       return res.status(401).json({ message: "Unauthorized" });
     }
-    // Logic: Get all students in classes this teacher teaches
-    const courses = await prisma.course.findMany({
+    const slots = await prisma.timetableSlot.findMany({
       where: { teacherId: teacherId },
-      select: { schoolClassId: true },
+      select: { classId: true },
+      distinct: ["classId"],
     });
-    const classIds = [
-      ...new Set(
-        courses.map((c) => c.schoolClassId).filter(Boolean) as string[]
-      ),
-    ];
+    const classIds = slots.map((s) => s.classId);
+
+    const mentoredClass = await prisma.schoolClass.findFirst({
+      where: { mentorId: teacherId },
+      select: { id: true },
+    });
+
+    if (mentoredClass && !classIds.includes(mentoredClass.id)) {
+      classIds.push(mentoredClass.id);
+    }
 
     const students = await prisma.student.findMany({
       where: { branchId: branchId, classId: { in: classIds } },
       include: {
         class: { select: { gradeLevel: true, section: true } },
       },
+      orderBy: [{ class: { gradeLevel: "asc" } }, { name: "asc" }],
     });
     res.status(200).json(students);
   } catch (error: any) {
@@ -226,6 +257,7 @@ export const getStudentsForClass = async (
     }
     const students = await prisma.student.findMany({
       where: { classId: classId, branchId: branchId },
+      orderBy: { name: "asc" },
     });
     res.status(200).json(students);
   } catch (error: any) {
@@ -249,6 +281,10 @@ export const getTeacherCourses = async (
     }
     const courses = await prisma.course.findMany({
       where: { teacherId: teacherId },
+      include: {
+        subject: { select: { name: true } },
+        schoolClass: { select: { gradeLevel: true, section: true } },
+      },
     });
     res.status(200).json(courses);
   } catch (error: any) {
@@ -268,6 +304,11 @@ export const getCoursesByBranch = async (
     }
     const courses = await prisma.course.findMany({
       where: { branchId: branchId },
+      include: {
+        subject: { select: { name: true } },
+        schoolClass: { select: { gradeLevel: true, section: true } },
+        teacher: { select: { name: true } },
+      },
     });
     res.status(200).json(courses);
   } catch (error: any) {
@@ -301,12 +342,13 @@ export const getLectures = async (
   next: NextFunction
 ) => {
   try {
-    const { classId, subjectId } = req.query; // Use req.query, not req.params
+    const { classId, subjectId } = req.query;
     const lectures = await prisma.lecture.findMany({
       where: {
         classId: classId as string,
         subjectId: subjectId as string,
       },
+      orderBy: { scheduledDate: "asc" },
     });
     res.status(200).json(lectures);
   } catch (error: any) {
@@ -324,30 +366,77 @@ export const saveLectures = async (
     if (!teacherId || !branchId) {
       return res.status(401).json({ message: "Unauthorized" });
     }
-    const { classId, subjectId, lectures, newLectures } = req.body;
 
-    // This is placeholder logic.
-    // In a real app, you would parse 'newLectures' and 'lectures'
-    // and perform upsert operations.
+    const { classId, subjectId, lectures, newLectures, deletedLectureIds } =
+      req.body as {
+        classId: string;
+        subjectId: string;
+        lectures: (Omit<Prisma.LectureGetPayload<{}>, "scheduledDate"> & {
+          scheduledDate: string;
+        })[];
+        newLectures: string;
+        deletedLectureIds: string[];
+      };
+
+    const operations = [];
+
+    // 1. Handle Updates
+    if (lectures && lectures.length > 0) {
+      for (const lec of lectures) {
+        operations.push(
+          prisma.lecture.updateMany({
+            where: {
+              id: lec.id,
+              teacherId: teacherId,
+            },
+            data: {
+              topic: lec.topic,
+              status: lec.status as LectureStatus,
+              scheduledDate: new Date(lec.scheduledDate),
+            },
+          })
+        );
+      }
+    }
+
+    // 2. Handle Deletes
+    if (deletedLectureIds && deletedLectureIds.length > 0) {
+      operations.push(
+        prisma.lecture.deleteMany({
+          where: {
+            id: { in: deletedLectureIds },
+            teacherId: teacherId,
+          },
+        })
+      );
+    }
+
+    // 3. Handle Creates
     const lectureTopics = newLectures
       .split("\n")
-      .filter((l: string) => l.trim() !== "");
+      .map((l: string) => l.trim())
+      .filter((l: string) => l !== "");
 
-    const lectureData = lectureTopics.map((topic: string) => ({
-      branchId,
-      classId,
-      subjectId,
-      teacherId: teacherId,
-      topic,
-      scheduledDate: new Date(),
-      status: "pending",
-    }));
+    if (lectureTopics.length > 0) {
+      const lectureData = lectureTopics.map((topic: string) => ({
+        branchId,
+        classId,
+        subjectId,
+        teacherId: teacherId,
+        topic,
+        scheduledDate: new Date(),
+        status: "pending" as LectureStatus,
+      }));
 
-    if (lectureData.length > 0) {
       await prisma.lecture.createMany({
         data: lectureData,
       });
     }
+
+    if (operations.length > 0) {
+      await prisma.$transaction(operations);
+    }
+
     res.status(201).json({ message: "Lectures saved." });
   } catch (error: any) {
     next(error);
@@ -360,12 +449,29 @@ export const updateLectureStatus = async (
   next: NextFunction
 ) => {
   try {
+    const { teacherId } = await getTeacherAuth(req);
+    if (!teacherId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
     const { lectureId } = req.params;
     const { status } = req.body;
-    await prisma.lecture.update({
-      where: { id: lectureId },
+
+    const result = await prisma.lecture.updateMany({
+      where: {
+        id: lectureId,
+        teacherId: teacherId,
+      },
       data: { status: status },
     });
+
+    if (result.count === 0) {
+      return res.status(404).json({
+        message:
+          "Lecture not found or you do not have permission to update it.",
+      });
+    }
+
     res.status(200).json({ message: "Lecture status updated." });
   } catch (error: any) {
     next(error);
@@ -378,16 +484,26 @@ export const getCourseContentForTeacher = async (
   next: NextFunction
 ) => {
   try {
+    // --- IMPLEMENTATION ---
     const { teacherId } = await getTeacherAuth(req);
     if (!teacherId) {
       return res.status(401).json({ message: "Unauthorized" });
     }
-    // Assuming CourseContent is not a real model yet.
-    // We'll query courses instead.
-    const courses = await prisma.course.findMany({
-      where: { teacherId: teacherId },
+    const { courseId } = req.query;
+    if (!courseId) {
+      return res
+        .status(400)
+        .json({ message: "courseId query param is required." });
+    }
+
+    const content = await prisma.courseContent.findMany({
+      where: {
+        teacherId: teacherId,
+        courseId: courseId as string,
+      },
+      orderBy: { uploadedAt: "desc" },
     });
-    res.status(200).json(courses);
+    res.status(200).json(content);
   } catch (error: any) {
     next(error);
   }
@@ -399,8 +515,10 @@ export const uploadCourseContent = async (
   next: NextFunction
 ) => {
   try {
-    const { branchId } = await getTeacherAuth(req);
-    if (!branchId) {
+    // --- FIX ---
+    // This is the implementation of the previously commented-out function.
+    const { teacherId, branchId } = await getTeacherAuth(req);
+    if (!teacherId || !branchId) {
       return res.status(401).json({ message: "Authentication required." });
     }
 
@@ -420,8 +538,6 @@ export const uploadCourseContent = async (
       }
     );
 
-    // This model needs to be added to your schema.
-    // @ts-ignore
     const newContent = await prisma.courseContent.create({
       data: {
         courseId,
@@ -431,6 +547,7 @@ export const uploadCourseContent = async (
         fileType: file.mimetype,
         fileUrl: blob.url,
         branchId,
+        teacherId, // Added teacherId
       },
     });
 
@@ -473,6 +590,10 @@ export const getAttendanceForCourse = async (
     const { courseId } = req.params;
     const { date } = req.query;
 
+    if (!date) {
+      return res.status(400).json({ message: "Date query param is required." });
+    }
+
     const targetDate = new Date(date as string);
     targetDate.setUTCHours(0, 0, 0, 0);
 
@@ -488,7 +609,8 @@ export const getAttendanceForCourse = async (
 
     const students = await prisma.student.findMany({
       where: { classId: course.schoolClassId },
-      select: { id: true, name: true },
+      select: { id: true, name: true, classRollNumber: true },
+      orderBy: [{ classRollNumber: "asc" }, { name: "asc" }],
     });
 
     const existingRecords = await prisma.attendanceRecord.findMany({
@@ -504,6 +626,7 @@ export const getAttendanceForCourse = async (
         id: record?.id || undefined,
         studentId: student.id,
         studentName: student.name,
+        rollNumber: student.classRollNumber,
         courseId: courseId,
         classId: course.schoolClassId,
         date: targetDate,
@@ -524,6 +647,11 @@ export const saveAttendance = async (
 ) => {
   try {
     const { records } = req.body;
+    if (!records || !Array.isArray(records) || records.length === 0) {
+      return res
+        .status(400)
+        .json({ message: "No attendance records to save." });
+    }
 
     const upsertOperations = records.map((record: any) =>
       prisma.attendanceRecord.upsert({
@@ -562,6 +690,7 @@ export const getAssignmentsByTeacher = async (
     }
     const assignments = await prisma.assignment.findMany({
       where: { teacherId: teacherId },
+      orderBy: { dueDate: "desc" },
     });
     res.status(200).json(assignments);
   } catch (error: any) {
@@ -579,8 +708,11 @@ export const createAssignment = async (
     if (!teacherId || !branchId) {
       return res.status(401).json({ message: "Unauthorized" });
     }
+    const { title, dueDate } = req.body;
     const assignmentData = {
       ...req.body,
+      title,
+      dueDate: new Date(dueDate),
       teacherId: teacherId,
       branchId: branchId,
     };
@@ -603,86 +735,445 @@ export const updateAssignment = async (
     if (!teacherId) {
       return res.status(401).json({ message: "Unauthorized" });
     }
+    const data = { ...req.body };
+    if (data.dueDate) {
+      data.dueDate = new Date(data.dueDate);
+    }
+
     const updatedAssignment = await prisma.assignment.updateMany({
-      where: { id: req.params.assignmentId, teacherId: teacherId }, // Security check
-      data: req.body,
+      where: { id: req.params.assignmentId, teacherId: teacherId },
+      data: data,
     });
+
+    if (updatedAssignment.count === 0) {
+      return res.status(404).json({
+        message: "Assignment not found or you lack permission to update it.",
+      });
+    }
+
     res.status(200).json(updatedAssignment);
   } catch (error: any) {
     next(error);
   }
 };
 
-// Placeholder functions for Gradebook/Quizzes (schema not provided)
+// --- IMPLEMENTATION ---
 export const createMarkingTemplate = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
-  res.status(501).json({ message: "Not Implemented" });
+  try {
+    const { teacherId } = await getTeacherAuth(req);
+    if (!teacherId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const { courseId, name, totalMarks, weightage } = req.body;
+
+    const newTemplate = await prisma.markingTemplate.create({
+      data: {
+        teacherId,
+        courseId,
+        name,
+        totalMarks: parseFloat(totalMarks),
+        weightage: parseFloat(weightage),
+      },
+    });
+    res.status(201).json(newTemplate);
+  } catch (error: any) {
+    next(error);
+  }
 };
+
+// --- IMPLEMENTATION ---
 export const getMarkingTemplatesForCourse = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
-  res.status(200).json([]);
+  try {
+    const { teacherId } = await getTeacherAuth(req);
+    if (!teacherId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const { courseId } = req.params;
+
+    const templates = await prisma.markingTemplate.findMany({
+      where: {
+        courseId: courseId,
+        teacherId: teacherId, // Security check
+      },
+      orderBy: { name: "asc" },
+    });
+    res.status(200).json(templates);
+  } catch (error: any) {
+    next(error);
+  }
 };
+
+// --- IMPLEMENTATION ---
 export const getStudentMarksForTemplate = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
-  res.status(200).json([]);
+  try {
+    const { teacherId } = await getTeacherAuth(req);
+    if (!teacherId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const { templateId } = req.params;
+
+    // 1. Verify teacher owns template and get course/class info
+    const template = await prisma.markingTemplate.findFirst({
+      where: {
+        id: templateId,
+        teacherId: teacherId,
+      },
+      include: {
+        course: {
+          select: { schoolClassId: true },
+        },
+      },
+    });
+
+    if (!template || !template.course?.schoolClassId) {
+      return res
+        .status(404)
+        .json({ message: "Template not found or class not associated." });
+    }
+
+    // 2. Get students in that class
+    const students = await prisma.student.findMany({
+      where: { classId: template.course.schoolClassId },
+      select: { id: true, name: true, classRollNumber: true },
+      orderBy: [{ classRollNumber: "asc" }, { name: "asc" }],
+    });
+
+    // 3. Get existing marks for this template
+    const marks = await prisma.studentMark.findMany({
+      where: { templateId: templateId },
+    });
+    const marksMap = new Map(marks.map((m) => [m.studentId, m]));
+
+    // 4. Merge students with marks
+    const studentMarks = students.map((student) => {
+      const mark = marksMap.get(student.id);
+      return {
+        id: mark?.id || undefined,
+        studentId: student.id,
+        studentName: student.name,
+        rollNumber: student.classRollNumber,
+        templateId: templateId,
+        marksObtained: mark?.marksObtained ?? null,
+        totalMarks: template.totalMarks,
+      };
+    });
+
+    res.status(200).json(studentMarks);
+  } catch (error: any) {
+    next(error);
+  }
 };
+
+// --- IMPLEMENTATION ---
 export const saveStudentMarks = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
-  res.status(200).json({ message: "Saved" });
+  try {
+    const { teacherId } = await getTeacherAuth(req);
+    if (!teacherId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const { templateId, marks } = req.body as {
+      templateId: string;
+      marks: { studentId: string; marksObtained: number | null }[];
+    };
+
+    // Verify teacher owns the template
+    const template = await prisma.markingTemplate.findFirst({
+      where: { id: templateId, teacherId: teacherId },
+      select: { id: true },
+    });
+    if (!template) {
+      return res
+        .status(403)
+        .json({ message: "You do not have permission to edit this template." });
+    }
+
+    const upsertOps = marks
+      .filter((m) => m.marksObtained !== null) // Don't save nulls
+      .map((mark) => {
+        const marksObtained = parseFloat(mark.marksObtained as any);
+        return prisma.studentMark.upsert({
+          where: {
+            studentId_templateId: {
+              studentId: mark.studentId,
+              templateId: templateId,
+            },
+          },
+          update: { marksObtained: marksObtained },
+          create: {
+            studentId: mark.studentId,
+            templateId: templateId,
+            marksObtained: marksObtained,
+          },
+        });
+      });
+
+    await prisma.$transaction(upsertOps);
+    res.status(200).json({ message: "Marks saved successfully." });
+  } catch (error: any) {
+    next(error);
+  }
 };
+
+// --- IMPLEMENTATION ---
 export const deleteMarkingTemplate = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
-  res.status(204).send();
+  try {
+    const { teacherId } = await getTeacherAuth(req);
+    if (!teacherId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const { templateId } = req.params;
+
+    const result = await prisma.markingTemplate.deleteMany({
+      where: {
+        id: templateId,
+        teacherId: teacherId, // Security check
+      },
+    });
+
+    if (result.count === 0) {
+      return res.status(404).json({
+        message: "Template not found or you lack permission to delete it.",
+      });
+    }
+
+    res.status(204).send();
+  } catch (error: any) {
+    next(error);
+  }
 };
+
+// --- IMPLEMENTATION ---
 export const getQuizzesForTeacher = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
-  res.status(200).json([]);
+  try {
+    const { teacherId } = await getTeacherAuth(req);
+    if (!teacherId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const quizzes = await prisma.quiz.findMany({
+      where: { teacherId: teacherId },
+      include: {
+        class: { select: { gradeLevel: true, section: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    res.status(200).json(quizzes);
+  } catch (error: any) {
+    next(error);
+  }
 };
+
+// --- IMPLEMENTATION ---
 export const getQuizWithQuestions = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
-  res.status(200).json(null);
+  try {
+    const { teacherId } = await getTeacherAuth(req);
+    if (!teacherId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const { quizId } = req.params;
+
+    const quiz = await prisma.quiz.findFirst({
+      where: {
+        id: quizId,
+        teacherId: teacherId, // Security check
+      },
+      include: {
+        questions: true,
+      },
+    });
+
+    if (!quiz) {
+      return res
+        .status(404)
+        .json({ message: "Quiz not found or you lack permission." });
+    }
+    res.status(200).json(quiz);
+  } catch (error: any) {
+    next(error);
+  }
 };
+
+// --- IMPLEMENTATION ---
 export const saveQuiz = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
-  res.status(201).json({ message: "Quiz saved" });
+  try {
+    const { teacherId, branchId } = await getTeacherAuth(req);
+    if (!teacherId || !branchId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const {
+      id,
+      title,
+      classId,
+      status,
+      questionsPerStudent,
+      questions, // Array of QuizQuestion
+      deletedQuestionIds, // Array of question IDs to delete
+    } = req.body;
+
+    const quizData = {
+      title,
+      classId,
+      status: status as QuizStatus,
+      questionsPerStudent: parseInt(questionsPerStudent, 10),
+      teacherId,
+      branchId,
+    };
+
+    const savedQuiz = await prisma.$transaction(async (tx) => {
+      // 1. Upsert the Quiz
+      const quiz = await tx.quiz.upsert({
+        where: { id: id || `new-quiz-${Math.random()}` },
+        update: quizData,
+        create: quizData,
+      });
+
+      // 2. Delete questions
+      if (deletedQuestionIds && deletedQuestionIds.length > 0) {
+        await tx.quizQuestion.deleteMany({
+          where: {
+            id: { in: deletedQuestionIds },
+            quizId: quiz.id, // Security check
+          },
+        });
+      }
+
+      // 3. Upsert questions
+      if (questions && questions.length > 0) {
+        for (const q of questions) {
+          const questionPayload = {
+            quizId: quiz.id,
+            questionText: q.questionText,
+            options: q.options,
+            correctOptionIndex: q.correctOptionIndex,
+          };
+          await tx.quizQuestion.upsert({
+            where: { id: q.id || `new-question-${Math.random()}` },
+            update: questionPayload,
+            create: questionPayload,
+          });
+        }
+      }
+
+      return quiz;
+    });
+
+    res.status(201).json(savedQuiz);
+  } catch (error: any) {
+    next(error);
+  }
 };
+
+// --- IMPLEMENTATION ---
 export const updateQuizStatus = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
-  res.status(200).json({ message: "Status updated" });
+  try {
+    const { teacherId } = await getTeacherAuth(req);
+    if (!teacherId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const { quizId } = req.params;
+    const { status } = req.body;
+
+    const result = await prisma.quiz.updateMany({
+      where: {
+        id: quizId,
+        teacherId: teacherId, // Security check
+      },
+      data: { status: status as QuizStatus },
+    });
+
+    if (result.count === 0) {
+      return res
+        .status(404)
+        .json({ message: "Quiz not found or you lack permission." });
+    }
+    res.status(200).json({ message: "Quiz status updated." });
+  } catch (error: any) {
+    next(error);
+  }
 };
+
+// --- IMPLEMENTATION ---
 export const getQuizResults = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
-  res.status(200).json({ results: [] });
+  try {
+    const { teacherId } = await getTeacherAuth(req);
+    if (!teacherId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const { quizId } = req.params;
+
+    // Verify teacher owns the quiz
+    const quiz = await prisma.quiz.findFirst({
+      where: { id: quizId, teacherId: teacherId },
+      select: { id: true },
+    });
+    if (!quiz) {
+      return res
+        .status(403)
+        .json({ message: "You do not have permission to view these results." });
+    }
+
+    // Get all student instances for this quiz
+    const results = await prisma.studentQuiz.findMany({
+      where: { quizId: quizId },
+      include: {
+        student: { select: { id: true, name: true } },
+      },
+      orderBy: { student: { name: "asc" } },
+    });
+
+    // Format to match QuizResult type
+    const formattedResults = results.map((r) => ({
+      studentId: r.student.id,
+      studentName: r.student.name,
+      status: r.status,
+      score: r.score,
+      submittedAt: r.submittedAt,
+    }));
+
+    res.status(200).json({ results: formattedResults });
+  } catch (error: any) {
+    next(error);
+  }
 };
 
 // ============================================================================
@@ -701,6 +1192,7 @@ export const getExaminations = async (
     }
     const exams = await prisma.examination.findMany({
       where: { branchId },
+      orderBy: { startDate: "desc" },
     });
     res.status(200).json(exams);
   } catch (error: any) {
@@ -728,6 +1220,7 @@ export const getHydratedExamSchedules = async (
         class: { select: { gradeLevel: true, section: true } },
         subject: { select: { name: true } },
       },
+      orderBy: { date: "asc" },
     });
     res.status(200).json(schedules);
   } catch (error: any) {
@@ -742,24 +1235,46 @@ export const getExamMarksForSchedule = async (
 ) => {
   try {
     const { scheduleId } = req.params;
-    const { branchId } = await getTeacherAuth(req);
-if (!branchId) {
-  return res
-    .status(401)
-    .json({ message: "Unauthorized: Branch ID not found for user." });
-}
+    const { branchId, teacherId } = await getTeacherAuth(req);
+    if (!branchId || !teacherId) {
+      return res
+        .status(401)
+        .json({ message: "Unauthorized: Auth details not found." });
+    }
     const schedule = await prisma.examSchedule.findFirst({
-      where: { id: scheduleId, branchId: branchId },
-      select: { classId: true, totalMarks: true, examinationId: true }, 
+      where: {
+        id: scheduleId,
+        branchId: branchId,
+        subject: { teacherId: teacherId },
+      },
+      select: {
+        classId: true,
+        totalMarks: true,
+        examinationId: true,
+        subjectId: true,
+      },
     });
+
     if (!schedule || !schedule.classId)
       return res
         .status(404)
-        .json({ message: "Schedule or associated class not found." });
+        .json({
+          message: "Schedule not found or you do not teach this subject.",
+        });
+
+    const course = await prisma.course.findFirst({
+      where: {
+        teacherId: teacherId,
+        subjectId: schedule.subjectId,
+        schoolClassId: schedule.classId,
+      },
+      select: { id: true },
+    });
 
     const students = await prisma.student.findMany({
       where: { classId: schedule.classId, branchId: branchId },
-      select: { id: true, name: true },
+      select: { id: true, name: true, classRollNumber: true },
+      orderBy: [{ classRollNumber: "asc" }, { name: "asc" }],
     });
 
     const marks = await prisma.examMark.findMany({
@@ -767,20 +1282,21 @@ if (!branchId) {
     });
     const marksMap = new Map(marks.map((m) => [m.studentId, m]));
 
-   const studentMarks = students.map((student) => {
-     const mark = marksMap.get(student.id);
-     return {
-       id: mark?.id || undefined,
-       studentId: student.id,
-       studentName: student.name,
-       score: mark?.score || 0, // <-- Add a default
-       totalMarks: schedule.totalMarks,
-       // For saving later
-       examinationId: schedule.examinationId, // <-- Use the ID from the schedule
-       examScheduleId: scheduleId,
-       schoolClassId: schedule.classId, // <-- This is now safe
-     };
-   });
+    const studentMarks = students.map((student) => {
+      const mark = marksMap.get(student.id);
+      return {
+        id: mark?.id || undefined,
+        studentId: student.id,
+        studentName: student.name,
+        rollNumber: student.classRollNumber,
+        score: mark?.score ?? null,
+        totalMarks: schedule.totalMarks,
+        examinationId: schedule.examinationId,
+        examScheduleId: scheduleId,
+        schoolClassId: schedule.classId,
+        courseId: course?.id || null,
+      };
+    });
 
     res.status(200).json(studentMarks);
   } catch (error: any) {
@@ -799,25 +1315,35 @@ export const saveExamMarks = async (
       return res.status(401).json({ message: "Unauthorized" });
     }
     const { marks } = req.body;
+    if (!marks || !Array.isArray(marks)) {
+      return res.status(400).json({ message: "Invalid marks data." });
+    }
 
-    const upsertOperations = marks.map((mark: any) =>
-      prisma.examMark.upsert({
-        where: { id: mark.id || `temp-id-${Math.random()}` },
-        update: { score: mark.score },
-        create: {
-          branchId,
-          examinationId: mark.examinationId,
-          examScheduleId: mark.examScheduleId,
-          studentId: mark.studentId,
-          teacherId: teacherId, // Mark as entered by this teacher
-          schoolClassId: mark.schoolClassId,
-          score: mark.score,
-          totalMarks: mark.totalMarks,
-        },
-      })
-    );
+    const upsertOperations = marks
+      .filter((mark: any) => mark.score !== null && mark.score !== undefined)
+      .map((mark: any) =>
+        prisma.examMark.upsert({
+          where: { id: mark.id || `temp-id-${Math.random()}` },
+          update: {
+            score: Number(mark.score),
+          },
+          create: {
+            branchId,
+            examinationId: mark.examinationId,
+            examScheduleId: mark.examScheduleId,
+            studentId: mark.studentId,
+            teacherId: teacherId,
+            schoolClassId: mark.schoolClassId,
+            courseId: mark.courseId,
+            score: Number(mark.score),
+            totalMarks: mark.totalMarks,
+          },
+        })
+      );
 
-    await prisma.$transaction(upsertOperations);
+    if (upsertOperations.length > 0) {
+      await prisma.$transaction(upsertOperations);
+    }
     res.status(201).json({ message: "Exam marks saved." });
   } catch (error: any) {
     next(error);
@@ -834,8 +1360,8 @@ export const submitRectificationRequest = async (
   next: NextFunction
 ) => {
   try {
-    const { userId, branchId } = await getTeacherAuth(req);
-    if (!userId || !branchId) {
+    const { teacherId, branchId } = await getTeacherAuth(req);
+    if (!teacherId || !branchId) {
       return res.status(401).json({ message: "Unauthorized" });
     }
     const { date, fromStatus, toStatus, reason } = req.body;
@@ -843,7 +1369,7 @@ export const submitRectificationRequest = async (
     await prisma.teacherAttendanceRectificationRequest.create({
       data: {
         branchId,
-        teacherId: userId,
+        teacherId: teacherId,
         teacherName: req.user?.name || "Teacher",
         date: new Date(date),
         fromStatus,
@@ -868,7 +1394,13 @@ export const submitSyllabusChangeRequest = async (
     if (!teacherId || !branchId) {
       return res.status(401).json({ message: "Unauthorized" });
     }
-    const requestData = { ...req.body, teacherId: teacherId, branchId };
+    const { subjectId, description } = req.body;
+    const requestData = {
+      subjectId,
+      description,
+      teacherId: teacherId,
+      branchId: branchId,
+    };
     await prisma.syllabusChangeRequest.create({
       data: requestData,
     });
@@ -888,7 +1420,14 @@ export const submitExamMarkRectificationRequest = async (
     if (!teacherId || !branchId) {
       return res.status(401).json({ message: "Unauthorized" });
     }
-    const requestData = { ...req.body, teacherId: teacherId, branchId };
+    const { examMarkId, reason, newScore } = req.body;
+    const requestData = {
+      examMarkId,
+      reason,
+      newScore: Number(newScore),
+      teacherId: teacherId,
+      branchId,
+    };
     await prisma.examMarkRectificationRequest.create({
       data: requestData,
     });
@@ -916,6 +1455,7 @@ export const getMeetingRequestsForTeacher = async (
     }
     const requests = await prisma.meetingRequest.findMany({
       where: { teacherId: teacherId },
+      orderBy: { requestedAt: "desc" },
     });
     res.status(200).json(requests);
   } catch (error: any) {
@@ -929,10 +1469,25 @@ export const updateMeetingRequest = async (
   next: NextFunction
 ) => {
   try {
-    await prisma.meetingRequest.update({
-      where: { id: req.params.requestId },
-      data: req.body,
+    const { teacherId } = await getTeacherAuth(req);
+    if (!teacherId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const { status } = req.body;
+    const result = await prisma.meetingRequest.updateMany({
+      where: {
+        id: req.params.requestId,
+        teacherId: teacherId,
+      },
+      data: { status },
     });
+
+    if (result.count === 0) {
+      return res.status(404).json({
+        message: "Request not found or you lack permission to update it.",
+      });
+    }
     res.status(200).json({ message: "Meeting request updated." });
   } catch (error: any) {
     next(error);
@@ -963,15 +1518,17 @@ export const raiseComplaintAboutStudent = async (
     if (!userId || !branchId) {
       return res.status(401).json({ message: "Unauthorized" });
     }
+    const { studentId, complaintText } = req.body;
     const complaintData = {
-      ...req.body,
+      studentId,
+      complaintText,
       raisedById: userId,
       raisedByName: req.user?.name || "Teacher",
       raisedByRole: "Teacher",
       branchId: branchId,
     };
     await prisma.complaint.create({
-      data: complaintData as any, // Use 'as any' to bypass strict type check if schema is slightly off
+      data: complaintData as any,
     });
     res.status(201).json({ message: "Complaint submitted." });
   } catch (error: any) {
@@ -980,23 +1537,62 @@ export const raiseComplaintAboutStudent = async (
 };
 
 // ============================================================================
-// STUDENT SKILLS (PLACEHOLDER)
+// STUDENT SKILLS
 // ============================================================================
 
+// --- IMPLEMENTATION ---
 export const getTeacherSkillAssessmentForStudent = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
-  res.status(200).json(null);
+  try {
+    const { teacherId } = await getTeacherAuth(req);
+    if (!teacherId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const { studentId } = req.params;
+
+    // Find the most recent assessment by this teacher for this student
+    const assessment = await prisma.skillAssessment.findFirst({
+      where: {
+        teacherId: teacherId,
+        studentId: studentId,
+      },
+      orderBy: { assessedAt: "desc" },
+    });
+    res.status(200).json(assessment);
+  } catch (error: any) {
+    next(error);
+  }
 };
 
+// --- IMPLEMENTATION ---
 export const submitSkillAssessment = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
-  res.status(201).json({ message: "Skill assessment submitted." });
+  try {
+    const { teacherId } = await getTeacherAuth(req);
+    if (!teacherId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const { studentId, skills } = req.body; // skills is a JSON object
+
+    // Create a new assessment.
+    // We don't upsert because assessments are point-in-time.
+    const newAssessment = await prisma.skillAssessment.create({
+      data: {
+        teacherId,
+        studentId,
+        skills, // Prisma handles the JSON
+      },
+    });
+    res.status(201).json({ message: "Skill assessment submitted." });
+  } catch (error: any) {
+    next(error);
+  }
 };
 
 // ============================================================================
@@ -1015,6 +1611,7 @@ export const getLeaveApplicationsForUser = async (
     }
     const applications = await prisma.leaveApplication.findMany({
       where: { applicantId: userId },
+      orderBy: { fromDate: "desc" },
     });
     res.status(200).json(applications);
   } catch (error: any) {
@@ -1039,6 +1636,10 @@ export const getLeaveApplicationsForTeacher = async (
     });
     const classIds = mentoredClasses.map((c) => c.id);
 
+    if (classIds.length === 0) {
+      return res.status(200).json([]);
+    }
+
     const applications = await prisma.leaveApplication.findMany({
       where: {
         applicant: {
@@ -1049,8 +1650,18 @@ export const getLeaveApplicationsForTeacher = async (
         },
       },
       include: {
-        applicant: { select: { name: true } },
+        applicant: {
+          select: {
+            name: true,
+            studentProfile: {
+              select: {
+                class: { select: { gradeLevel: true, section: true } },
+              },
+            },
+          },
+        },
       },
+      orderBy: { fromDate: "desc" },
     });
     res.status(200).json(applications);
   } catch (error: any) {
@@ -1069,9 +1680,10 @@ export const processLeaveApplication = async (
       return res.status(401).json({ message: "Unauthorized" });
     }
     const { status } = req.body;
+    const { requestId } = req.params;
 
     const application = await prisma.leaveApplication.findUnique({
-      where: { id: req.params.requestId },
+      where: { id: requestId },
       include: {
         applicant: {
           include: { studentProfile: { select: { classId: true } } },
@@ -1081,7 +1693,7 @@ export const processLeaveApplication = async (
 
     if (!application?.applicant?.studentProfile?.classId) {
       return res
-        .status(404)
+        .status(4404)
         .json({ message: "Application not found or not for a student." });
     }
 
@@ -1097,7 +1709,7 @@ export const processLeaveApplication = async (
     }
 
     await prisma.leaveApplication.update({
-      where: { id: req.params.requestId },
+      where: { id: requestId },
       data: { status },
     });
     res.status(200).json({ message: "Leave application processed." });
@@ -1121,15 +1733,20 @@ export const searchLibraryBooks = async (
       return res.status(401).json({ message: "Unauthorized" });
     }
     const { q } = req.query;
+    if (!q || typeof q !== "string") {
+      return res.status(400).json({ message: "Search query 'q' is required." });
+    }
+
     const books = await prisma.libraryBook.findMany({
       where: {
         branchId: branchId,
         OR: [
-          { title: { contains: q as string, mode: "insensitive" } },
-          { author: { contains: q as string, mode: "insensitive" } },
-          { isbn: { contains: q as string, mode: "insensitive" } },
+          { title: { contains: q, mode: "insensitive" } },
+          { author: { contains: q, mode: "insensitive" } },
+          { isbn: { contains: q, mode: "insensitive" } },
         ],
       },
+      take: 20,
     });
     res.status(200).json(books);
   } catch (error: any) {
