@@ -23,23 +23,38 @@ export const getBranch = async (
       .status(400)
       .json({ error: "Branch id or registrationId is required." });
   }
+
+  // Get the logged-in user's branch ID from the 'protect' middleware
+  const authBranchId = getAuthenticatedBranchId(req);
+
   try {
+    // 1. Fetch the ENTIRE branch object (no 'select' block)
     const branch = await prisma.branch.findFirst({
       where: {
         OR: [{ id: idOrReg }, { registrationId: idOrReg }],
       },
-      select: {
-        // Only select fields that are safe to be public
-        name: true,
-        location: true,
-        email: true,
-        helplineNumber: true,
-      },
     });
+
     if (!branch) {
       return res.status(404).json({ error: "Branch not found" });
     }
-    return res.status(200).json(branch);
+
+    // 2. Check if the authenticated user is the 'owner' of this branch
+    if (authBranchId === branch.id) {
+      // If they are the owner, send the full branch object
+      // This includes `enabledFeatures`
+      return res.status(200).json(branch);
+    } else {
+      // If they are NOT the owner (or are not logged in),
+      // send only the safe, public data.
+      const publicBranchData = {
+        name: branch.name,
+        location: branch.location,
+        email: branch.email,
+        helplineNumber: branch.helplineNumber,
+      };
+      return res.status(200).json(publicBranchData);
+    }
   } catch (err) {
     next(err);
   }

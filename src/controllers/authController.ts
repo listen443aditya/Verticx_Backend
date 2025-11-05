@@ -61,8 +61,6 @@ export const login = async (
         .status(400)
         .json({ message: "Username/Email and password are required." });
     }
-
-    // FIX: The user identifier is now the branded userId.
     const user = await prisma.user.findFirst({
       where: { OR: [{ email: identifier }, { userId: identifier }] },
     });
@@ -70,8 +68,6 @@ export const login = async (
     if (!user) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
-
-    // A user without a name cannot log in. This is a critical data integrity check.
     if (!user.name) {
       return res
         .status(500)
@@ -106,7 +102,6 @@ export const login = async (
         .status(200)
         .json({ user: userWithoutPassword, otpRequired: true });
     } else {
-      // THE FIX: We now pass a user object that is guaranteed to have a string for `name`.
       const token = createToken(user as UserPayload);
       const { passwordHash: _, ...userWithoutPassword } = user;
       return res.status(200).json({ user: userWithoutPassword, token });
@@ -126,33 +121,24 @@ export const verifyOtp = async (
     if (!userId || !otp) {
       return res.status(400).json({ message: "User ID and OTP are required." });
     }
-
     const user = await prisma.user.findUnique({ where: { id: userId } });
-
     if (!user || !user.currentOtp) {
       return res.status(401).json({ message: "Invalid OTP request." });
     }
-
     if (!user.name) {
       return res
         .status(500)
         .json({ message: "User account is corrupted (missing name)." });
     }
-
     const isOtpValid = user.currentOtp === otp;
-
     if (!isOtpValid) {
       return res.status(401).json({ message: "Invalid OTP." });
     }
-
     // Clear the OTP
     await prisma.user.update({
       where: { id: userId },
       data: { currentOtp: null },
     });
-
-
-
     let userBranchId: string | null = user.branchId;
 
     if (user.role === "Principal") {
@@ -170,12 +156,8 @@ export const verifyOtp = async (
       role: user.role,
       branchId: userBranchId,
     };
-
     const token = createToken(userPayload);
-
-    // Send the userPayload, NOT the raw user object
     res.status(200).json({ user: userPayload, token });
-    // --- END FIX ---
   } catch (error) {
     next(error);
   }
