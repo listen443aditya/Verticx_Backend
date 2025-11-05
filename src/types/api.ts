@@ -754,14 +754,14 @@ export interface LibraryBook {
 }
 
 export interface BookIssuance {
-    id: string;
-    bookId: string;
-    memberId: string;
-    memberType: 'Student' | 'Teacher';
-    issuedDate: Date;
-    dueDate: Date;
-    returnedDate?: Date;
-    finePerDay: number;
+  id: string;
+  bookId: string;
+  memberId: string;
+  memberType: "Student" | "Teacher";
+  issuedDate: Date;
+  dueDate: Date;
+  returnedDate: Date | null;
+  finePerDay: number;
 }
 
 export interface InventoryItem {

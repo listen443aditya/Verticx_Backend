@@ -3,7 +3,7 @@ import { librarianApiService } from "../services";
 import prisma from "../prisma";
 import { LibraryBook } from "@prisma/client";
 import { put } from "@vercel/blob";
-
+import type { LibrarianDashboardData } from "../types/api";
 
 const getLibrarianBranchId = (req: Request): string | null => {
   if (req.user?.role === "Librarian" && req.user.branchId) {
@@ -14,20 +14,218 @@ const getLibrarianBranchId = (req: Request): string | null => {
 
 export const getLibrarianDashboardData = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ) => {
   try {
-    if (!req.user?.branchId) {
+    const branchId = getLibrarianBranchId(req);
+    if (!branchId) {
       return res
         .status(401)
         .json({ message: "Authentication required with a valid branch." });
     }
-    const data = await librarianApiService.getLibrarianDashboardData(
-      req.user.branchId
+
+    const today = new Date();
+
+    const [
+      bookStats,
+      issuedCount,
+      overdueCount,
+      uniqueMemberCount,
+      recentActivityRaw,
+      overdueListRaw,
+      classIssuancesRaw,
+    ] = await prisma.$transaction([
+      // Query 1: Get book stats
+      prisma.libraryBook.aggregate({
+        where: { branchId },
+        _count: { id: true },
+        _sum: { totalCopies: true },
+      }),
+      // Query 2: Get issued count
+      prisma.bookIssuance.aggregate({
+        where: { branchId, returnedDate: null },
+        _count: { id: true },
+      }),
+      // Query 3: Get overdue count
+      prisma.bookIssuance.aggregate({
+        where: { branchId, returnedDate: null, dueDate: { lt: today } },
+        _count: { id: true },
+      }),
+      // Query 4: Get unique member count
+      prisma.bookIssuance.groupBy({
+        by: ["memberId"],
+        where: { branchId },
+        _count: { memberId: true },
+        orderBy: { memberId: "asc" },
+      }),
+      // Query 5: Get recent activity
+      prisma.bookIssuance.findMany({
+        where: { branchId },
+        orderBy: [{ issuedDate: "desc" }],
+        take: 10,
+        include: {
+          book: { select: { title: true } },
+          studentMember: {
+            select: {
+              name: true,
+              class: { select: { gradeLevel: true, section: true } },
+            },
+          },
+          teacherMember: { select: { name: true } },
+        },
+      }),
+      // Query 6: Get all currently overdue books
+      prisma.bookIssuance.findMany({
+        where: { branchId, returnedDate: null, dueDate: { lt: today } },
+        orderBy: { dueDate: "asc" },
+        include: {
+          book: { select: { title: true } },
+          studentMember: {
+            select: {
+              name: true,
+              class: { select: { gradeLevel: true, section: true } },
+            },
+          },
+          teacherMember: { select: { name: true } },
+        },
+      }),
+      // Query 7: Get data for class summary
+      prisma.bookIssuance.findMany({
+        where: {
+          branchId,
+          returnedDate: null,
+          memberType: "Student",
+          studentMember: { isNot: null },
+        },
+        include: {
+          studentMember: {
+            select: {
+              name: true,
+              class: {
+                select: { id: true, gradeLevel: true, section: true },
+              },
+            },
+          },
+          book: { select: { price: true } },
+        },
+      }),
+    ]);
+
+    // --- 2. Format the data for the frontend ---
+
+    const summary = {
+      totalBooks: bookStats._count.id,
+      totalCopies: bookStats._sum.totalCopies || 0,
+      issuedBooks: issuedCount._count.id,
+      overdueBooks: overdueCount._count.id,
+      uniqueMembers: uniqueMemberCount.length,
+    };
+
+    // --- FIX 1: 'recentActivity' now includes 'memberDetails' ---
+    const recentActivity = recentActivityRaw.map((item) => {
+      const member = item.studentMember || item.teacherMember;
+      const memberDetails = item.studentMember
+        ? `Grade ${item.studentMember.class?.gradeLevel}-${item.studentMember.class?.section}`
+        : item.teacherMember
+        ? "Teacher"
+        : "Unknown";
+
+      return {
+        ...item,
+        memberName: member?.name || "Unknown",
+        bookTitle: item.book.title,
+        memberDetails: memberDetails, // <-- This was the missing field
+        memberType: item.memberType as "Student" | "Teacher", // <-- This fixes the type
+      };
+    });
+
+    // --- FIX 2: 'overdueList' now asserts the 'memberType' ---
+    const overdueList = overdueListRaw.map((item) => {
+      const member = item.studentMember || item.teacherMember;
+      const memberDetails = item.studentMember
+        ? `Grade ${item.studentMember.class?.gradeLevel}-${item.studentMember.class?.section}`
+        : "Teacher";
+
+      const daysOverdue = Math.max(
+        0,
+        Math.floor(
+          (today.getTime() - new Date(item.dueDate).getTime()) /
+            (1000 * 60 * 60 * 24)
+        )
+      );
+      const fineAmount = daysOverdue * (item.finePerDay || 0);
+
+      return {
+        ...item,
+        bookTitle: item.book.title,
+        memberName: member?.name || "Unknown",
+        memberDetails: memberDetails,
+        fineAmount: fineAmount,
+        memberType: item.memberType as "Student" | "Teacher", // <-- This fixes the type
+      };
+    });
+
+    // Process class issuance summary
+    const classSummaryMap = new Map<
+      string,
+      {
+        className: string;
+        classId: string;
+        issuedCount: number;
+        totalValue: number;
+        studentsWithBooks: Map<string, number>;
+      }
+    >();
+
+    for (const item of classIssuancesRaw) {
+      if (!item.studentMember?.class) continue;
+
+      const classInfo = item.studentMember.class;
+      const studentName = item.studentMember.name;
+      const classId = classInfo.id;
+
+      if (!classSummaryMap.has(classId)) {
+        classSummaryMap.set(classId, {
+          classId: classId,
+          className: `Grade ${classInfo.gradeLevel}-${classInfo.section}`,
+          issuedCount: 0,
+          totalValue: 0,
+          studentsWithBooks: new Map<string, number>(),
+        });
+      }
+
+      const summary = classSummaryMap.get(classId)!;
+      summary.issuedCount++;
+      summary.totalValue += item.book?.price || 0;
+
+      const studentBookCount = summary.studentsWithBooks.get(studentName) || 0;
+      summary.studentsWithBooks.set(studentName, studentBookCount + 1);
+    }
+
+    const classIssuanceSummary = Array.from(classSummaryMap.values()).map(
+      (summary) => ({
+        ...summary,
+        studentsWithBooks: Array.from(summary.studentsWithBooks.entries()).map(
+          ([name, count]) => ({
+            studentName: name,
+            bookCount: count,
+          })
+        ),
+      })
     );
-    res.status(200).json(data);
+
+    // --- 3. Send the final dashboard data ---
+    const dashboardData: LibrarianDashboardData = {
+      summary,
+      recentActivity,
+      overdueList,
+      classIssuanceSummary,
+    };
+
+    res.status(200).json(dashboardData);
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 };
 
