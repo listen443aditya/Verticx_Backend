@@ -10,7 +10,7 @@ const getAuthenticatedBranchId = (req: Request): string | null => {
   return null;
 };
 
-// --- EXISTING FUNCTIONS (NOW FIXED) ---
+// --- EXISTING FUNCTIONS (NOW FIXED WITH PRISMA) ---
 
 export const getBranch = async (
   req: Request,
@@ -28,6 +28,13 @@ export const getBranch = async (
       where: {
         OR: [{ id: idOrReg }, { registrationId: idOrReg }],
       },
+      select: {
+        // Only select fields that are safe to be public
+        name: true,
+        location: true,
+        email: true,
+        helplineNumber: true,
+      },
     });
     if (!branch) {
       return res.status(404).json({ error: "Branch not found" });
@@ -39,7 +46,6 @@ export const getBranch = async (
 };
 
 export async function getUser(req: Request, res: Response, next: NextFunction) {
-  // This function is now the same as the 'getUserDetails' we fixed
   const branchId = getAuthenticatedBranchId(req);
   if (!branchId) {
     return res
@@ -66,7 +72,6 @@ export async function getUser(req: Request, res: Response, next: NextFunction) {
         .status(404)
         .json({ message: "User not found in your branch." });
     }
-    // Note: The leave balance logic was removed as it's not needed for a generic profile lookup
     res.status(200).json(user);
   } catch (error: any) {
     next(error);
@@ -93,7 +98,7 @@ export async function updateProfile(
   }
 }
 
-// --- NEW SHARED FUNCTIONS (Copied from Registrar/Librarian) ---
+// --- NEW SHARED FUNCTIONS (Moved from Registrar/Librarian) ---
 
 export const getStudentsForBranch = async (
   req: Request,
@@ -272,7 +277,7 @@ export const getClassById = async (
   }
   try {
     const schoolClass = await prisma.schoolClass.findFirst({
-      where: { id: id, branchId: branchId }, // Secure to branch
+      where: { id: id, branchId: branchId },
     });
     if (!schoolClass) {
       return res
@@ -297,7 +302,7 @@ export const getSubjectById = async (
   }
   try {
     const subject = await prisma.subject.findFirst({
-      where: { id: id, branchId: branchId }, // Secure to branch
+      where: { id: id, branchId: branchId },
     });
     if (!subject) {
       return res
@@ -322,7 +327,7 @@ export const getExaminationById = async (
   }
   try {
     const examination = await prisma.examination.findFirst({
-      where: { id: id, branchId: branchId }, // Secure to branch
+      where: { id: id, branchId: branchId },
     });
     if (!examination) {
       return res

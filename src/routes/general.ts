@@ -10,16 +10,19 @@ router.use(protect);
 
 // --- ORIGINAL ROUTES ---
 router.get("/branches/:id", generalCtrl.getBranch);
-router.get("/users/:id", generalCtrl.getUser); // This is NOT the one you want
+router.get("/users/:id", generalCtrl.getUser);
 router.put("/profile", generalCtrl.updateProfile);
 
-// --- SHARED DATA ROUTES ---
-router.get("/user-details/:userId", generalCtrl.getUser); // This IS the one you want
+// --- NEW SHARED DATA ROUTES ---
+// (Moved from registrarRoutes.ts)
+router.get("/user-details/:userId", generalCtrl.getUser); // Re-using getUser
 router.get("/students", generalCtrl.getStudentsForBranch);
 router.get("/teachers", generalCtrl.getTeachersByBranch);
 router.get("/leaves/settings", generalCtrl.getLeaveSettingsForBranch);
 router.get("/leaves/my-applications", generalCtrl.getMyLeaveApplications);
 router.post("/leaves/applications", generalCtrl.createLeaveApplication);
+
+// (New routes for Teacher portal)
 router.get("/events", generalCtrl.getSchoolEvents);
 router.get("/classes", generalCtrl.getSchoolClassesByBranch);
 router.get("/classes/:id", generalCtrl.getClassById);
