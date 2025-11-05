@@ -1,4 +1,4 @@
-// The Final, Resilient `src/controllers/authController.ts`
+//`src/controllers/authController.ts`
 
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
@@ -133,14 +133,10 @@ export const verifyOtp = async (
       return res.status(401).json({ message: "Invalid OTP request." });
     }
 
-    // A user without a name cannot complete login.
     if (!user.name) {
       return res
         .status(500)
-        .json({
-          message:
-            "User account is corrupted (missing name). Please contact support.",
-        });
+        .json({ message: "User account is corrupted (missing name)." });
     }
 
     const isOtpValid = user.currentOtp === otp;
@@ -149,16 +145,37 @@ export const verifyOtp = async (
       return res.status(401).json({ message: "Invalid OTP." });
     }
 
-    const updatedUser = await prisma.user.update({
+    // Clear the OTP
+    await prisma.user.update({
       where: { id: userId },
       data: { currentOtp: null },
     });
 
-    // THE FIX: We now pass a user object that is guaranteed to have a string for `name`.
-    const token = createToken(updatedUser as UserPayload);
-    const { passwordHash: _, ...userWithoutPassword } = updatedUser;
 
-    res.status(200).json({ user: userWithoutPassword, token });
+
+    let userBranchId: string | null = user.branchId;
+
+    if (user.role === "Principal") {
+      const branch = await prisma.branch.findUnique({
+        where: { principalId: user.id },
+        select: { id: true },
+      });
+      if (branch) {
+        userBranchId = branch.id;
+      }
+    }
+    const userPayload: UserPayload = {
+      id: user.id,
+      name: user.name,
+      role: user.role,
+      branchId: userBranchId,
+    };
+
+    const token = createToken(userPayload);
+
+    // Send the userPayload, NOT the raw user object
+    res.status(200).json({ user: userPayload, token });
+    // --- END FIX ---
   } catch (error) {
     next(error);
   }
@@ -250,16 +267,19 @@ export const checkSession = async (
     if (!userFromToken) {
       return res.status(401).json({ message: "Not authenticated" });
     }
-
-    const freshUser = await prisma.user.findUnique({
+    const userExists = await prisma.user.findUnique({
       where: { id: userFromToken.id },
+      select: { id: true, status: true },
     });
-    if (!freshUser) {
+
+    if (!userExists) {
       return res.status(401).json({ message: "User not found" });
     }
 
-    const { passwordHash: _, ...userWithoutPassword } = freshUser;
-    res.status(200).json({ user: userWithoutPassword });
+    if (userExists.status !== "active") {
+      return res.status(403).json({ message: "User account is not active." });
+    }
+    res.status(200).json({ user: userFromToken });
   } catch (error) {
     next(error);
   }
