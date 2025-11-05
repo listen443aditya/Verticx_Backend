@@ -1,75 +1,140 @@
-import { Router } from 'express';
-import * as teacherController from '../controllers/teacherController';
-import { protect } from '../middlewares/auth';
-import { restrictTo } from '../middlewares/roles';
+// backend/src/routes/teacherRoutes.ts
+import { Router } from "express";
+import * as teacherController from "../controllers/teacherController";
+import { protect } from "../middlewares/auth";
+import { restrictTo } from "../middlewares/roles";
+import upload from "../middlewares/upload"; // Make sure this path is correct
 
 const router = Router();
 
-// All routes in this file are protected and restricted to 'Teacher'
 router.use(protect);
-router.use(restrictTo('Teacher'));
+router.use(restrictTo("Teacher"));
 
 // Dashboard
-router.get('/dashboard', teacherController.getTeacherDashboardData);
+router.get("/dashboard", teacherController.getTeacherDashboardData);
 
-// Students & Assignments
-router.get('/students', teacherController.getStudentsForTeacher);
-router.get('/assignments', teacherController.getAssignmentsByTeacher);
-router.post('/assignments', teacherController.createAssignment);
-router.patch('/assignments/:id', teacherController.updateAssignment);
+// Students
+router.get("/students", teacherController.getStudentsForTeacher);
+router.get("/classes/:classId/students", teacherController.getStudentsForClass);
+
+// Courses & Syllabus
+router.get("/courses", teacherController.getTeacherCourses);
+router.get("/courses/by-branch", teacherController.getCoursesByBranch);
+router.get("/courses/find", teacherController.findCourseByTeacherAndSubject);
+router.get("/syllabus/lectures", teacherController.getLectures); // Matched frontend
+router.post("/syllabus/lectures/save", teacherController.saveLectures);
+router.put(
+  "/syllabus/lectures/:lectureId/status", // Matched frontend
+  teacherController.updateLectureStatus
+);
+
+// Course Content
+router.get("/course-content", teacherController.getCourseContentForTeacher);
+router.post(
+  "/course-content/upload",
+  upload.single("file"),
+  teacherController.uploadCourseContent
+);
 
 // Attendance
-router.get('/attendance', teacherController.getTeacherAttendance);
-router.get('/courses/:courseId/attendance', teacherController.getAttendanceForCourse);
-router.post('/attendance', teacherController.saveAttendance);
-router.post('/rectification-request', teacherController.submitRectificationRequest);
-
-
-// Gradebook & Quizzes
-router.get('/courses', teacherController.getTeacherCourses);
-router.post('/marking-templates', teacherController.createMarkingTemplate);
-router.get('/courses/:courseId/marking-templates', teacherController.getMarkingTemplatesForCourse);
-router.get('/marking-templates/:templateId/marks', teacherController.getStudentMarksForTemplate);
-router.post('/marking-templates/:templateId/marks', teacherController.saveStudentMarks);
-router.delete('/marking-templates/:templateId', teacherController.deleteMarkingTemplate);
-router.get('/quizzes', teacherController.getQuizzesForTeacher);
-router.get('/quizzes/:id', teacherController.getQuizWithQuestions);
-router.post('/quizzes', teacherController.saveQuiz);
-router.patch('/quizzes/:id/status', teacherController.updateQuizStatus);
-router.get('/quizzes/:id/results', teacherController.getQuizResults);
-
-// Syllabus & Content
-router.post('/syllabus-change-request', teacherController.submitSyllabusChangeRequest);
-router.get('/classes/:classId/subjects/:subjectId/lectures', teacherController.getLectures);
-router.post('/lectures', teacherController.saveLectures);
-router.patch('/lectures/:id/status', teacherController.updateLectureStatus);
-router.get('/course-content', teacherController.getCourseContentForTeacher);
-// Note: File uploads require `multer` or similar middleware, which is a next step.
-// router.post('/course-content', teacherController.uploadCourseContent);
-
-// Communication & Grievances
-router.get('/meeting-requests', teacherController.getMeetingRequestsForTeacher);
-router.patch('/meeting-requests/:id', teacherController.updateMeetingRequest);
-router.get('/availability', teacherController.getTeacherAvailability);
-router.post('/complaints/student', teacherController.raiseComplaintAboutStudent);
-
-
-// Exams & Skills
-router.get('/examinations', teacherController.getExaminations);
-router.get('/examinations/:id/schedules', teacherController.getHydratedExamSchedules);
-router.get('/schedules/:id/marks', teacherController.getExamMarksForSchedule);
-router.post('/exam-marks', teacherController.saveExamMarks);
-router.post('/exam-mark-rectification', teacherController.submitExamMarkRectificationRequest);
-router.get('/students/:studentId/skill-assessment', teacherController.getTeacherSkillAssessmentForStudent);
-router.post('/skill-assessment', teacherController.submitSkillAssessment);
-
-// General
-router.get('/leave-applications', teacherController.getLeaveApplicationsForTeacher);
-router.post('/leave-applications/:id/process', teacherController.processLeaveApplication);
-router.get('/library/search', teacherController.searchLibraryBooks);
+router.get("/my-attendance", teacherController.getTeacherAttendance);
 router.get(
-  "/my-transport-details",
-  teacherController.getTeacherTransportDetails
+  "/courses/:courseId/attendance",
+  teacherController.getAttendanceForCourse
 );
+router.post("/courses/attendance", teacherController.saveAttendance); // Matched frontend
+
+// Assignments
+router.get("/assignments", teacherController.getAssignmentsByTeacher);
+router.post("/assignments", teacherController.createAssignment);
+router.put("/assignments/:assignmentId", teacherController.updateAssignment); // Matched frontend
+
+// Gradebook
+router.post("/gradebook/templates", teacherController.createMarkingTemplate);
+router.get(
+  "/courses/:courseId/gradebook/templates",
+  teacherController.getMarkingTemplatesForCourse
+);
+router.get(
+  "/gradebook/templates/:templateId/marks",
+  teacherController.getStudentMarksForTemplate
+);
+router.post(
+  "/gradebook/templates/:templateId/marks",
+  teacherController.saveStudentMarks
+);
+router.delete(
+  "/gradebook/templates/:templateId",
+  teacherController.deleteMarkingTemplate
+);
+
+// Quizzes
+router.get("/quizzes", teacherController.getQuizzesForTeacher);
+router.put("/quizzes/:quizId/status", teacherController.updateQuizStatus);
+router.get("/quizzes/:quizId/details", teacherController.getQuizWithQuestions);
+router.post("/quizzes/save", teacherController.saveQuiz);
+router.get("/quizzes/:quizId/results", teacherController.getQuizResults);
+
+// Examinations & Marks
+router.get("/examinations", teacherController.getExaminations);
+router.get(
+  "/examinations/:examinationId/schedules", // Matched frontend
+  teacherController.getHydratedExamSchedules
+);
+router.get(
+  "/examinations/schedules/:scheduleId/marks", // Matched frontend
+  teacherController.getExamMarksForSchedule
+);
+router.post("/examinations/marks/save", teacherController.saveExamMarks); // Matched frontend
+
+// Requests (from teacher)
+router.post(
+  "/requests/rectification",
+  teacherController.submitRectificationRequest
+);
+router.post(
+  "/requests/syllabus-change",
+  teacherController.submitSyllabusChangeRequest
+);
+router.post(
+  "/requests/exam-mark",
+  teacherController.submitExamMarkRectificationRequest
+);
+
+// Meetings & Availability
+router.get("/meetings", teacherController.getMeetingRequestsForTeacher); // Matched frontend
+router.put("/meetings/:requestId", teacherController.updateMeetingRequest); // Matched frontend
+router.get("/availability", teacherController.getTeacherAvailability);
+
+// Student Interaction
+router.post(
+  "/complaints/student",
+  teacherController.raiseComplaintAboutStudent
+);
+router.get(
+  "/students/:studentId/skill-assessment",
+  teacherController.getTeacherSkillAssessmentForStudent
+);
+router.post(
+  "/students/skill-assessment",
+  teacherController.submitSkillAssessment
+);
+
+// Leave (for self and for students)
+router.get(
+  "/leaves/my-applications",
+  teacherController.getLeaveApplicationsForUser
+);
+router.get(
+  "/leaves/student-applications",
+  teacherController.getLeaveApplicationsForTeacher
+);
+router.put(
+  "/leaves/applications/:requestId/process",
+  teacherController.processLeaveApplication
+);
+
+// General / Utility
+router.get("/my-transport-details", teacherController.getMyTransportDetails);
 
 export default router;

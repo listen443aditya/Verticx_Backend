@@ -47,10 +47,10 @@ app.get("/favicon.ico", (req, res) => res.status(204).end());
 app.use("/api", auditLogMiddleware);
 
 // --- API Test Route ---
-app.get("/api/ping", (req, res) => res.status(200).json({ message: "Pong!" }));
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", environment: process.env.NODE_ENV });
-});
+// app.get("/api/ping", (req, res) => res.status(200).json({ message: "Pong!" }));
+// app.get("/api/health", (req, res) => {
+//   res.json({ status: "ok", environment: process.env.NODE_ENV });
+// });
 
 // --- API Routes ---
 app.use("/api/auth", authRoutes);
@@ -58,7 +58,6 @@ app.use("/api", generalRoutes); // For routes like /api/profile
 
 app.use("/api/admin", adminRoutes);
 app.use("/api/superadmin", adminRoutes);
-
 app.use("/api/principal", principalRoutes);
 app.use("/api/registrar", registrarRoutes);
 app.use("/api/parent", parentRoutes);
