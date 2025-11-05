@@ -195,6 +195,7 @@ export class LibrarianApiService extends BaseApiService {
       issuedDate: new Date(),
       dueDate,
       finePerDay,
+      returnedDate: null,
     };
     (db.bookIssuances as BookIssuance[]).push(issuance);
     saveDb();
@@ -229,6 +230,7 @@ export class LibrarianApiService extends BaseApiService {
       issuedDate: new Date(),
       dueDate: new Date(dueDate),
       finePerDay,
+      returnedDate: null,
     };
     (db.bookIssuances as BookIssuance[]).push(issuance);
     saveDb();
