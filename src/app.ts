@@ -21,20 +21,20 @@ const app: Express = express();
 // --- Middlewares ---
 const allowedOrigins = ["https://verticx.vercel.app"];
 
-const corsOptions: cors.CorsOptions = {
-  origin: (origin, callback) => {
-    if (
-      !origin ||
-      allowedOrigins.includes(origin) ||
-      origin.endsWith(".vercel.app")
-    ) {
-      return callback(null, true);
-    }
-    callback(new Error("Not allowed by CORS"));
-  },
-  credentials: true,
-};
-app.use(cors(corsOptions));//corsOptions
+// const corsOptions: cors.CorsOptions = {
+//   origin: (origin, callback) => {
+//     if (
+//       !origin ||
+//       allowedOrigins.includes(origin) ||
+//       origin.endsWith(".vercel.app")
+//     ) {
+//       return callback(null, true);
+//     }
+//     callback(new Error("Not allowed by CORS"));
+//   },
+//   credentials: true,
+// };
+app.use(cors());//corsOptions
 app.use("/api", blobUploadRoutes);
 
 app.use(express.json());
