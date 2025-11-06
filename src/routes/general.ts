@@ -6,12 +6,12 @@ import { protect } from "../middlewares/auth";
 const router = Router();
 router.use(protect);
 
+router.get("/events", generalCtrl.getSchoolEvents);
 router.get("/students", generalCtrl.getStudentsForBranch);
 router.get("/teachers", generalCtrl.getTeachersByBranch);
 router.get("/leaves/settings", generalCtrl.getLeaveSettingsForBranch);
 router.get("/leaves/my-applications", generalCtrl.getMyLeaveApplications);
 router.post("/leaves/applications", generalCtrl.createLeaveApplication);
-router.get("/events", generalCtrl.getSchoolEvents);
 router.get("/classes", generalCtrl.getSchoolClassesByBranch);
 router.get("/library/search", generalCtrl.searchLibraryBooks);
 
