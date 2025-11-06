@@ -8,7 +8,6 @@ import { auditLogMiddleware } from "../src/middlewares/auditLogMiddleware";
 // Import all routers
 import authRoutes from "./routes/auth";
 import adminRoutes from "./routes/admin";
-// import superAdminRoutes from "./routes/superadmin"; // Import the new router
 import principalRoutes from "./routes/principal";
 import registrarRoutes from "./routes/registrar";
 import parentRoutes from "./routes/parent";
@@ -46,16 +45,10 @@ app.get("/favicon.ico", (req, res) => res.status(204).end());
 
 app.use("/api", auditLogMiddleware);
 
-// --- API Test Route ---
-// app.get("/api/ping", (req, res) => res.status(200).json({ message: "Pong!" }));
-// app.get("/api/health", (req, res) => {
-//   res.json({ status: "ok", environment: process.env.NODE_ENV });
-// });
 
 // --- API Routes ---
 app.use("/api/auth", authRoutes);
-app.use("/api", generalRoutes); // For routes like /api/profile
-
+app.use("/api/general", generalRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/superadmin", adminRoutes);
 app.use("/api/principal", principalRoutes);

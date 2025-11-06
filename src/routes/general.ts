@@ -14,7 +14,6 @@ router.get("/leaves/my-applications", generalCtrl.getMyLeaveApplications);
 router.post("/leaves/applications", generalCtrl.createLeaveApplication);
 router.get("/classes", generalCtrl.getSchoolClassesByBranch);
 router.get("/library/search", generalCtrl.searchLibraryBooks);
-
 router.put("/profile", generalCtrl.updateProfile);
 
 router.get("/branches/:id", generalCtrl.getBranch);
