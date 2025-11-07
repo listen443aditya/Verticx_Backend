@@ -122,6 +122,7 @@ export const verifyOtp = async (
       return res.status(400).json({ message: "User ID and OTP are required." });
     }
     const user = await prisma.user.findUnique({ where: { id: userId } });
+    
     if (!user || !user.currentOtp) {
       return res.status(401).json({ message: "Invalid OTP request." });
     }
@@ -130,7 +131,8 @@ export const verifyOtp = async (
         .status(500)
         .json({ message: "User account is corrupted (missing name)." });
     }
-    const isOtpValid = user.currentOtp === otp;
+    const isOtpValid = user.currentOtp === String(otp);
+    
     if (!isOtpValid) {
       return res.status(401).json({ message: "Invalid OTP." });
     }
