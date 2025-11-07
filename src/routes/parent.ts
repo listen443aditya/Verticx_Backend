@@ -4,30 +4,26 @@ import { protect } from '../middlewares/auth';
 import { restrictTo } from '../middlewares/roles';
 
 const router = Router();
-
 router.use(protect);
 router.use(restrictTo('Parent'));
-
-// Dashboard & Child Data
+// --- Dashboard & Child Data ---
 router.get('/dashboard', parentController.getParentDashboardData);
-router.get('/students/:id/profile', parentController.getStudentProfileDetails);
-router.get('/students/:id/complaints', parentController.getComplaintsAboutStudent);
-router.get('/students/:id/fee-history', parentController.getFeeHistoryForStudent);
-router.get('/students/:id/teachers', parentController.getTeachersForStudent);
-router.get('/students/:id/grades', parentController.getStudentGrades);
-router.get('/students/:id/fee-record', parentController.getFeeRecordForStudent);
+router.get('/children/:id/profile', parentController.getStudentProfileDetails);
+router.get('/children/:id/complaints', parentController.getComplaintsAboutStudent);
+router.get('/children/:id/fees/history', parentController.getFeeHistoryForStudent);
+router.get('/children/:id/teachers', parentController.getTeachersForStudent);
+router.get('/children/:id/grades', parentController.getStudentGrades);
+router.get('/children/:id/fees/record', parentController.getFeeRecordForStudent);
 
+// --- Communication ---
+router.get('/meetings', parentController.getMeetingRequestsForParent);
+router.post('/meetings', parentController.createMeetingRequest);
+router.put('/meetings/:id', parentController.updateMeetingRequest);
+router.get('/teachers/:teacherId/availability', parentController.getTeacherAvailability);
 
-// Communication
-router.get('/meeting-requests', parentController.getMeetingRequestsForParent);
-router.post('/meeting-requests', parentController.createMeetingRequest);
-router.patch('/meeting-requests/:id', parentController.updateMeetingRequest);
-router.get('/teacher-availability', parentController.getTeacherAvailability);
-
-
-// Financials
-router.post('/record-payment', parentController.recordFeePayment);
-router.post('/pay-fees', parentController.payStudentFees);
-
+// --- Financials ---
+router.post('/fees/record-payment', parentController.recordFeePayment);
+router.post('/children/:id/fees/pay', parentController.payStudentFees);
+router.get('/branches/:branchId/events', parentController.getSchoolEventsForParent);
 
 export default router;

@@ -314,6 +314,7 @@ CREATE TABLE "MeetingRequest" (
     "branchId" TEXT,
     "status" TEXT NOT NULL DEFAULT 'pending',
     "requestedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "agenda" TEXT,
 
     CONSTRAINT "MeetingRequest_pkey" PRIMARY KEY ("id")
 );

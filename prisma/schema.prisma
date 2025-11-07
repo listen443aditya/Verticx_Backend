@@ -546,6 +546,7 @@ model MeetingRequest {
   branchId    String?
   status      String   @default("pending")
   requestedAt DateTime @default(now())
+  agenda      String?
 
   teacher Teacher @relation("TeacherToMeetings", fields: [teacherId], references: [id])
 
