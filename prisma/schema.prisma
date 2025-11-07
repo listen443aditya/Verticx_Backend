@@ -143,6 +143,8 @@ model User {
   raisedFeeRectifications    FeeRectificationRequest[] @relation("RegistrarFeeRectifications")
   reviewedFeeRectifications  FeeRectificationRequest[] @relation("PrincipalFeeRectifications")
   reviewedConcessionRequests ConcessionRequest[]       @relation("PrincipalConcessionReviews")
+
+  meetingRequestsAsParent MeetingRequest[] @relation("ParentMeetingRequests") 
 }
 
 
@@ -334,6 +336,9 @@ model Student {
   feedbackReceived   TeacherFeedback[]
   skillAssessments   SkillAssessment[]
   syllabusProgress   StudentSyllabusProgress[]
+  submissions AssignmentSubmission[]
+  meetingRequests MeetingRequest[] @relation("StudentMeetingRequests") 
+  aiSuggestion String?
 }
 
 // ============================================================================
@@ -423,6 +428,7 @@ model Subject {
   schoolClassId          String?
   syllabusChangeRequests SyllabusChangeRequest[]
   timetableSlots         TimetableSlot[]
+  lectures               Lecture[]
 
   syllabusProgress SyllabusProgress[]
 }
@@ -517,15 +523,19 @@ model Assignment {
 }
 
 model AssignmentSubmission {
-  id           String     @id @default(uuid())
-  assignmentId String
-  studentId    String
-  fileUrl      String?
-  grade        String?
-  submittedAt  DateTime   @default(now())
-  assignment   Assignment @relation(fields: [assignmentId], references: [id])
-  branchId     String?
-  status       String      @default("Pending")
+  id           String     @id @default(uuid())
+  assignmentId String
+  studentId    String // This field stays as the foreign key
+  fileUrl      String?
+  grade        String?
+  submittedAt  DateTime   @default(now())
+  assignment   Assignment @relation(fields: [assignmentId], references: [id])
+  branchId     String?
+  status       String      @default("Pending")
+
+  student      Student    @relation(fields: [studentId], references: [id])
+
+  @@index([studentId]) 
 }
 
 model MeetingRequest {
@@ -538,6 +548,12 @@ model MeetingRequest {
   requestedAt DateTime @default(now())
 
   teacher Teacher @relation("TeacherToMeetings", fields: [teacherId], references: [id])
+
+  parent  User    @relation("ParentMeetingRequests", fields: [parentId], references: [id])
+  student Student @relation("StudentMeetingRequests", fields: [studentId], references: [id])
+
+  @@index([parentId])
+  @@index([studentId])
 }
 
 // ============================================================================
@@ -714,6 +730,7 @@ model Lecture {
   branch    Branch   @relation(fields: [branchId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  subject Subject @relation(fields: [subjectId], references: [id])
 
   studentCompletions StudentSyllabusProgress[]
 }
