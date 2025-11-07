@@ -1084,11 +1084,135 @@ export const getPrincipalClassView = async (req: Request, res: Response) => {
         .status(401)
         .json({ message: "Authentication required with a valid branch." });
     }
-    const view = await principalApiService.getPrincipalClassView(
-      req.user.branchId
+    const branchId = req.user.branchId;
+    
+    // FIX: Use Prisma directly instead of in-memory db for consistency
+    const classes = await prisma.schoolClass.findMany({
+      where: { branchId },
+      include: {
+        students: {
+          select: {
+            id: true,
+            name: true,
+            gradeLevel: true,
+            status: true,
+            classRollNumber: true,
+          },
+        },
+        subjects: {
+          select: {
+            id: true,
+            name: true,
+            teacherId: true,
+            teacher: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+        mentor: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        feeTemplate: {
+          select: {
+            id: true,
+            name: true,
+            amount: true,
+          },
+        },
+      },
+    });
+
+    // Calculate stats for each class
+    const enrichedClasses = await Promise.all(
+      classes.map(async (c) => {
+        // Get performance data
+        const examMarks = await prisma.examMark.findMany({
+          where: {
+            student: {
+              classId: c.id,
+            },
+          },
+          select: {
+            score: true,
+            totalMarks: true,
+          },
+        });
+
+        const avgPerformance =
+          examMarks.length > 0
+            ? (examMarks.reduce((sum, m) => sum + (m.score / m.totalMarks) * 100, 0) /
+                examMarks.length)
+            : 0;
+
+        // Get attendance data
+        const attendanceRecords = await prisma.attendanceRecord.findMany({
+          where: {
+            student: {
+              classId: c.id,
+            },
+          },
+        });
+
+        const totalRecords = attendanceRecords.length;
+        const presentRecords = attendanceRecords.filter(
+          (a) => a.status === "Present" || a.status === "Tardy"
+        ).length;
+        const avgAttendance =
+          totalRecords > 0 ? (presentRecords / totalRecords) * 100 : 100;
+
+        // Get syllabus completion
+        const syllabusData = await prisma.course.findMany({
+          where: {
+            schoolClass: {
+              id: c.id,
+            },
+          },
+          select: {
+            syllabusCompletion: true,
+          },
+        });
+
+        const syllabusCompletion =
+          syllabusData.length > 0
+            ? syllabusData.reduce((sum, s) => sum + (s.syllabusCompletion || 0), 0) /
+              syllabusData.length
+            : 0;
+
+        // Map teachers by subject
+        const teachers = c.subjects.map((subject) => ({
+          name: subject.teacher?.name || "N/A",
+          subject: subject.name,
+        }));
+
+        return {
+          id: c.id,
+          branchId: c.branchId,
+          gradeLevel: c.gradeLevel,
+          section: c.section,
+          subjectIds: c.subjects.map(s => s.id),
+          studentIds: c.students.map(s => s.id),
+          mentorTeacherId: c.mentorId,
+          feeTemplateId: c.feeTemplateId,
+          students: c.students,
+          stats: {
+            avgAttendance: Number(avgAttendance.toFixed(1)),
+            avgPerformance: Number(avgPerformance.toFixed(1)),
+            syllabusCompletion: Number(syllabusCompletion.toFixed(1)),
+          },
+          teachers,
+        };
+      })
     );
-    res.status(200).json(view);
+
+    res.status(200).json(enrichedClasses);
   } catch (error: any) {
+    console.error(`❌ Error in getPrincipalClassView:`, error);
     res.status(500).json({ message: error.message });
   }
 };
@@ -2125,12 +2249,24 @@ export const updateSchoolEvent = async (req: Request, res: Response) => {
 
 export const updateSchoolEventStatus = async (req: Request, res: Response) => {
   try {
-    await principalApiService.updateSchoolEventStatus(
-      req.params.id,
-      req.body.status
-    );
-    res.status(200).json({ message: "Event status updated." });
+    const { eventId } = req.params;
+    const { status } = req.body;
+    
+    if (!eventId || !status) {
+      return res.status(400).json({ message: "Event ID and status are required." });
+    }
+    
+    // FIX: Use Prisma directly for consistency
+    await prisma.schoolEvent.update({
+      where: { id: eventId },
+      data: { 
+        status: status as "Pending" | "Approved" | "Rejected"
+      },
+    });
+    
+    res.status(200).json({ message: "Event status updated successfully." });
   } catch (error: any) {
+    console.error("Error updating event status:", error);
     res.status(500).json({ message: error.message });
   }
 };
