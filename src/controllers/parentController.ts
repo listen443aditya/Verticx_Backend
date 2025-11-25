@@ -361,7 +361,7 @@ export const getTeachersForStudent = async (
     const { parentId, childrenIds } = await getParentAuth(req);
     const { id: studentId } = req.params;
 
-    if (!studentId) {
+    if (!studentId || typeof studentId !== "string") {
       return res.status(400).json({ message: "Student ID is required." });
     }
 
@@ -380,12 +380,32 @@ export const getTeachersForStudent = async (
         .json({ message: "Student not assigned to a class." });
     }
 
+    const classId = student.classId;
     const teachers = await prisma.teacher.findMany({
       where: {
-        timetableSlots: {
-          some: { classId: student.classId },
-        },
+        OR: [
+          // 1. Teachers teaching a Course in this class
+          {
+            courses: {
+              some: { schoolClassId: classId },
+            },
+          },
+          // 2. The Mentor of this class
+          {
+            schoolClasses: {
+              some: { id: classId },
+            },
+          },
+          // 3. Teachers in the timetable (fallback)
+          {
+            timetableSlots: {
+              some: { classId: classId },
+            },
+          },
+        ],
       },
+      orderBy: { name: "asc" },
+      distinct: ["id"],
     });
 
     res.status(200).json(teachers);
