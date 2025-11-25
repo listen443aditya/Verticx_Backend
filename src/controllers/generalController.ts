@@ -280,6 +280,25 @@ export const getSchoolClassesByBranch = async (
   }
 };
 
+export const getSubjectsByBranch = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getAuthenticatedBranchId(req);
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+  try {
+    const subjects = await prisma.subject.findMany({
+      where: { branchId: branchId },
+      orderBy: { name: "asc" },
+    });
+    res.status(200).json(subjects);
+  } catch (error) {
+    next(error);
+  }
+};
 export const getClassById = async (
   req: Request,
   res: Response,
