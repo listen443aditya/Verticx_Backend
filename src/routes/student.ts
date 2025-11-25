@@ -54,7 +54,7 @@ router.get("/complaints/by-me", studentController.getComplaintsByStudent);
 router.post("/complaints/submit", studentController.submitTeacherComplaint); 
 router.get("/complaints/about-me", studentController.getComplaintsAboutStudent); 
 // Note: Frontend uses PUT, backend uses PATCH.
-router.patch(
+router.put(
   "/complaints/:id/resolve",
   studentController.resolveStudentComplaint
 );

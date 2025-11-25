@@ -852,8 +852,8 @@ export const resolveStudentComplaint = async (
   next: NextFunction
 ) => {
   try {
-    const { studentId } = await getStudentAuth(req);
-    if (!studentId) {
+    const { userId } = await getStudentAuth(req);
+    if (!userId) {
       return res.status(401).json({ message: "Unauthorized" });
     }
     const { id: complaintId } = req.params;
@@ -861,7 +861,7 @@ export const resolveStudentComplaint = async (
     const result = await prisma.complaint.updateMany({
       where: {
         id: complaintId,
-        studentId: studentId, // Student can only resolve complaints about them
+        raisedById: userId, 
       },
       data: {
         status: "Resolved",
