@@ -911,19 +911,27 @@ export const submitTeacherComplaint = async (
     if (!userId || !branchId) {
       return res.status(401).json({ message: "Unauthorized" });
     }
+    const { complaintText, teacherId } = req.body;
 
-    // The student is raising a complaint.
-    // `studentId` in the body is who the complaint is *about* (optional)
-    const { complaintText, studentId: aboutStudentId } = req.body;
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { name: true },
     });
+    let finalComplaintText = complaintText;
+    if (teacherId) {
+      const teacher = await prisma.teacher.findUnique({
+        where: { id: teacherId },
+        select: { name: true },
+      });
+      if (teacher) {
+        finalComplaintText = `[Against Teacher: ${teacher.name}] \n\n${complaintText}`;
+      }
+    }
 
     await prisma.complaint.create({
       data: {
-        complaintText: complaintText,
-        studentId: aboutStudentId, // The student being complained about
+        complaintText: finalComplaintText,
+        studentId: null,
         raisedById: userId,
         raisedByName: user?.name || "Student",
         raisedByRole: "Student",
