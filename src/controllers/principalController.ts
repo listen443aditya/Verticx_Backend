@@ -1776,11 +1776,10 @@ export const getStaffPayrollForMonth = async (
 ) => {
   try {
     const branchId = await getPrincipalAuth(req);
-    const { month } = req.params; // YYYY-MM
+    const { month } = req.params; // Format: "YYYY-MM"
 
     if (!branchId) return res.status(401).json({ message: "Unauthorized." });
 
-    // 1. Get ALL staff in this branch
     const allStaff = await prisma.user.findMany({
       where: {
         branchId,
@@ -1793,36 +1792,45 @@ export const getStaffPayrollForMonth = async (
             "Principal",
           ],
         },
-        status: "active",
+        status: "active", // We only process payroll for active staff
       },
       include: { teacher: { select: { salary: true } } },
     });
 
+    // 2. Fetch existing payroll records ONLY for the selected month
     const payrollRecords = await prisma.payrollRecord.findMany({
       where: { branchId, month },
     });
 
-    // 3. Merge them!
+    // 3. Merge Logic: Combine Staff with Records
     const mergedPayroll = allStaff.map((staff) => {
+      // Check if a payment record already exists for this user in this month
       const record = payrollRecords.find((r) => r.staffId === staff.id);
 
+      if (record) {
+        // CASE A: Record found. The status comes from the DB (e.g., "Paid").
+        return record;
+      }
 
-      if (record) return record;
+      // CASE B: No record found. We must create a "Pending" placeholder.
+
+      // Determine base salary (Prioritize Teacher profile, fallback to User profile)
       const baseSalary = staff.teacher?.salary || staff.salary || 0;
 
       return {
-        id: `temp-${staff.id}`,
+        id: `temp-${staff.id}`, // Temporary ID for frontend keys - not stored in DB 
         branchId,
-        staffId: staff.id,
+        staffId: staff.id, // Important: This links the row to the User
         staffName: staff.name,
         staffRole: staff.role,
-        month,
+        month: month,
         baseSalary: baseSalary,
         unpaidLeaveDays: 0,
         leaveDeductions: 0,
         manualAdjustmentsTotal: 0,
-        netPayable: baseSalary, 
+        netPayable: baseSalary, // Default net is base salary
         status: baseSalary > 0 ? "Pending" : "Salary Not Set",
+
         paidAt: null,
         paidBy: null,
       };
