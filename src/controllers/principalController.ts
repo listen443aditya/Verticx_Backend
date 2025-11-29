@@ -1769,20 +1769,68 @@ export const addFeeAdjustment = async (req: Request, res: Response) => {
   }
 };
 
-export const getStaffPayrollForMonth = async (req: Request, res: Response) => {
+export const getStaffPayrollForMonth = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
-    if (!req.user?.branchId) {
-      return res
-        .status(401)
-        .json({ message: "Authentication required with a valid branch." });
-    }
-    const payroll = await principalApiService.getStaffPayrollForMonth(
-      req.user.branchId,
-      req.params.month
-    );
-    res.status(200).json(payroll);
+    const branchId = await getPrincipalAuth(req);
+    const { month } = req.params; // YYYY-MM
+
+    if (!branchId) return res.status(401).json({ message: "Unauthorized." });
+
+    // 1. Get ALL staff in this branch
+    const allStaff = await prisma.user.findMany({
+      where: {
+        branchId,
+        role: {
+          in: [
+            "Teacher",
+            "Registrar",
+            "Librarian",
+            "SupportStaff",
+            "Principal",
+          ],
+        },
+        status: "active",
+      },
+      include: { teacher: { select: { salary: true } } },
+    });
+
+    const payrollRecords = await prisma.payrollRecord.findMany({
+      where: { branchId, month },
+    });
+
+    // 3. Merge them!
+    const mergedPayroll = allStaff.map((staff) => {
+      const record = payrollRecords.find((r) => r.staffId === staff.id);
+
+
+      if (record) return record;
+      const baseSalary = staff.teacher?.salary || staff.salary || 0;
+
+      return {
+        id: `temp-${staff.id}`,
+        branchId,
+        staffId: staff.id,
+        staffName: staff.name,
+        staffRole: staff.role,
+        month,
+        baseSalary: baseSalary,
+        unpaidLeaveDays: 0,
+        leaveDeductions: 0,
+        manualAdjustmentsTotal: 0,
+        netPayable: baseSalary, 
+        status: baseSalary > 0 ? "Pending" : "Salary Not Set",
+        paidAt: null,
+        paidBy: null,
+      };
+    });
+
+    res.status(200).json(mergedPayroll);
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 };
 
