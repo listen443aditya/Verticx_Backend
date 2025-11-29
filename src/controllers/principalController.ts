@@ -899,10 +899,12 @@ export const getTeacherProfileDetails = async (
 ) => {
   try {
     const branchId = await getPrincipalAuth(req);
+    // This 'id' from params is the User ID passed from the frontend list
     const { id: userId } = req.params;
 
     if (!branchId) return res.status(401).json({ message: "Unauthorized" });
 
+    // 1. Fetch Basic Teacher Details & Relationships
     const teacher = await prisma.teacher.findFirst({
       where: { userId: userId, branchId },
       include: {
@@ -912,20 +914,109 @@ export const getTeacherProfileDetails = async (
           orderBy: { date: "desc" },
           take: 30,
         },
+        // Include courses to calculate syllabus
+        courses: {
+          include: {
+            subject: { select: { name: true } },
+            schoolClass: {
+              select: { id: true, gradeLevel: true, section: true },
+            },
+          },
+        },
       },
     });
 
     if (!teacher) {
-      return res
-        .status(404)
-        .json({ message: "Teacher profile not found for this user." });
+      return res.status(404).json({ message: "Teacher not found." });
     }
 
-    // Find classes they mentor
+    // 2. Fetch Mentored Classes
     const mentoredClasses = await prisma.schoolClass.findMany({
-      where: { mentorId: teacher.id, branchId }, 
+      where: { mentorId: teacher.id, branchId },
       select: { id: true, gradeLevel: true, section: true },
     });
+
+    // 3. LOGIC: Syllabus Progress
+    // We calculate progress based on actual Lectures marked as 'completed' vs 'total'
+    const syllabusProgress = await Promise.all(
+      teacher.courses.map(async (course) => {
+        if (!course.schoolClass || !course.subject) return null;
+
+        const [totalLectures, completedLectures] = await Promise.all([
+          prisma.lecture.count({
+            where: {
+              teacherId: teacher.id,
+              classId: course.schoolClassId!,
+              subjectId: course.subjectId,
+            },
+          }),
+          prisma.lecture.count({
+            where: {
+              teacherId: teacher.id,
+              classId: course.schoolClassId!,
+              subjectId: course.subjectId,
+              status: "completed",
+            },
+          }),
+        ]);
+
+        const percentage =
+          totalLectures > 0
+            ? Math.round((completedLectures / totalLectures) * 100)
+            : 0;
+
+        return {
+          className: `Grade ${course.schoolClass.gradeLevel}-${course.schoolClass.section}`,
+          subjectName: course.subject.name,
+          completionPercentage: percentage,
+        };
+      })
+    );
+
+    // 4. LOGIC: Class Performance
+    // Calculate average score of exams conducted by this teacher per class
+    const examAggregates = await prisma.examMark.groupBy({
+      by: ["schoolClassId"],
+      where: { teacherId: teacher.id },
+      _avg: { score: true, totalMarks: true },
+    });
+
+    // We need a lookup map to get Class Names from IDs
+    const classIdToNameMap = new Map(
+      teacher.schoolClasses.map((c) => [
+        c.id,
+        `Grade ${c.gradeLevel}-${c.section}`,
+      ])
+    );
+
+    const classPerformance = examAggregates
+      .map((agg) => {
+        const avgScore = agg._avg.score || 0;
+        const avgTotal = agg._avg.totalMarks || 100; // avoid division by zero
+        // Normalize to percentage (e.g., 40/50 -> 80%)
+        const percentage = Math.round((avgScore / avgTotal) * 100);
+
+        return {
+          className: classIdToNameMap.get(agg.schoolClassId) || "Unknown Class",
+          averageStudentScore: percentage,
+        };
+      })
+      .filter((item) => item.className !== "Unknown Class");
+
+    // 5. LOGIC: Payroll History
+    // Fetch last 6 payroll records for this user
+    const payrollRecords = await prisma.payrollRecord.findMany({
+      where: { staffId: userId }, // Payroll links to User ID
+      orderBy: { id: "desc" }, // Assuming ID is roughly chronological, or use created_at if available
+      take: 6,
+      select: { month: true, netPayable: true, status: true },
+    });
+
+    const payrollHistory = payrollRecords.map((p) => ({
+      month: p.month,
+      amount: p.netPayable || 0,
+      status: p.status as "Paid" | "Pending",
+    }));
 
     const present = teacher.attendanceRecords.filter(
       (r) => r.status === "Present"
@@ -945,10 +1036,12 @@ export const getTeacherProfileDetails = async (
           id: c.id,
           name: `Grade ${c.gradeLevel}-${c.section}`,
         })) || [],
-      syllabusProgress: [],
-      classPerformance: [],
+
+      syllabusProgress: syllabusProgress.filter((p) => p !== null),
+      classPerformance: classPerformance,
+      payrollHistory: payrollHistory,
+
       attendance: { present, total },
-      payrollHistory: [],
     };
 
     res.status(200).json(profile);
