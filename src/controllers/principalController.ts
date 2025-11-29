@@ -29,7 +29,20 @@ const getPrincipalBranchId = (req: Request): string | null => {
   return null;
 };
 
+const getPrincipalAuth = async (req: Request) => {
+  const userId = req.user?.id;
+  if (!userId) return null;
 
+  // 1. If user has a branchId (e.g. from token), verify it's the one they manage
+  if (req.user?.branchId) return req.user.branchId;
+
+  // 2. Fallback: Find the branch where this user is the Principal
+  const branch = await prisma.branch.findUnique({
+    where: { principalId: userId },
+    select: { id: true },
+  });
+  return branch?.id || null;
+};
 
 export const getClassDetails = async (
   req: Request,
@@ -885,13 +898,62 @@ export const getTeacherProfileDetails = async (
   next: NextFunction
 ) => {
   try {
-    const profile = await principalApiService.getTeacherProfileDetails(
-      req.params.id
-    );
+    const branchId = await getPrincipalAuth(req);
+    const { id: teacherId } = req.params; // This is the Teacher table ID
+
+    if (!branchId) return res.status(401).json({ message: "Unauthorized" });
+
+    const teacher = await prisma.teacher.findFirst({
+      where: { id: teacherId, branchId },
+      include: {
+        schoolClasses: true, // Classes they teach
+        subjects: true, // Subjects they teach
+        attendanceRecords: {
+          // Attendance history
+          orderBy: { date: "desc" },
+          take: 30,
+        },
+      },
+    });
+
+    if (!teacher) {
+      return res.status(404).json({ message: "Teacher not found." });
+    }
+
+    // Find classes they mentor
+    const mentoredClasses = await prisma.schoolClass.findMany({
+      where: { mentorId: teacherId, branchId },
+      select: { id: true, gradeLevel: true, section: true },
+    });
+
+    // Calculate attendance stats
+    const present = teacher.attendanceRecords.filter(
+      (r) => r.status === "Present"
+    ).length;
+    const total = teacher.attendanceRecords.length;
+
+    // --- FIX: Ensure all arrays are initialized to [] to prevent frontend crashes ---
+    const profile = {
+      teacher: teacher,
+      assignedClasses:
+        teacher.schoolClasses.map((c) => ({
+          id: c.id,
+          name: `Grade ${c.gradeLevel}-${c.section}`,
+        })) || [],
+      assignedSubjects: teacher.subjects || [],
+      mentoredClasses:
+        mentoredClasses.map((c) => ({
+          id: c.id,
+          name: `Grade ${c.gradeLevel}-${c.section}`,
+        })) || [],
+      syllabusProgress: [], // Placeholder for complex calc
+      classPerformance: [], // Placeholder for complex calc
+      attendance: { present, total },
+      payrollHistory: [], // Placeholder
+    };
+
     res.status(200).json(profile);
   } catch (error: any) {
-    if (error.code === "NOT_FOUND")
-      return res.status(404).json({ message: error.message });
     next(error);
   }
 };
