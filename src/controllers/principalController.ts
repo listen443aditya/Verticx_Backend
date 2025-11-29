@@ -899,17 +899,16 @@ export const getTeacherProfileDetails = async (
 ) => {
   try {
     const branchId = await getPrincipalAuth(req);
-    const { id: teacherId } = req.params; // This is the Teacher table ID
+    const { id: userId } = req.params; 
 
     if (!branchId) return res.status(401).json({ message: "Unauthorized" });
 
     const teacher = await prisma.teacher.findFirst({
-      where: { id: teacherId, branchId },
+      where: { id: userId, branchId },
       include: {
-        schoolClasses: true, // Classes they teach
-        subjects: true, // Subjects they teach
+        schoolClasses: true, 
+        subjects: true, 
         attendanceRecords: {
-          // Attendance history
           orderBy: { date: "desc" },
           take: 30,
         },
@@ -922,7 +921,7 @@ export const getTeacherProfileDetails = async (
 
     // Find classes they mentor
     const mentoredClasses = await prisma.schoolClass.findMany({
-      where: { mentorId: teacherId, branchId },
+      where: { mentorId: teacher.id, branchId },
       select: { id: true, gradeLevel: true, section: true },
     });
 

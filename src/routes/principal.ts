@@ -161,7 +161,6 @@ router.get(
   principalController.getComplaintsAboutStudentsByBranch
 );
 router.get("/complaints/teacher", principalController.getComplaintsForBranch);
-// --- FIX: Change "/suspensions" to "/suspension-records" to match the frontend ---
 router.get(
   "/suspension-records",
   principalController.getSuspensionRecordsForPrincipal
@@ -188,7 +187,6 @@ router.patch(
 router.post("/queries/admin", principalController.raiseQueryToAdmin);
 router.get("/queries", principalController.getQueriesByPrincipal);
 
-// --- FIX: Add missing record routes ---
 router.get("/fee-records", principalController.getFeeRecordsForPrincipal);
 router.get(
   "/attendance-records",
