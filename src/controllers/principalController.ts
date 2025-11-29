@@ -899,22 +899,21 @@ export const getTeacherProfileDetails = async (
 ) => {
   try {
     const branchId = await getPrincipalAuth(req);
-    // This 'id' from params is the User ID passed from the frontend list
-    const { id: userId } = req.params;
+    const { id: userId } = req.params; // This is the User.id (UUID)
 
     if (!branchId) return res.status(401).json({ message: "Unauthorized" });
 
-    // 1. Fetch Basic Teacher Details & Relationships
+    // 1. Fetch Teacher with the User relation to get the readable ID
     const teacher = await prisma.teacher.findFirst({
       where: { userId: userId, branchId },
       include: {
+        user: { select: { userId: true } }, // <--- FETCH THE REAL ID HERE
         schoolClasses: true,
         subjects: true,
         attendanceRecords: {
           orderBy: { date: "desc" },
           take: 30,
         },
-        // Include courses to calculate syllabus
         courses: {
           include: {
             subject: { select: { name: true } },
@@ -936,8 +935,7 @@ export const getTeacherProfileDetails = async (
       select: { id: true, gradeLevel: true, section: true },
     });
 
-    // 3. LOGIC: Syllabus Progress
-    // We calculate progress based on actual Lectures marked as 'completed' vs 'total'
+    // 3. Logic: Syllabus Progress
     const syllabusProgress = await Promise.all(
       teacher.courses.map(async (course) => {
         if (!course.schoolClass || !course.subject) return null;
@@ -973,15 +971,13 @@ export const getTeacherProfileDetails = async (
       })
     );
 
-    // 4. LOGIC: Class Performance
-    // Calculate average score of exams conducted by this teacher per class
+    // 4. Logic: Class Performance
     const examAggregates = await prisma.examMark.groupBy({
       by: ["schoolClassId"],
       where: { teacherId: teacher.id },
       _avg: { score: true, totalMarks: true },
     });
 
-    // We need a lookup map to get Class Names from IDs
     const classIdToNameMap = new Map(
       teacher.schoolClasses.map((c) => [
         c.id,
@@ -992,8 +988,7 @@ export const getTeacherProfileDetails = async (
     const classPerformance = examAggregates
       .map((agg) => {
         const avgScore = agg._avg.score || 0;
-        const avgTotal = agg._avg.totalMarks || 100; // avoid division by zero
-        // Normalize to percentage (e.g., 40/50 -> 80%)
+        const avgTotal = agg._avg.totalMarks || 100;
         const percentage = Math.round((avgScore / avgTotal) * 100);
 
         return {
@@ -1003,11 +998,10 @@ export const getTeacherProfileDetails = async (
       })
       .filter((item) => item.className !== "Unknown Class");
 
-    // 5. LOGIC: Payroll History
-    // Fetch last 6 payroll records for this user
+    // 5. Logic: Payroll History
     const payrollRecords = await prisma.payrollRecord.findMany({
-      where: { staffId: userId }, // Payroll links to User ID
-      orderBy: { id: "desc" }, // Assuming ID is roughly chronological, or use created_at if available
+      where: { staffId: userId },
+      orderBy: { id: "desc" },
       take: 6,
       select: { month: true, netPayable: true, status: true },
     });
@@ -1018,13 +1012,18 @@ export const getTeacherProfileDetails = async (
       status: p.status as "Paid" | "Pending",
     }));
 
+    // 6. Attendance Stats
     const present = teacher.attendanceRecords.filter(
       (r) => r.status === "Present"
     ).length;
     const total = teacher.attendanceRecords.length;
 
+    // --- Final Assembly ---
     const profile = {
-      teacher: teacher,
+      teacher: {
+        ...teacher,
+        userId: teacher.user.userId, // <--- FIX: Overwrite UUID with Readable ID (VRTX-...)
+      },
       assignedClasses:
         teacher.schoolClasses.map((c) => ({
           id: c.id,
