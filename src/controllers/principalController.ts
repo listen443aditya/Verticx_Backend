@@ -899,14 +899,16 @@ export const getTeacherProfileDetails = async (
 ) => {
   try {
     const branchId = await getPrincipalAuth(req);
-    const { id: userId } = req.params; 
+    // This 'id' from params is the User ID (UUID) passed from the staff list
+    const { id: userId } = req.params;
 
     if (!branchId) return res.status(401).json({ message: "Unauthorized" });
 
+    // 1. Fetch Teacher with the User relation to get the readable ID
     const teacher = await prisma.teacher.findFirst({
       where: { userId: userId, branchId },
       include: {
-        user: { select: { userId: true } }, 
+        user: { select: { userId: true } }, // <--- FETCH THE READABLE ID (VRTX-...)
         schoolClasses: true,
         subjects: true,
         attendanceRecords: {
@@ -928,12 +930,13 @@ export const getTeacherProfileDetails = async (
       return res.status(404).json({ message: "Teacher not found." });
     }
 
+    // 2. Fetch Mentored Classes
     const mentoredClasses = await prisma.schoolClass.findMany({
       where: { mentorId: teacher.id, branchId },
       select: { id: true, gradeLevel: true, section: true },
     });
 
-
+    // 3. Logic: Syllabus Progress
     const syllabusProgress = await Promise.all(
       teacher.courses.map(async (course) => {
         if (!course.schoolClass || !course.subject) return null;
@@ -969,7 +972,7 @@ export const getTeacherProfileDetails = async (
       })
     );
 
-
+    // 4. Logic: Class Performance
     const examAggregates = await prisma.examMark.groupBy({
       by: ["schoolClassId"],
       where: { teacherId: teacher.id },
@@ -996,6 +999,7 @@ export const getTeacherProfileDetails = async (
       })
       .filter((item) => item.className !== "Unknown Class");
 
+    // 5. Logic: Payroll History
     const payrollRecords = await prisma.payrollRecord.findMany({
       where: { staffId: userId },
       orderBy: { id: "desc" },
@@ -1009,15 +1013,21 @@ export const getTeacherProfileDetails = async (
       status: p.status as "Paid" | "Pending",
     }));
 
+    // 6. Attendance Stats
     const present = teacher.attendanceRecords.filter(
       (r) => r.status === "Present"
     ).length;
     const total = teacher.attendanceRecords.length;
 
+    // --- Final Assembly ---
+    // Remove the 'user' object from the spread to keep the response clean
+    const { user, ...teacherData } = teacher;
+
     const profile = {
       teacher: {
-        ...teacher,
-        userId: teacher.user.userId, 
+        ...teacherData,
+        // FORCE OVERWRITE: We replace the UUID with the readable ID from the User table
+        userId: user.userId,
       },
       assignedClasses:
         teacher.schoolClasses.map((c) => ({
