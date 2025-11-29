@@ -1780,6 +1780,7 @@ export const getStaffPayrollForMonth = async (
 
     if (!branchId) return res.status(401).json({ message: "Unauthorized." });
 
+    // 1. Fetch ALL active staff
     const allStaff = await prisma.user.findMany({
       where: {
         branchId,
@@ -1789,51 +1790,53 @@ export const getStaffPayrollForMonth = async (
             "Registrar",
             "Librarian",
             "SupportStaff",
-            "Principal",
           ],
         },
         status: "active",
       },
-      select: {
-        id: true,
-        name: true,
-        role: true,
-        salary: true,
-        teacher: {
-          select: { salary: true }, 
-        },
+      include: {
+        teacher: { select: { salary: true } },
       },
     });
 
-    // 2. Fetch existing payroll records ONLY for the selected month
+    // 2. Fetch existing "Paid" records
     const payrollRecords = await prisma.payrollRecord.findMany({
       where: { branchId, month },
     });
 
+    // 3. Fetch Adjustments for this month (NEW STEP)
+    const adjustments = await prisma.manualSalaryAdjustment.findMany({
+      where: { branchId, month },
+    });
 
+    // 4. Merge Logic
     const mergedPayroll = allStaff.map((staff) => {
-      // Check if a record exists
       const record = payrollRecords.find((r) => r.staffId === staff.id);
 
-      let currentProfileSalary = 0;
-      if (staff.teacher?.salary && staff.teacher.salary > 0) {
-        currentProfileSalary = staff.teacher.salary;
-      }
-
-      else if (staff.salary && staff.salary > 0) {
-        currentProfileSalary = staff.salary;
-      }
-
-
+      // CASE A: Already Paid? Return the frozen record.
       if (record) {
-        return {
-          ...record,
-        
-          currentProfileSalary,
-        };
+        return record;
       }
 
-      // CASE B: No Record (Pending)
+      // CASE B: Pending Calculation
+
+      // A. Determine Base Salary
+      let baseSalary = 0;
+      if (staff.teacher?.salary) {
+        baseSalary = staff.teacher.salary;
+      } else if (staff.salary) {
+        baseSalary = staff.salary;
+      }
+
+      // B. Calculate Total Adjustments for this user (NEW LOGIC)
+      const staffAdjustments = adjustments
+        .filter((adj) => adj.staffId === staff.id)
+        .reduce((sum, adj) => sum + adj.amount, 0);
+
+      // C. Calculate Net Payable
+      // (Base + Adjustments - Deductions)
+      const netPayable = baseSalary + staffAdjustments;
+
       return {
         id: `pending-${staff.id}`,
         branchId,
@@ -1841,12 +1844,12 @@ export const getStaffPayrollForMonth = async (
         staffName: staff.name,
         staffRole: staff.role,
         month: month,
-        baseSalary: currentProfileSalary,
+        baseSalary: baseSalary,
         unpaidLeaveDays: 0,
         leaveDeductions: 0,
-        manualAdjustmentsTotal: 0,
-        netPayable: currentProfileSalary,
-        status: currentProfileSalary > 0 ? "Pending" : "Salary Not Set",
+        manualAdjustmentsTotal: staffAdjustments, 
+        netPayable: netPayable, 
+        status: baseSalary > 0 ? "Pending" : "Salary Not Set",
         paidAt: null,
         paidBy: null,
       };
@@ -1857,6 +1860,8 @@ export const getStaffPayrollForMonth = async (
     next(error);
   }
 };
+
+
 export const processPayroll = async (
   req: Request,
   res: Response,
