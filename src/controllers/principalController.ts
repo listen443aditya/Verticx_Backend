@@ -2035,14 +2035,18 @@ export const payErpBill = async (req: Request, res: Response) => {
 
 export const getManualExpenses = async (req: Request, res: Response) => {
   try {
-    if (!req.user?.branchId) {
+    const branchId = getPrincipalBranchId(req);
+    if (!branchId) {
       return res
         .status(401)
         .json({ message: "Authentication required with a valid branch." });
     }
-    const expenses = await principalApiService.getManualExpenses(
-      req.user.branchId
-    );
+
+    const expenses = await prisma.manualExpense.findMany({
+      where: { branchId },
+      orderBy: { date: "desc" },
+    });
+
     res.status(200).json(expenses);
   } catch (error: any) {
     res.status(500).json({ message: error.message });
@@ -2051,27 +2055,37 @@ export const getManualExpenses = async (req: Request, res: Response) => {
 
 export const addManualExpense = async (req: Request, res: Response) => {
   try {
-    if (!req.user?.branchId) {
+    const branchId = getPrincipalBranchId(req);
+    if (!branchId) {
       return res
         .status(401)
         .json({ message: "Authentication required with a valid branch." });
     }
-    const staff = await principalApiService.getStaffByBranch(req.user.branchId);
-    // FIX: Added explicit type for find parameter
-    const principal = staff.find((u: { id: string }) => u.id === req.user!.id);
+    const user = await prisma.user.findUnique({
+      where: { id: req.user?.id },
+      select: { name: true },
+    });
 
-    if (!principal || !principal.name) {
-      return res
-        .status(404)
-        .json({ message: "Authenticated user not found or name is missing." });
+    if (!user) {
+      return res.status(404).json({ message: "Authenticated user not found." });
     }
 
-    const expenseData = {
-      ...req.body,
-      branchId: req.user.branchId,
-      enteredBy: principal.name,
-    };
-    await principalApiService.addManualExpense(expenseData);
+    const { description, category, amount, date } = req.body;
+
+    if (!description || !amount || !date || !category) {
+      return res.status(400).json({ message: "All fields are required." });
+    }
+    await prisma.manualExpense.create({
+      data: {
+        branchId,
+        description,
+        category,
+        amount: Number(amount),
+        date: new Date(date), 
+        enteredBy: user.name,
+      },
+    });
+
     res.status(201).json({ message: "Expense added." });
   } catch (error: any) {
     res.status(500).json({ message: error.message });

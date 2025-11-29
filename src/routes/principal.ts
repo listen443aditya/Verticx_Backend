@@ -107,7 +107,6 @@ router.post("/erp-bill/pay", principalController.payErpBill);
 router.get("/manual-expenses", principalController.getManualExpenses);
 router.post("/manual-expenses", principalController.addManualExpense);
 
-
 router.get(
   "/examinations",
   principalController.getExaminationsWithResultStatus
