@@ -734,7 +734,6 @@ export const getFaculty = async (req: Request, res: Response) => {
       where: {
         branchId: req.user.branchId,
         role: {
-          // FIX: Add all staff roles to the list
           in: [
             "Teacher",
             "Registrar",
@@ -746,7 +745,7 @@ export const getFaculty = async (req: Request, res: Response) => {
       },
       select: {
         id: true,
-        userId: true, // Also select the human-readable VRTX- ID
+        userId: true, 
         name: true,
         email: true,
         phone: true,
@@ -754,6 +753,7 @@ export const getFaculty = async (req: Request, res: Response) => {
         status: true,
         createdAt: true,
         teacher: true,
+        salary: true, 
       },
       orderBy: { createdAt: "desc" },
     });
