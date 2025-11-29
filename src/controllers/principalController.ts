@@ -1906,7 +1906,8 @@ export const processPayroll = async (
 
 export const addManualSalaryAdjustment = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction // Add next for error handling
 ) => {
   try {
     if (!req.user?.branchId) {
@@ -1914,28 +1915,35 @@ export const addManualSalaryAdjustment = async (
         .status(401)
         .json({ message: "Authentication required with a valid branch." });
     }
-    const staff = await principalApiService.getStaffByBranch(req.user.branchId);
-    // FIX: Added explicit type for find parameter
-    const principal = staff.find((u: { id: string }) => u.id === req.user!.id);
-
-    if (!principal || !principal.name) {
-      return res
-        .status(404)
-        .json({ message: "Authenticated user not found or name is missing." });
-    }
 
     const { staffId, amount, reason, month } = req.body;
-    await principalApiService.addManualSalaryAdjustment(
-      req.user.branchId,
-      staffId,
-      amount,
-      reason,
-      principal.name,
-      month
-    );
+
+    // Validate inputs
+    if (!staffId || !amount || !reason || !month) {
+      return res.status(400).json({ message: "All fields are required." });
+    }
+
+    // Get the Principal's name for the audit trail
+    const principal = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { name: true },
+    });
+
+    await prisma.manualSalaryAdjustment.create({
+      data: {
+        branchId: req.user.branchId,
+        staffId: staffId,
+        amount: Number(amount), // Ensure it is a number
+        reason: reason,
+        month: month,
+        adjustedBy: principal?.name || "Principal",
+        adjustedAt: new Date(),
+      },
+    });
+
     res.status(201).json({ message: "Salary adjustment added." });
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 };
 
