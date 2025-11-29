@@ -1235,19 +1235,110 @@ export const updateTeacher = async (req: Request, res: Response) => {
 
 
 
-export const getPrincipalClassView = async (req: Request, res: Response) => {
+export const getPrincipalClassView = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
-    if (!req.user?.branchId) {
-      return res
-        .status(401)
-        .json({ message: "Authentication required with a valid branch." });
-    }
-    const view = await principalApiService.getPrincipalClassView(
-      req.user.branchId
+    const branchId = await getPrincipalAuth(req);
+    if (!branchId) return res.status(401).json({ message: "Unauthorized" });
+
+    // 1. Fetch Classes with related data
+    const classes = await prisma.schoolClass.findMany({
+      where: { branchId },
+      include: {
+        // Get teachers via Courses linked to this class
+        courses: {
+          include: {
+            teacher: {
+              select: { name: true, user: { select: { email: true } } },
+            },
+            subject: { select: { name: true } },
+          },
+        },
+        // Get students to calculate stats
+        students: {
+          select: {
+            id: true,
+            attendanceRecords: { take: 30 }, // Last 30 days
+            examMarks: { select: { score: true, totalMarks: true } },
+          },
+        },
+        // Get Syllabus progress (we'll calculate this from Lectures)
+        // Note: This is complex, so we might approximate it or do a separate query if performance is bad
+      },
+    });
+
+    // 2. Transform Data for Frontend
+    const aggregatedClasses = await Promise.all(
+      classes.map(async (c) => {
+        // Calculate Avg Attendance
+        let totalPresence = 0;
+        let totalRecords = 0;
+        c.students.forEach((s) => {
+          totalPresence += s.attendanceRecords.filter(
+            (r) => r.status === "Present"
+          ).length;
+          totalRecords += s.attendanceRecords.length;
+        });
+        const avgAttendance =
+          totalRecords > 0 ? (totalPresence / totalRecords) * 100 : 0;
+
+        // Calculate Avg Performance
+        let totalScore = 0;
+        let totalMaxScore = 0;
+        c.students.forEach((s) => {
+          s.examMarks.forEach((m) => {
+            totalScore += m.score;
+            totalMaxScore += m.totalMarks;
+          });
+        });
+        const avgPerformance =
+          totalMaxScore > 0 ? (totalScore / totalMaxScore) * 100 : 0;
+
+        // Calculate Syllabus Completion (Average of all courses in class)
+        // This is a simplified calculation. Real logic would look at Lecture tables.
+        // We will assume 0 for now to keep the query fast, or fetch if needed.
+        const syllabusCompletion = 0;
+
+        // Extract unique teachers
+        const teacherMap = new Map();
+        c.courses.forEach((course) => {
+          if (course.teacher && !teacherMap.has(course.teacherId)) {
+            teacherMap.set(course.teacherId, {
+              name: course.teacher.name,
+              subject: course.subject.name,
+            });
+          }
+        });
+        const uniqueTeachers = Array.from(teacherMap.values());
+
+        return {
+          id: c.id,
+          branchId: c.branchId,
+          gradeLevel: c.gradeLevel,
+          section: c.section,
+          subjectIds: [], // Placeholder, not strictly needed for this view
+          studentIds: c.students.map((s) => s.id),
+          mentorTeacherId: c.mentorId,
+          feeTemplateId: c.feeTemplateId,
+
+          // Extended Props
+          students: [], // We don't send full student objects here to save bandwidth
+          stats: {
+            avgAttendance,
+            avgPerformance,
+            syllabusCompletion,
+          },
+          teachers: uniqueTeachers,
+        };
+      })
     );
-    res.status(200).json(view);
+
+    res.status(200).json(aggregatedClasses);
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 };
 
