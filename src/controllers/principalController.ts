@@ -1779,7 +1779,6 @@ export const getStaffPayrollForMonth = async (
     const { month } = req.params; // Format: "YYYY-MM"
 
     if (!branchId) return res.status(401).json({ message: "Unauthorized." });
-
     const allStaff = await prisma.user.findMany({
       where: {
         branchId,
@@ -1789,38 +1788,47 @@ export const getStaffPayrollForMonth = async (
             "Registrar",
             "Librarian",
             "SupportStaff",
-            "Principal",
           ],
         },
-        status: "active", // We only process payroll for active staff
+        status: "active",
       },
-      include: { teacher: { select: { salary: true } } },
+      include: {
+        teacher: { select: { salary: true } }, 
+      },
     });
 
-    // 2. Fetch existing payroll records ONLY for the selected month
+
     const payrollRecords = await prisma.payrollRecord.findMany({
       where: { branchId, month },
     });
 
-    // 3. Merge Logic: Combine Staff with Records
+
     const mergedPayroll = allStaff.map((staff) => {
       // Check if a payment record already exists for this user in this month
       const record = payrollRecords.find((r) => r.staffId === staff.id);
 
+      // CASE A: Record found. Return the actual record from DB.
       if (record) {
-        // CASE A: Record found. The status comes from the DB (e.g., "Paid").
         return record;
       }
 
-      // CASE B: No record found. We must create a "Pending" placeholder.
+      // CASE B: No record found. Create a "Pending" placeholder.
 
-      // Determine base salary (Prioritize Teacher profile, fallback to User profile)
-      const baseSalary = staff.teacher?.salary || staff.salary || 0;
+      // LOGIC: Determine base salary
+      // 1. Try Teacher table salary first
+      // 2. Fallback to User table salary
+      // 3. Ensure we handle nulls by falling back to 0
+      let baseSalary = 0;
+      if (staff.teacher?.salary) {
+        baseSalary = staff.teacher.salary;
+      } else if (staff.salary) {
+        baseSalary = staff.salary;
+      }
 
       return {
-        id: `temp-${staff.id}`, // Temporary ID for frontend keys - not stored in DB 
+        id: `pending-${staff.id}`, // Temporary ID
         branchId,
-        staffId: staff.id, // Important: This links the row to the User
+        staffId: staff.id,
         staffName: staff.name,
         staffRole: staff.role,
         month: month,
@@ -1829,6 +1837,9 @@ export const getStaffPayrollForMonth = async (
         leaveDeductions: 0,
         manualAdjustmentsTotal: 0,
         netPayable: baseSalary, // Default net is base salary
+
+        // Strict Status Logic:
+        // If we are in Case B, the status CANNOT be "Paid".
         status: baseSalary > 0 ? "Pending" : "Salary Not Set",
 
         paidAt: null,
