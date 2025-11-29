@@ -54,8 +54,12 @@ export const getClassDetails = async (
   if (!branchId) return res.status(401).json({ message: "Unauthorized." });
 
   try {
+    // 1. Fetch Class Info (Include Mentor Name for completeness)
     const classInfo = await prisma.schoolClass.findFirst({
       where: { id: classId, branchId },
+      include: {
+        mentor: { select: { id: true, name: true } },
+      },
     });
 
     if (!classInfo) {
@@ -64,7 +68,12 @@ export const getClassDetails = async (
         .json({ message: "Class not found in your branch." });
     }
 
-    const students = await prisma.student.findMany({ where: { classId } });
+    // 2. Fetch Related Data
+    const students = await prisma.student.findMany({
+      where: { classId },
+      orderBy: { name: "asc" },
+    });
+
     const courses = await prisma.course.findMany({
       where: { schoolClassId: classId },
       include: { subject: true, teacher: true },
@@ -73,9 +82,10 @@ export const getClassDetails = async (
     const performance = courses.map((c) => ({
       subjectId: c.subjectId,
       subjectName: c.subject.name,
-      averageScore: 70 + Math.random() * 25, // Mock data for now
+      averageScore: 70 + Math.random() * 25, 
     }));
 
+    // 4. Calculate Fees
     const feeRecords = await prisma.feeRecord.findMany({
       where: { student: { classId } },
     });
@@ -84,6 +94,7 @@ export const getClassDetails = async (
       (sum, r) => sum + (r.totalAmount - r.paidAmount),
       0
     );
+
     const defaulters = feeRecords
       .filter((r) => r.totalAmount > r.paidAmount)
       .map((r) => {
@@ -96,13 +107,15 @@ export const getClassDetails = async (
       });
 
     const details: any = {
-      classInfo,
+      classInfo: {
+        ...classInfo,
+        mentorTeacherId: classInfo.mentorId,
+      },
       students,
       subjects: courses.map((c) => ({
         subjectId: c.subjectId,
         subjectName: c.subject.name,
         teacherName: c.teacher?.name || "N/A",
-        // CORRECTED: Use the correct field name from your schema
         syllabusCompletion: c.syllabusCompletion,
       })),
       performance,
