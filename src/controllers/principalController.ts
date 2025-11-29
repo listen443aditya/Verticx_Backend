@@ -850,7 +850,6 @@ export const createStaffMember = async (req: Request, res: Response) => {
   }
 };
 
-
 export const suspendStaff = async (req: Request, res: Response) => {
   try {
     await principalApiService.suspendStaff(req.params.id);
@@ -1787,25 +1786,50 @@ export const getStaffPayrollForMonth = async (req: Request, res: Response) => {
   }
 };
 
-export const processPayroll = async (req: Request, res: Response) => {
+export const processPayroll = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
-    if (!req.user || !req.user.branchId) {
+    const branchId = await getPrincipalAuth(req);
+    if (!branchId) {
       return res.status(401).json({ message: "Authentication required." });
     }
-    const staff = await principalApiService.getStaffByBranch(req.user.branchId);
-    // FIX: Added explicit type for find parameter
-    const principal = staff.find((u: { id: string }) => u.id === req.user!.id);
 
-    if (!principal || !principal.name) {
-      return res
-        .status(404)
-        .json({ message: "Authenticated user not found or name is missing." });
-    }
+    // The payload might be a single object OR an array (from "Mark Selected as Paid")
+    const payload = req.body;
+    const staffList = Array.isArray(payload) ? payload : [payload];
 
-    await principalApiService.processPayroll(req.body, principal.name);
-    res.status(200).json({ message: "Payroll processed." });
+    const transactions = staffList.map((staff: any) => {
+      return prisma.payrollRecord.create({
+        data: {
+          branchId: branchId,
+          staffId: staff.staffId, // User ID
+          staffName: staff.staffName,
+          staffRole: staff.staffRole,
+          month: staff.month,
+          baseSalary: staff.baseSalary,
+          unpaidLeaveDays: staff.unpaidLeaveDays || 0,
+          leaveDeductions: staff.leaveDeductions || 0,
+          manualAdjustmentsTotal: staff.manualAdjustmentsTotal || 0,
+          netPayable: staff.netPayable,
+          status: "Paid",
+          paidAt: new Date(),
+          paidBy: "Principal", // Can be refined to use req.user.name
+        },
+      });
+    });
+
+    await prisma.$transaction(transactions);
+
+    res
+      .status(200)
+      .json({
+        message: `Payroll processed for ${staffList.length} staff members.`,
+      });
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 };
 

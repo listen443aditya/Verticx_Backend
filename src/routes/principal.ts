@@ -53,8 +53,6 @@ router.get(
 // --- Student Management ---
 router.get("/students", principalController.getStudentsForPrincipal);
 
-// --- THE NEW ROYAL ROADS ---
-// The law is now written. The kingdom now knows these specific, branch-scoped paths.
 router.get(
   "/branches/:branchId/teachers",
   principalController.getTeachersByBranch
@@ -67,12 +65,10 @@ router.get(
   "/branches/:branchId/fee-templates",
   principalController.getFeeTemplatesByBranch
 );
-// --- End of New Roads ---
 
 // --- Academic Overview ---
 router.get("/class-view", principalController.getPrincipalClassView);
 
-// --- FIX: Add the /classes route the frontend is calling ---
 router.get("/classes", principalController.getSchoolClassesForPrincipal);
 
 router.get("/classes/:classId/details", principalController.getClassDetails);
