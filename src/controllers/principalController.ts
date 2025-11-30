@@ -911,16 +911,20 @@ export const getTeacherProfileDetails = async (
 ) => {
   try {
     const branchId = await getPrincipalAuth(req);
-    // This 'id' from params is the User ID (UUID) passed from the staff list
-    const { id: userId } = req.params;
+    const { id: idParam } = req.params; 
 
     if (!branchId) return res.status(401).json({ message: "Unauthorized" });
 
-    // 1. Fetch Teacher with the User relation to get the readable ID
     const teacher = await prisma.teacher.findFirst({
-      where: { userId: userId, branchId },
+      where: {
+        branchId,
+        OR: [
+          { userId: idParam }, 
+          { id: idParam },
+        ],
+      },
       include: {
-        user: { select: { userId: true } }, // <--- FETCH THE READABLE ID (VRTX-...)
+        user: { select: { userId: true, salary: true } }, 
         schoolClasses: true,
         subjects: true,
         attendanceRecords: {
@@ -1011,9 +1015,9 @@ export const getTeacherProfileDetails = async (
       })
       .filter((item) => item.className !== "Unknown Class");
 
-    // 5. Logic: Payroll History
+
     const payrollRecords = await prisma.payrollRecord.findMany({
-      where: { staffId: userId },
+      where: { staffId: teacher.userId },
       orderBy: { id: "desc" },
       take: 6,
       select: { month: true, netPayable: true, status: true },
@@ -1025,21 +1029,19 @@ export const getTeacherProfileDetails = async (
       status: p.status as "Paid" | "Pending",
     }));
 
-    // 6. Attendance Stats
     const present = teacher.attendanceRecords.filter(
       (r) => r.status === "Present"
     ).length;
     const total = teacher.attendanceRecords.length;
+    const displaySalary = teacher.salary || teacher.user.salary || 0;
 
-    // --- Final Assembly ---
-    // Remove the 'user' object from the spread to keep the response clean
     const { user, ...teacherData } = teacher;
 
     const profile = {
       teacher: {
         ...teacherData,
-        // FORCE OVERWRITE: We replace the UUID with the readable ID from the User table
-        userId: user.userId,
+        salary: displaySalary, 
+        userId: user.userId, 
       },
       assignedClasses:
         teacher.schoolClasses.map((c) => ({
