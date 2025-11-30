@@ -131,8 +131,6 @@ export const getClassDetails = async (
   }
 };
 
-
-
 export const assignClassMentor = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getPrincipalBranchId(req);
     const { classId } = req.params;
@@ -150,7 +148,6 @@ export const assignClassMentor = async (req: Request, res: Response, next: NextF
         next(error);
     }
 };
-
 
 export const assignFeeTemplateToClass = async (
   req: Request,
@@ -174,7 +171,6 @@ export const assignFeeTemplateToClass = async (
     next(error);
   }
 };
-
 
 async function resolveBranchByIdOrRegistration(identifier: string | undefined) {
   if (!identifier) return null;
@@ -476,8 +472,6 @@ export const getPrincipalDashboardData = async (
   }
 };
 
-
-
 export const getBranchDetails = async (
   req: Request,
   res: Response,
@@ -497,8 +491,6 @@ export const getBranchDetails = async (
     next(error);
   }
 };
-
-
 
 export const updateBranchDetails = async (
   req: Request,
@@ -617,7 +609,6 @@ export const approveFacultyApplication = async (
   }
 };
 
-
 export const requestProfileAccessOtp = async (
   req: Request,
   res: Response,
@@ -693,7 +684,6 @@ export const verifyProfileAccessOtp = async (
     next(error);
   }
 };
-
 
 export const rejectFacultyApplication = async (req: Request, res: Response) => {
   try {
@@ -1068,7 +1058,6 @@ export const getTeacherProfileDetails = async (
   }
 };
 
-
 export const getSchoolEvents = async (
   req: Request,
   res: Response,
@@ -1234,9 +1223,6 @@ export const getAttendanceRecordsForPrincipal = async (
   }
 };
 
-
-
-
 export const updateTeacher = async (
   req: Request,
   res: Response,
@@ -1281,9 +1267,6 @@ export const updateTeacher = async (
     next(error);
   }
 };
-
-
-
 
 export const getPrincipalClassView = async (
   req: Request,
@@ -1653,7 +1636,6 @@ export const sendResultsSms = async (req: Request, res: Response) => {
   }
 };
 
-
 export const getFinancialsOverview = async (req: Request, res: Response, next: NextFunction) => {
   const branchId = getPrincipalBranchId(req);
   if (!branchId) {
@@ -1898,7 +1880,6 @@ export const getStaffPayrollForMonth = async (
     next(error);
   }
 };
-
 
 export const processPayroll = async (
   req: Request,
@@ -2345,8 +2326,6 @@ export const getComplaintsAboutStudentsByBranch = async (
   }
 };
 
-
-
 export const getComplaintsForBranch = async (
   req: Request,
   res: Response,
@@ -2371,7 +2350,6 @@ export const getComplaintsForBranch = async (
     next(error);
   }
 };
-
 
 export const getSuspensionRecordsForBranch = async (
   req: Request,
@@ -2506,7 +2484,6 @@ export const clearSmsHistory = async (req: Request, res: Response) => {
     res.status(500).json({ message: error.message });
   }
 };
-
 
 export const createSchoolEvent = async (req: Request, res: Response) => {
   try {
@@ -2679,7 +2656,6 @@ export const updateUser = async (req: Request, res: Response) => {
   }
 };
 
-
 export const getTeachersByBranch = async (
   req: Request,
   res: Response,
@@ -2736,8 +2712,6 @@ export const getFeeTemplatesByBranch = async (
     next(error);
   }
 };
-
-
 
 export const getStaffMemberAttendance = async (
   req: Request,
@@ -2798,5 +2772,38 @@ export const getStaffMemberAttendance = async (
     res.status(200).json({ attendance, leaves });
   } catch (error) {
     next(error);
+  }
+};
+
+export const resetUserPassword = async (req: Request, res: Response) => {
+  try {
+    const branchId = await getPrincipalAuth(req);
+    const { id } = req.params; // This is the User ID (UUID)
+
+    if (!branchId) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+    const targetUser = await prisma.user.findFirst({
+      where: { id, branchId },
+    });
+
+    if (!targetUser) {
+      return res
+        .status(404)
+        .json({ message: "User not found in your branch." });
+    }
+    const newPassword = Math.random().toString(36).slice(-8); 
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await prisma.user.update({
+      where: { id },
+      data: { passwordHash: hashedPassword },
+    });
+    res.status(200).json({
+      message: "Password reset successfully.",
+      userId: targetUser.userId,
+      newPassword,
+    });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
   }
 };

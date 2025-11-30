@@ -49,6 +49,8 @@ router.get(
   principalController.getStaffMemberAttendance
 );
 
+router.post("/users/:id/reset-password", principalController.resetUserPassword);
+
 
 // --- Student Management ---
 router.get("/students", principalController.getStudentsForPrincipal);
@@ -92,6 +94,8 @@ router.get(
 );
 router.post("/examinations/:id/send-sms", principalController.sendResultsSms);
 
+
+
 // --- Financials ---
 router.get("/financials-overview", principalController.getFinancialsOverview);
 router.post("/fee-adjustment", principalController.addFeeAdjustment);
@@ -112,7 +116,6 @@ router.get(
   principalController.getExaminationsWithResultStatus
 );
 
-// This is the endpoint for the "Publish Results" button
 router.post(
   "/examinations/:examId/publish",
   principalController.publishExaminationResults
