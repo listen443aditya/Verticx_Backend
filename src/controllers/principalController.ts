@@ -2370,33 +2370,46 @@ export const getSuspensionRecordsForBranch = async (
   }
 };
 
-export const getAnnouncements = async (req: Request, res: Response) => {
+export const getAnnouncements = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
-    if (!req.user?.branchId) {
-      return res
-        .status(401)
-        .json({ message: "Authentication required with a valid branch." });
+    const branchId = await getPrincipalAuth(req);
+    if (!branchId) {
+      return res.status(401).json({ message: "Unauthorized" });
     }
-    const announcements = await principalApiService.getAnnouncements(
-      req.user.branchId
-    );
+
+    // FIX: Use Prisma to fetch directly from DB
+    const announcements = await prisma.announcement.findMany({
+      where: { branchId },
+      orderBy: { sentAt: "desc" },
+    });
+
     res.status(200).json(announcements);
-  } catch (error: any) {
-    res.status(500).json({ message: error.message });
+  } catch (error) {
+    next(error);
   }
 };
 
-export const sendAnnouncement = async (req: Request, res: Response) => {
+export const sendAnnouncement = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
-    if (!req.user?.branchId) {
+    const branchId = await getPrincipalAuth(req);
+    if (!branchId) {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
     const { title, message, audience } = req.body;
 
+    // FIX: Use Prisma to create directly in DB
     await prisma.announcement.create({
       data: {
-        branchId: req.user.branchId,
+        branchId,
         title,
         message,
         audience,
@@ -2405,8 +2418,8 @@ export const sendAnnouncement = async (req: Request, res: Response) => {
     });
 
     res.status(201).json({ message: "Announcement sent." });
-  } catch (error: any) {
-    res.status(500).json({ message: error.message });
+  } catch (error) {
+    next(error);
   }
 };
 
