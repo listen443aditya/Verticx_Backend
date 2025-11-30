@@ -2543,11 +2543,28 @@ export const updateSchoolEvent = async (req: Request, res: Response) => {
 
 export const updateSchoolEventStatus = async (req: Request, res: Response) => {
   try {
-    await principalApiService.updateSchoolEventStatus(
-      req.params.id,
-      req.body.status
-    );
-    res.status(200).json({ message: "Event status updated." });
+    const branchId = await getPrincipalAuth(req);
+    const { id } = req.params;
+    const { status } = req.body; // "Approved" or "Rejected"
+
+    if (!branchId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const result = await prisma.schoolEvent.updateMany({
+      where: {
+        id: id,
+        branchId: branchId,
+      },
+      data: { status: status },
+    });
+
+    if (result.count === 0) {
+      return res
+        .status(404)
+        .json({ message: "Event not found or access denied." });
+    }
+
+    res.status(200).json({ message: `Event ${status.toLowerCase()}.` });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
