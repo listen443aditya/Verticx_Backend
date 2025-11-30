@@ -2416,30 +2416,41 @@ export const getSmsHistory = async (req: Request, res: Response) => {
 
 export const sendSmsToStudents = async (req: Request, res: Response) => {
   try {
+    // 1. Auth Check
     if (!req.user?.branchId) {
       return res
         .status(401)
         .json({ message: "Authentication required with a valid branch." });
     }
-    const staff = await principalApiService.getStaffByBranch(req.user.branchId);
-    // FIX: Added explicit type for find parameter
-    const principal = staff.find((u: { id: string }) => u.id === req.user!.id);
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { name: true },
+    });
 
-    if (!principal || !principal.name) {
+    if (!user || !user.name) {
       return res
         .status(404)
         .json({ message: "Authenticated user not found or name is missing." });
     }
 
     const { studentIds, message } = req.body;
-    const result = await principalApiService.sendSmsToStudents(
-      studentIds,
-      message,
-      principal.name,
-      req.user.branchId
-    );
-    res.status(200).json({ message: `SMS sent to ${result.count} students.` });
+    const smsLog = await prisma.smsMessage.create({
+      data: {
+        branchId: req.user.branchId,
+        message: message,
+        recipientCount: studentIds.length,
+        sentBy: user.name, // Use the fetched name
+      },
+    });
+
+    res.status(200).json({
+      success: true,
+      count: studentIds.length,
+      message: "SMS sent successfully.",
+      log: smsLog,
+    });
   } catch (error: any) {
+    console.error("SMS Error:", error);
     res.status(500).json({ message: error.message });
   }
 };
