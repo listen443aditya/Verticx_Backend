@@ -2389,11 +2389,21 @@ export const getAnnouncements = async (req: Request, res: Response) => {
 export const sendAnnouncement = async (req: Request, res: Response) => {
   try {
     if (!req.user?.branchId) {
-      return res
-        .status(401)
-        .json({ message: "Authentication required with a valid branch." });
+      return res.status(401).json({ message: "Unauthorized" });
     }
-    await principalApiService.sendAnnouncement(req.user.branchId, req.body);
+
+    const { title, message, audience } = req.body;
+
+    await prisma.announcement.create({
+      data: {
+        branchId: req.user.branchId,
+        title,
+        message,
+        audience,
+        sentAt: new Date(),
+      },
+    });
+
     res.status(201).json({ message: "Announcement sent." });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
@@ -2403,11 +2413,14 @@ export const sendAnnouncement = async (req: Request, res: Response) => {
 export const getSmsHistory = async (req: Request, res: Response) => {
   try {
     if (!req.user?.branchId) {
-      return res
-        .status(401)
-        .json({ message: "Authentication required with a valid branch." });
+      return res.status(401).json({ message: "Unauthorized" });
     }
-    const history = await principalApiService.getSmsHistory(req.user.branchId);
+
+    const history = await prisma.smsMessage.findMany({
+      where: { branchId: req.user.branchId },
+      orderBy: { sentAt: "desc" },
+    });
+
     res.status(200).json(history);
   } catch (error: any) {
     res.status(500).json({ message: error.message });
