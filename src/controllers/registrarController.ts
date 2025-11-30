@@ -4770,7 +4770,7 @@ export const getSmsHistory = async (req: Request, res: Response, next: NextFunct
 
 export const sendSmsToStudents = async (req: Request, res: Response, next: NextFunction) => {
   const branchId = getRegistrarBranchId(req);
-  const sentBy = req.user?.name || "Registrar";
+  const sentBy = req.user?.name || "Registrar" || "Principal";
 
   if (!branchId) {
     return res.status(401).json({ message: "Authentication required." });
