@@ -2815,21 +2815,21 @@ export const getStudentProfileDetails = async (
       return res.status(401).json({ message: "Unauthorized." });
     }
 
-    // 2. Fetch Full Student Data with Relations
+    // 2. Fetch Full Student Data
     const student = await prisma.student.findFirst({
       where: {
         id: studentId,
-        branchId: branchId, // Security: Must be in principal's branch
+        branchId: branchId,
       },
       include: {
-        class: { select: { gradeLevel: true, section: true } },
+        class: { select: { id: true, gradeLevel: true, section: true } },
         parent: true,
-        user: true, // The student's own user account
+        user: true,
         FeeAdjustment: true,
         feeRecords: { include: { payments: true } },
         attendanceRecords: { orderBy: { date: "desc" } },
         grades: { include: { course: { select: { name: true } } } },
-        skillAssessments: { orderBy: { assessedAt: "desc" }, take: 1 }, // Get most recent skill check
+        skillAssessments: { orderBy: { assessedAt: "desc" }, take: 1 },
         submissions: {
           take: 5,
           orderBy: { submittedAt: "desc" },
@@ -2843,8 +2843,54 @@ export const getStudentProfileDetails = async (
         .status(404)
         .json({ message: "Student not found in your branch." });
     }
-
-    // 3. Destructure and Calculate derived data
+    let rankStats = { class: 0, school: 0 };
+    if (student.class) {
+      const gradePerformance = await prisma.examMark.groupBy({
+        by: ["studentId"],
+        where: {
+          student: {
+            branchId: branchId,
+            gradeLevel: student.gradeLevel,
+            status: "active",
+          },
+        },
+        _sum: {
+          score: true,
+          totalMarks: true,
+        },
+      });
+      const peers = await prisma.student.findMany({
+        where: {
+          branchId: branchId,
+          gradeLevel: student.gradeLevel,
+          status: "active",
+        },
+        select: { id: true, classId: true },
+      });
+      const leaderboard = peers.map((peer) => {
+        const stats = gradePerformance.find((p) => p.studentId === peer.id);
+        const totalScore = stats?._sum.score || 0;
+        const maxScore = stats?._sum.totalMarks || 0;
+        const percentage = maxScore > 0 ? (totalScore / maxScore) * 100 : 0;
+        return {
+          studentId: peer.id,
+          classId: peer.classId,
+          percentage: percentage,
+        };
+      });
+      leaderboard.sort((a, b) => b.percentage - a.percentage);
+      const schoolRankIndex = leaderboard.findIndex(
+        (p) => p.studentId === studentId
+      );
+      rankStats.school = schoolRankIndex !== -1 ? schoolRankIndex + 1 : 0;
+      const classLeaderboard = leaderboard.filter(
+        (p) => p.classId === student.classId
+      );
+      const classRankIndex = classLeaderboard.findIndex(
+        (p) => p.studentId === studentId
+      );
+      rankStats.class = classRankIndex !== -1 ? classRankIndex + 1 : 0;
+    }
     const {
       FeeAdjustment,
       feeRecords,
@@ -2857,32 +2903,26 @@ export const getStudentProfileDetails = async (
       ...studentData
     } = student;
 
-    // --- Attendance Stats ---
     const present = attendanceRecords.filter(
       (a) => a.status === "Present"
     ).length;
     const totalDays = attendanceRecords.length;
 
-    // --- Fee Stats ---
-    const feeRecord = feeRecords[0]; // Assuming one active fee record per session
+    const feeRecord = feeRecords[0];
     const totalPaid =
       feeRecord?.payments.reduce((acc, p) => acc + p.amount, 0) || 0;
 
-    // Merge Payments and Adjustments for History
     const feeHistory = [
       ...(feeRecord?.payments || []),
       ...(FeeAdjustment || []),
     ];
 
-    // Sort Fee History by date (handling different field names: paidDate vs date)
     feeHistory.sort((a, b) => {
       const dateA = "paidDate" in a ? a.paidDate : a.date;
       const dateB = "paidDate" in b ? b.paidDate : b.date;
       return new Date(dateA).getTime() - new Date(dateB).getTime();
     });
 
-    // --- Skills ---
-    // Convert JSON object { "Math": 80, "Art": 90 } to Array [{ skill: "Math", value: 80 }, ...]
     let formattedSkills: { skill: string; value: number }[] = [];
     if (skillAssessments.length > 0 && skillAssessments[0].skills) {
       const skillObj = skillAssessments[0].skills as Record<string, number>;
@@ -2892,8 +2932,6 @@ export const getStudentProfileDetails = async (
       }));
     }
 
-    // --- Recent Activity ---
-    // Combine recent attendance and submissions for a timeline
     const recentActivity = [
       ...attendanceRecords.slice(0, 3).map((a) => ({
         date: a.date.toISOString().split("T")[0],
@@ -2905,40 +2943,32 @@ export const getStudentProfileDetails = async (
       })),
     ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-    // 4. Construct the Final Profile Object
     const profile = {
       student: studentData,
       studentUser: studentUser,
       parent: parent,
-
       classInfo: student.class
         ? `Grade ${student.class.gradeLevel}-${student.class.section}`
         : "Unassigned",
-
       attendance: {
         present,
         absent: totalDays - present,
         total: totalDays,
       },
       attendanceHistory: attendanceRecords,
-
       feeStatus: {
         total: feeRecord?.totalAmount || 0,
         paid: totalPaid,
         dueDate: feeRecord?.dueDate,
       },
       feeHistory,
-
       grades: grades.map((g) => ({
         ...g,
         courseName: g.course.name,
       })),
-
       skills: formattedSkills,
-
       recentActivity: recentActivity,
-
-      rank: { class: 0, school: 0 }, // Placeholder: Rank calc is expensive, usually done via a separate job
+      rank: rankStats,
     };
 
     res.status(200).json(profile);
