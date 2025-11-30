@@ -67,6 +67,8 @@ router.get(
   "/branches/:branchId/fee-templates",
   principalController.getFeeTemplatesByBranch
 );
+router.get("/students/:id/profile", principalController.getStudentProfileDetails);
+
 
 // --- Academic Overview ---
 router.get("/class-view", principalController.getPrincipalClassView);
