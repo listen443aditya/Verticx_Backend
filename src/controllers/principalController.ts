@@ -2469,38 +2469,72 @@ export const clearSmsHistory = async (req: Request, res: Response) => {
   }
 };
 
+
 export const createSchoolEvent = async (req: Request, res: Response) => {
   try {
-    if (!req.user?.branchId) {
+    const branchId = await getPrincipalAuth(req);
+    
+    if (!branchId) {
       return res
         .status(401)
         .json({ message: "Authentication required with a valid branch." });
     }
-    const staff = await principalApiService.getStaffByBranch(req.user.branchId);
-    // FIX: Added explicit type for find parameter
-    const principal = staff.find((u: { id: string }) => u.id === req.user!.id);
 
-    if (!principal || !principal.name) {
-      return res
-        .status(404)
-        .json({ message: "Authenticated user not found or name is missing." });
+    const user = await prisma.user.findUnique({
+      where: { id: req.user?.id },
+      select: { name: true }
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
     }
 
-    const eventData = {
-      ...req.body,
-      branchId: req.user.branchId,
-      createdBy: principal.name,
-    };
-    await principalApiService.createSchoolEvent(eventData);
+    const { name, date, description, location, category, audience } = req.body;
+
+    await prisma.schoolEvent.create({
+      data: {
+        branchId: branchId,
+        name,
+        date: new Date(date), 
+        description,
+        location,
+        category,
+        audience: audience || ["All"], 
+        createdBy: user.name,
+        status: "Approved", 
+      },
+    });
+
     res.status(201).json({ message: "Event created." });
   } catch (error: any) {
+    console.error("Create Event Error:", error);
     res.status(500).json({ message: error.message });
   }
 };
 
 export const updateSchoolEvent = async (req: Request, res: Response) => {
   try {
-    await principalApiService.updateSchoolEvent(req.params.id, req.body);
+    const branchId = await getPrincipalAuth(req);
+    const { id } = req.params;
+
+    if (!branchId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    // 1. FIX: Use Prisma to update directly
+    // Security: Ensure event belongs to this branch
+    const result = await prisma.schoolEvent.updateMany({
+      where: {
+        id: id,
+        branchId: branchId, 
+      },
+      data: req.body, // Update with whatever fields were sent
+    });
+
+    if (result.count === 0) {
+      return res.status(404).json({ message: "Event not found or access denied." });
+    }
+
     res.status(200).json({ message: "Event updated." });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
