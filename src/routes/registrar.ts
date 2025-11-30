@@ -20,6 +20,7 @@ router.get(
   registrarController.getMyLeaveApplications
 );
 router.post("/leaves/applications", registrarController.createLeaveApplication);
+router.post("/communication/sms", registrarController.sendSmsToStudents);
 
 // --- REGISTRAR-ONLY SECURITY GATE ---
 // All routes BELOW this line are for Registrars ONLY.
@@ -268,6 +269,5 @@ router.post(
   registrarController.sendAnnouncement
 );
 router.get("/communication/sms-history", registrarController.getSmsHistory);
-router.post("/communication/sms", registrarController.sendSmsToStudents);
 
 export default router;
