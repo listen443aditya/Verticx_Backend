@@ -1237,12 +1237,48 @@ export const getAttendanceRecordsForPrincipal = async (
 
 
 
-export const updateTeacher = async (req: Request, res: Response) => {
+export const updateTeacher = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
-    await principalApiService.updateTeacher(req.params.id, req.body);
-    res.status(200).json({ message: "Teacher profile updated." });
+    const branchId = await getPrincipalAuth(req);
+    const { id } = req.params; 
+    const updates = req.body;
+    if (!branchId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const teacher = await prisma.teacher.findFirst({
+      where: { id, branchId },
+      select: { userId: true },
+    });
+    if (!teacher) {
+      return res
+        .status(404)
+        .json({ message: "Teacher not found in your branch." });
+    }
+    await prisma.$transaction(async (tx) => {
+      await tx.teacher.update({
+        where: { id },
+        data: updates,
+      });
+      const userUpdates: any = {};
+      if (updates.salary !== undefined)
+        userUpdates.salary = Number(updates.salary);
+      if (updates.phone) userUpdates.phone = updates.phone;
+      if (updates.name) userUpdates.name = updates.name;
+
+      if (Object.keys(userUpdates).length > 0) {
+        await tx.user.update({
+          where: { id: teacher.userId },
+          data: userUpdates,
+        });
+      }
+    });
+    res.status(200).json({ message: "Teacher profile updated successfully." });
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 };
 
