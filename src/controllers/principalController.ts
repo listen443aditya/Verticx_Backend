@@ -2778,15 +2778,13 @@ export const getStaffMemberAttendance = async (
 export const resetUserPassword = async (req: Request, res: Response) => {
   try {
     const branchId = await getPrincipalAuth(req);
-    const { id } = req.params; // This is the User ID (UUID)
-
+    const { id } = req.params;
     if (!branchId) {
       return res.status(401).json({ message: "Unauthorized." });
     }
     const targetUser = await prisma.user.findFirst({
       where: { id, branchId },
     });
-
     if (!targetUser) {
       return res
         .status(404)
