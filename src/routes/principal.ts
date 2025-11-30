@@ -182,6 +182,11 @@ router.patch(
   "/events/:eventId/status",
   principalController.updateSchoolEventStatus
 );
+router.delete(
+  "/announcements/clear",
+  principalController.clearAnnouncementsHistory
+);
+router.delete("/sms/clear", principalController.clearSmsHistory);
 
 // --- Admin Communication ---
 router.post("/queries/admin", principalController.raiseQueryToAdmin);

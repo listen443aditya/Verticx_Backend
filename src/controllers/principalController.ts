@@ -2467,24 +2467,17 @@ export const sendSmsToStudents = async (req: Request, res: Response) => {
     res.status(500).json({ message: error.message });
   }
 };
-
-export const clearAnnouncementsHistory = async (
-  req: Request,
-  res: Response
-) => {
+export const clearAnnouncementsHistory = async (req: Request, res: Response) => {
   try {
-    if (!req.user?.branchId) {
-      return res
-        .status(401)
-        .json({ message: "Authentication required with a valid branch." });
+    const branchId = await getPrincipalAuth(req);
+    if (!branchId) {
+      return res.status(401).json({ message: "Unauthorized" });
     }
-    const { fromDate, toDate } = req.body;
-    await principalApiService.clearAnnouncementsHistory(
-      req.user.branchId,
-      fromDate,
-      toDate
-    );
-    res.status(200).json({ message: "History cleared." });
+    await prisma.announcement.deleteMany({
+      where: { branchId },
+    });
+
+    res.status(200).json({ message: "Announcement history cleared." });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
@@ -2492,18 +2485,15 @@ export const clearAnnouncementsHistory = async (
 
 export const clearSmsHistory = async (req: Request, res: Response) => {
   try {
-    if (!req.user?.branchId) {
-      return res
-        .status(401)
-        .json({ message: "Authentication required with a valid branch." });
+    const branchId = await getPrincipalAuth(req);
+    if (!branchId) {
+      return res.status(401).json({ message: "Unauthorized" });
     }
-    const { fromDate, toDate } = req.body;
-    await principalApiService.clearSmsHistory(
-      req.user.branchId,
-      fromDate,
-      toDate
-    );
-    res.status(200).json({ message: "History cleared." });
+    await prisma.smsMessage.deleteMany({
+      where: { branchId },
+    });
+
+    res.status(200).json({ message: "SMS history cleared." });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
