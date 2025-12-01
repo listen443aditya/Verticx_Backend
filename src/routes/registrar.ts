@@ -82,7 +82,8 @@ router.post("/documents", registrarController.createSchoolDocument);
 // --- Class, Subject & Timetable Management ---
 router.get("/classes", registrarController.getSchoolClassesByBranch);
 router.post("/classes", registrarController.createSchoolClass);
-router.patch("/classes/:id", registrarController.updateSchoolClass);
+// router.patch("/classes/:id", registrarController.updateSchoolClass);
+router.put("/classes/:id", registrarController.updateSchoolClass);
 router.delete("/classes/:id", registrarController.deleteSchoolClass);
 router.put("/classes/:id/subjects", registrarController.updateClassSubjects);
 router.post("/classes/:id/students", registrarController.assignStudentsToClass);
