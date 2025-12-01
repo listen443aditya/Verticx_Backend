@@ -447,29 +447,6 @@ export const payStudentFees = async (
   }
 };
 
-export const initiateRazorpayPayment = async (req: Request, res: Response) => {
-  // 1. Get student and branch
-  const { studentId } = await getStudentAuth(req);
-  const student = await prisma.student.findUnique({
-    where: { id: studentId },
-    include: { branch: true } // Fetch branch details
-  });
-
-  // 2. Get Branch-Specific Keys
-  const keyId = student?.branch.paymentGatewayPublicKey;
-  const keySecret = student?.branch.paymentGatewaySecretKey;
-
-  if (!keyId || !keySecret) {
-    return res.status(400).json({ message: "Online payments not configured for this school." });
-  }
-
-  // 3. Create Razorpay Order using THESE keys
-  const razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret });
-  const order = await razorpay.orders.create({ ... });
-
-  res.json(order);
-};
-
 export const getStudentAttendance = async (
   req: Request,
   res: Response,
