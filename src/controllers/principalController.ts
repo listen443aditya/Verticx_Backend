@@ -2316,11 +2316,30 @@ export const getComplaintsAboutStudentsByBranch = async (
         .status(401)
         .json({ message: "Authentication required with a valid branch." });
     }
-    const complaints =
-      await principalApiService.getComplaintsAboutStudentsByBranch(
-        req.user.branchId
-      );
-    res.status(200).json(complaints);
+    const complaints = await prisma.complaint.findMany({
+      where: {
+        branchId: req.user.branchId,
+        studentId: { not: null }, 
+      },
+      include: {
+        student: {
+          select: {
+            name: true,
+            class: { select: { gradeLevel: true, section: true } },
+          },
+        },
+      },
+      orderBy: { submittedAt: "desc" },
+    });
+    const formattedComplaints = complaints.map((c) => ({
+      ...c,
+      studentName: c.student?.name || "Unknown Student",
+      studentClass: c.student?.class
+        ? `Grade ${c.student.class.gradeLevel}-${c.student.class.section}`
+        : "N/A",
+    }));
+
+    res.status(200).json(formattedComplaints);
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
@@ -2562,15 +2581,12 @@ export const updateSchoolEvent = async (req: Request, res: Response) => {
     if (!branchId) {
       return res.status(401).json({ message: "Unauthorized" });
     }
-
-    // 1. FIX: Use Prisma to update directly
-    // Security: Ensure event belongs to this branch
     const result = await prisma.schoolEvent.updateMany({
       where: {
         id: id,
         branchId: branchId, 
       },
-      data: req.body, // Update with whatever fields were sent
+      data: req.body,
     });
 
     if (result.count === 0) {
