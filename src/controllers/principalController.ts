@@ -3131,3 +3131,39 @@ export const resetUserPassword = async (req: Request, res: Response) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+
+export const clearTeacherComplaints = async (req: Request, res: Response) => {
+  try {
+    const branchId = await getPrincipalAuth(req);
+    if (!branchId) return res.status(401).json({ message: "Unauthorized" });
+
+    await prisma.complaint.deleteMany({
+      where: {
+        branchId,
+        raisedByRole: "Student",
+      },
+    });
+
+    res.status(200).json({ message: "Teacher complaints history cleared." });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const clearStudentComplaints = async (req: Request, res: Response) => {
+  try {
+    const branchId = await getPrincipalAuth(req);
+    if (!branchId) return res.status(401).json({ message: "Unauthorized" });
+    await prisma.complaint.deleteMany({
+      where: {
+        branchId,
+        studentId: { not: null },
+      },
+    });
+
+    res.status(200).json({ message: "Student discipline log cleared." });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};

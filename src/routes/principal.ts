@@ -169,6 +169,14 @@ router.get(
   "/suspensions",
   principalController.getSuspensionRecordsForPrincipal
 );
+router.delete(
+  "/complaints/teacher/clear",
+  principalController.clearTeacherComplaints
+);
+router.delete(
+  "/complaints/student/clear",
+  principalController.clearStudentComplaints
+);
 // --- Communication & Events ---
 router.get("/announcements", principalController.getAnnouncements);
 router.post("/announcements", principalController.sendAnnouncement);
