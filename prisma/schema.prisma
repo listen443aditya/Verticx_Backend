@@ -155,8 +155,20 @@ model Branch {
   location       String
   principalId    String? @unique // A branch has only one principal.
   schoolDocuments   SchoolDocument[]
+  vicePrincipalName     String?
+  logoUrl               String?
+  principalPhotoUrl     String?
+  vicePrincipalPhotoUrl String?
 
   status BranchStatus @default(pending)
+
+  bankAccountNumber           String?
+  bankIfscCode                String?
+  bankAccountHolderName       String?
+  bankBranchName              String?
+  paymentGatewayPublicKey     String?
+  paymentGatewaySecretKey     String?
+  paymentGatewayWebhookSecret String?
 
   email                    String?
   helplineNumber           String?

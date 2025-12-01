@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import prisma from "../prisma";
-import { Assignment, Prisma } from "@prisma/client";
+import { Assignment, Prisma,Branch } from "@prisma/client";
 
 // --- HELPER FUNCTION ---
 // Get the Student ID, User ID, Branch ID, and Class ID from the authenticated user
@@ -399,24 +399,32 @@ export const payStudentFees = async (
 ) => {
   try {
     const { studentId } = await getStudentAuth(req);
-    if (!studentId) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
     const { amount, details } = req.body;
 
-    // This function would normally initiate a payment with Stripe, etc.
-    // For now, it will just log a manual payment, as that's all Prisma can do.
-
+    if (!studentId) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
     const student = await prisma.student.findUnique({
       where: { id: studentId },
-      select: { feeRecords: { orderBy: { dueDate: "asc" }, take: 1 } },
+      include: {
+        branch: true, // Fetch branch to check keys
+        feeRecords: {
+          orderBy: { dueDate: "asc" },
+          take: 1,
+        },
+      },
     });
 
     if (!student || !student.feeRecords.length) {
       return res.status(404).json({ message: "No fee record found." });
     }
+    const hasOnlinePaymentSetup =
+      student.branch.paymentGatewayPublicKey &&
+      student.branch.paymentGatewaySecretKey;
+
     const feeRecordId = student.feeRecords[0].id;
 
+    // FIX 4: Transaction
     await prisma.$transaction([
       prisma.feePayment.create({
         data: {
@@ -425,7 +433,7 @@ export const payStudentFees = async (
           amount: parseFloat(amount),
           paidDate: new Date(),
           transactionId: `MANUAL_${Date.now()}`,
-          details: details || "Manual Payment by Student",
+          details: details || (hasOnlinePaymentSetup ? "Online Payment (Recorded)" : "Manual Payment by Student"),
         },
       }),
       prisma.feeRecord.update({
@@ -437,6 +445,29 @@ export const payStudentFees = async (
   } catch (error: any) {
     next(error);
   }
+};
+
+export const initiateRazorpayPayment = async (req: Request, res: Response) => {
+  // 1. Get student and branch
+  const { studentId } = await getStudentAuth(req);
+  const student = await prisma.student.findUnique({
+    where: { id: studentId },
+    include: { branch: true } // Fetch branch details
+  });
+
+  // 2. Get Branch-Specific Keys
+  const keyId = student?.branch.paymentGatewayPublicKey;
+  const keySecret = student?.branch.paymentGatewaySecretKey;
+
+  if (!keyId || !keySecret) {
+    return res.status(400).json({ message: "Online payments not configured for this school." });
+  }
+
+  // 3. Create Razorpay Order using THESE keys
+  const razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret });
+  const order = await razorpay.orders.create({ ... });
+
+  res.json(order);
 };
 
 export const getStudentAttendance = async (
