@@ -832,64 +832,64 @@ export class PrincipalApiService extends BaseApiService {
     }
   }
 
-  async getPrincipalClassView(branchId: string): Promise<any[]> {
-    const classes = (db.schoolClasses as SchoolClass[]).filter(
-      (c) => c.branchId === branchId
-    );
-    const teachers = (db.teachers as Teacher[]).filter(
-      (t) => t.branchId === branchId
-    );
-    const subjects = (db.subjects as Subject[]).filter(
-      (s) => s.branchId === branchId
-    );
-    const students = (db.students as Student[]).filter(
-      (s) => s.branchId === branchId
-    );
-    return classes.map((c) => {
-      const classStudentIds = new Set(c.studentIds);
-      let totalScore = 0;
-      let studentCountWithGrades = 0;
-      for (const studentId of classStudentIds) {
-        const avg = this.calculateStudentAverage(studentId);
-        if (avg > 0) {
-          totalScore += avg;
-          studentCountWithGrades++;
-        }
-      }
-      const avgPerformance =
-        studentCountWithGrades > 0 ? totalScore / studentCountWithGrades : 0;
-      const classAttendanceRecords = (
-        db.attendance as AttendanceRecord[]
-      ).filter((a) => classStudentIds.has(a.studentId));
-      const totalAttendanceRecords = classAttendanceRecords.length;
-      const presentRecords = classAttendanceRecords.filter(
-        (a) => a.status === "Present" || a.status === "Tardy"
-      ).length;
-      const avgAttendance =
-        totalAttendanceRecords > 0
-          ? (presentRecords / totalAttendanceRecords) * 100
-          : 100;
-      const classLectures = (db.lectures as Lecture[]).filter(
-        (l) => l.classId === c.id
-      );
-      const totalLectures = classLectures.length;
-      const completedLectures = classLectures.filter(
-        (l) => l.status === "completed"
-      ).length;
-      const syllabusCompletion =
-        totalLectures > 0 ? (completedLectures / totalLectures) * 100 : 0;
-      return {
-        ...c,
-        students: students.filter((s) => classStudentIds.has(s.id)),
-        stats: { avgAttendance, avgPerformance, syllabusCompletion },
-        teachers: c.subjectIds.map((sid) => {
-          const sub = subjects.find((s) => s.id === sid);
-          const teacher = teachers.find((t) => t.id === sub?.teacherId);
-          return { name: teacher?.name || "N/A", subject: sub?.name || "N/A" };
-        }),
-      };
-    });
-  }
+  // async getPrincipalClassView(branchId: string): Promise<any[]> {
+  //   const classes = (db.schoolClasses as SchoolClass[]).filter(
+  //     (c) => c.branchId === branchId
+  //   );
+  //   const teachers = (db.teachers as Teacher[]).filter(
+  //     (t) => t.branchId === branchId
+  //   );
+  //   const subjects = (db.subjects as Subject[]).filter(
+  //     (s) => s.branchId === branchId
+  //   );
+  //   const students = (db.students as Student[]).filter(
+  //     (s) => s.branchId === branchId
+  //   );
+  //   return classes.map((c) => {
+  //     const classStudentIds = new Set(c.studentIds);
+  //     let totalScore = 0;
+  //     let studentCountWithGrades = 0;
+  //     for (const studentId of classStudentIds) {
+  //       const avg = this.calculateStudentAverage(studentId);
+  //       if (avg > 0) {
+  //         totalScore += avg;
+  //         studentCountWithGrades++;
+  //       }
+  //     }
+  //     const avgPerformance =
+  //       studentCountWithGrades > 0 ? totalScore / studentCountWithGrades : 0;
+  //     const classAttendanceRecords = (
+  //       db.attendance as AttendanceRecord[]
+  //     ).filter((a) => classStudentIds.has(a.studentId));
+  //     const totalAttendanceRecords = classAttendanceRecords.length;
+  //     const presentRecords = classAttendanceRecords.filter(
+  //       (a) => a.status === "Present" || a.status === "Tardy"
+  //     ).length;
+  //     const avgAttendance =
+  //       totalAttendanceRecords > 0
+  //         ? (presentRecords / totalAttendanceRecords) * 100
+  //         : 100;
+  //     const classLectures = (db.lectures as Lecture[]).filter(
+  //       (l) => l.classId === c.id
+  //     );
+  //     const totalLectures = classLectures.length;
+  //     const completedLectures = classLectures.filter(
+  //       (l) => l.status === "completed"
+  //     ).length;
+  //     const syllabusCompletion =
+  //       totalLectures > 0 ? (completedLectures / totalLectures) * 100 : 0;
+  //     return {
+  //       ...c,
+  //       students: students.filter((s) => classStudentIds.has(s.id)),
+  //       stats: { avgAttendance, avgPerformance, syllabusCompletion },
+  //       teachers: c.subjectIds.map((sid) => {
+  //         const sub = subjects.find((s) => s.id === sid);
+  //         const teacher = teachers.find((t) => t.id === sub?.teacherId);
+  //         return { name: teacher?.name || "N/A", subject: sub?.name || "N/A" };
+  //       }),
+  //     };
+  //   });
+  // }
 
   async getFeeRectificationRequestsByBranch(
     branchId: string
