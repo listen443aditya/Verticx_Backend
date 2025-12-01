@@ -2,9 +2,9 @@
 import { db, saveDb } from './database';
 import type { User, Teacher, FacultyApplication, TeacherProfile, FeeRecord, SchoolClass, Subject, Branch, PrincipalDashboardData, SchoolEvent, FeeRectificationRequest, TeacherAttendanceRectificationRequest, TeacherAttendanceRecord, LeaveApplication, ComplaintAboutStudent, TeacherComplaint, FeeAdjustment, Student, Announcement, SmsMessage, Examination, StudentWithExamMarks, SuspensionRecord, AttendanceRecord, ExamMark, PrincipalAttendanceOverview, TeacherAttendanceStatus, PrincipalFinancialsOverview, ClassFeeSummary, ManualExpense, PayrollStaffDetails, ManualSalaryAdjustment, PayrollRecord, Grade, Lecture, UserRole, FeeTemplate, Course, RectificationRequest, Hostel, ErpPayment, PrincipalQuery, ErpFinancials, FeePayment } from '../types/api';
 import { BaseApiService, generateUniqueId } from './baseApiService';
-import { geminiService } from './geminiService';
-import { RegistrarApiService } from './registrarApiService';
 import prisma from "../prisma";
+import type { Prisma } from "@prisma/client";
+
 
 
 export class PrincipalApiService extends BaseApiService {
@@ -469,50 +469,65 @@ export class PrincipalApiService extends BaseApiService {
     return staffDetails as (User & Partial<Teacher>)[];
   }
 
-  async approveFacultyApplication(
-    appId: string,
-    salary: number,
-    reviewedById: string
-  ): Promise<{ credentials: { id: string; password: string } }> {
-    const app = (db.facultyApplications as FacultyApplication[]).find(
-      (a) => a.id === appId
-    );
-    if (!app) throw new Error("Application not found");
-    const newTeacherId = generateUniqueId("teacher");
-    const newPassword = this.generatePassword();
-    const newTeacher: Teacher = {
-      id: newTeacherId,
-      branchId: app.branchId,
-      name: app.name,
-      subjectIds: app.subjectIds,
-      qualification: app.qualification,
-      doj: app.doj,
-      gender: app.gender,
-      email: app.email || `${newTeacherId}@verticx.com`,
-      phone: app.phone,
-      status: "active",
-      salary,
-      leaveBalances: { sick: 10, casual: 5, earned: 0 },
-    };
-    const newUser: User = {
-      id: newTeacherId,
-      name: app.name,
-      email: newTeacher.email,
-      role: "Teacher",
-      password: newPassword,
-      branchId: app.branchId,
-      salary: salary,
-      leaveBalances: { sick: 12, casual: 10, earned: 15 },
-      status: "active",
-    };
-    (db.teachers as Teacher[]).push(newTeacher);
-    (db.users as User[]).push(newUser);
-    app.status = "approved";
-    app.reviewedBy = this.getUserById(reviewedById)?.name;
-    app.reviewedAt = new Date();
-    saveDb();
-    return { credentials: { id: newTeacherId, password: newPassword } };
-  }
+  // async approveFacultyApplication(
+  //   appId: string,
+  //   salary: number,
+  //   reviewedById: string
+  // ): Promise<{ credentials: { id: string; password: string } }> {
+  //   const app = (db.facultyApplications as FacultyApplication[]).find(
+  //     (a) => a.id === appId
+  //   );
+  //   if (!app) throw new Error("Application not found");
+  //   const newTeacherId = generateUniqueId("teacher");
+  //   const newPassword = this.generatePassword();
+  //   const newTeacher: Teacher = {
+  //     id: newTeacherId,
+  //     branchId: app.branchId,
+  //     name: app.name,
+  //     subjectIds: app.subjectIds,
+  //     qualification: app.qualification,
+  //     doj: app.doj,
+  //     gender: app.gender,
+  //     email: app.email || `${newTeacherId}@verticx.com`,
+  //     phone: app.phone,
+  //     status: "active",
+  //     salary,
+  //     leaveBalances: { sick: 10, casual: 5, earned: 0 },
+  //   };
+  //   const newUser: User = {
+  //     id: newTeacherId,
+  //     name: app.name,
+  //     email: newTeacher.email,
+  //     role: "Teacher",
+  //     password: newPassword,
+  //     branchId: app.branchId,
+  //     salary: salary,
+  //     leaveBalances: { sick: 12, casual: 10, earned: 15 },
+  //     status: "active",
+  //   };
+  //   (db.teachers as Teacher[]).push(newTeacher);
+  //   (db.users as User[]).push(newUser);
+  //   app.status = "approved";
+  //   app.reviewedBy = this.getUserById(reviewedById)?.name;
+  //   app.reviewedAt = new Date();
+  //   saveDb();
+  //   return { credentials: { id: newTeacherId, password: newPassword } };
+  // }
+
+  // async approveFacultyApplication(
+  //   applicationId: string,
+  //   salary?: number
+  // ): Promise<{ credentials: { userId: string; password: string } }> {
+  //   const { data } = await baseApi.post<{
+  //     credentials: { userId: string; password: string };
+  //   }>(
+  //     `/principal/faculty-applications/${encodeURIComponent(
+  //       applicationId
+  //     )}/approve`,
+  //     { salary }
+  //   );
+  //   return data;
+  // }
 
   async rejectFacultyApplication(
     appId: string,
