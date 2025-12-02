@@ -1353,19 +1353,18 @@ export const resetStudentAndParentPasswords = async (
   next: NextFunction
 ) => {
   const branchId = getRegistrarBranchId(req);
-  const { id } = req.params; // This is the Student ID
-console.log("Backend received reset request for:", id);
+  const { studentId } = req.params;
+
   if (!branchId) {
     return res.status(401).json({ message: "Authentication required." });
   }
 
   try {
-    // 1. Find the student, their linked User record, and their parent's User record
     const student = await prisma.student.findFirst({
-      where: { id, branchId },
+      where: { id: studentId, branchId }, 
       include: {
-        parent: true, // This is the parent's User record
-        user: true, // This is the student's own User record (from our previous schema fix)
+        parent: true,
+        user: true,
       },
     });
 
@@ -1374,49 +1373,37 @@ console.log("Backend received reset request for:", id);
         .status(404)
         .json({ message: "Student not found in your branch." });
     }
-    if (!student.parent) {
+    if (!student.parent || !student.user) {
       return res
         .status(404)
-        .json({ message: "Parent account not found for this student." });
-    }
-    if (!student.user) {
-      return res
-        .status(404)
-        .json({ message: "Student user account not found for this student." });
+        .json({ message: "Student or Parent user account missing." });
     }
 
-    // 2. Generate new passwords for BOTH
     const parentPassword = generatePassword();
     const studentPassword = generatePassword();
-
-    // 3. Update both passwords in a transaction
     await prisma.$transaction([
-      // Update parent's password
       prisma.user.update({
         where: { id: student.parentId! },
         data: {
           passwordHash: await bcrypt.hash(parentPassword, 10),
         },
       }),
-      // Update student's password
       prisma.user.update({
-        where: { id: student.userId! }, // Use the student's user record ID
+        where: { id: student.userId! },
         data: {
           passwordHash: await bcrypt.hash(studentPassword, 10),
         },
       }),
     ]);
 
-    // 4. Send back the response in the format the modal expects
     res.status(200).json({
       message: "Student and parent passwords have been reset.",
-      // This is the structure the 'ResetCredentialsModal' component expects
       student: {
-        id: student.user.userId, // Send human-readable student ID
+        id: student.user.userId,
         pass: studentPassword,
       },
       parent: {
-        id: student.parent.userId, // Send human-readable parent ID
+        id: student.parent.userId,
         pass: parentPassword,
       },
     });
