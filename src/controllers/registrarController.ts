@@ -4231,21 +4231,36 @@ export const getStudentLeaveApplications = async (
       },
       include: {
         applicant: {
-          select: { name: true },
+          select: {
+            name: true,
+            userId: true, 
+            studentProfile: {
+              select: {
+                class: { select: { gradeLevel: true, section: true } }, 
+              },
+            },
+          },
         },
       },
       orderBy: { fromDate: "desc" },
     });
-    const formatted = applications.map((app) => ({
-      id: app.id,
-      applicantName: app.applicant.name,
-      startDate: app.fromDate, 
-      endDate: app.toDate,     
-      leaveType: app.leaveType,
-      reason: app.reason,
-      status: app.status,
-      isHalfDay: app.isHalfDay,
-    }));
+    const formatted = applications.map((app) => {
+      const sClass = app.applicant.studentProfile?.class;
+      return {
+        id: app.id,
+        applicantName: app.applicant.name,
+        studentId: app.applicant.userId, // Pass the ID
+        studentClass: sClass
+          ? `Grade ${sClass.gradeLevel}-${sClass.section}`
+          : "N/A", // Pass the Class
+        startDate: app.fromDate,
+        endDate: app.toDate,
+        leaveType: app.leaveType,
+        reason: app.reason,
+        status: app.status,
+        isHalfDay: app.isHalfDay,
+      };
+    });
 
     res.status(200).json(formatted);
   } catch (error) {
