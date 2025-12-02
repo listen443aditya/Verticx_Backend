@@ -4224,21 +4224,30 @@ export const getStudentLeaveApplications = async (
   try {
     const applications = await prisma.leaveApplication.findMany({
       where: {
-        // FIX: Query through the 'applicant' relation to filter by branch and role.
         applicant: {
           branchId: branchId,
-          role: "Student", // Specifically find applications from students
+          role: "Student",
         },
       },
       include: {
-        // FIX: Include the 'applicant's' details instead of the old 'teacher' relation.
         applicant: {
           select: { name: true },
         },
       },
       orderBy: { fromDate: "desc" },
     });
-    res.status(200).json(applications);
+    const formatted = applications.map((app) => ({
+      id: app.id,
+      applicantName: app.applicant.name,
+      startDate: app.fromDate, 
+      endDate: app.toDate,     
+      leaveType: app.leaveType,
+      reason: app.reason,
+      status: app.status,
+      isHalfDay: app.isHalfDay,
+    }));
+
+    res.status(200).json(formatted);
   } catch (error) {
     next(error);
   }
