@@ -2997,7 +2997,10 @@ export const getStudentProfileDetails = async (
     ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     const profile = {
-      student: studentData,
+      student: {
+        ...studentData,
+        userId: studentUser?.userId || "N/A",
+      },
       userId: studentUser?.userId || "N/A",
       studentUser: studentUser,
       parent: parent,
