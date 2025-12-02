@@ -4485,158 +4485,158 @@ export const getStudentProfileDetails = async (
     return res.status(401).json({ message: "Authentication required." });
   }
 
-  try {
-    const student = await prisma.student.findFirst({
-      where: { id: studentId, branchId: branchId },
-      include: {
-        parent: true,
-        user: true,
-        class: {
-          select: {
-            gradeLevel: true,
-            section: true,
-            feeTemplate: { select: { amount: true } },
+try {
+  const student = await prisma.student.findFirst({
+    where: { id: studentId, branchId: branchId },
+    include: {
+      parent: true,
+      user: true,
+      class: {
+        select: {
+          gradeLevel: true,
+          section: true,
+          feeTemplate: {
+            select: {
+              amount: true,
+              monthlyBreakdown: true,
+            },
           },
         },
-        feeRecords: { include: { payments: true } },
-        attendanceRecords: { orderBy: { date: "desc" }, take: 90 },
-        suspensionRecords: {
-          where: { endDate: { gte: new Date() } },
-          orderBy: { endDate: "desc" },
-        },
-        examMarks: {
-          include: {
-            examSchedule: { include: { subject: true } },
-          },
-        },
-        FeeAdjustment: { orderBy: { date: "desc" } },
       },
-    });
+      feeRecords: { include: { payments: true } },
+      attendanceRecords: { orderBy: { date: "desc" }, take: 90 },
+      suspensionRecords: {
+        where: { endDate: { gte: new Date() } },
+        orderBy: { endDate: "desc" },
+      },
+      examMarks: { include: { examSchedule: { include: { subject: true } } } },
+      FeeAdjustment: { orderBy: { date: "desc" } },
+    },
+  });
 
-    if (!student) {
-      return res
-        .status(404)
-        .json({ message: "Student not found in your branch." });
+  if (!student) {
+    return res
+      .status(404)
+      .json({ message: "Student not found in your branch." });
+  }
+
+  const attendanceTotal = await prisma.attendanceRecord.count({
+    where: { studentId: studentId },
+  });
+  const attendancePresent = await prisma.attendanceRecord.count({
+    where: { studentId: studentId, status: "Present" },
+  });
+  const attendance = {
+    total: attendanceTotal,
+    present: attendancePresent,
+    percentage:
+      attendanceTotal > 0 ? (attendancePresent / attendanceTotal) * 100 : 100,
+  };
+  const activeFeeRecord = student.feeRecords[0];
+  const templateAmount = student.class?.feeTemplate?.amount || 0;
+
+  const baseTotal = activeFeeRecord
+    ? activeFeeRecord.totalAmount
+    : templateAmount;
+  const paidAmount = activeFeeRecord ? activeFeeRecord.paidAmount : 0;
+  const adjustments = student.FeeAdjustment || [];
+  const totalAdjustments = adjustments.reduce((acc, adj) => {
+    return adj.type === "charge" ? acc + adj.amount : acc - adj.amount;
+  }, 0);
+
+  const netTotal = baseTotal + totalAdjustments;
+  const pending = netTotal - paidAmount;
+
+  const feeStatus = {
+    total: netTotal,
+    paid: paidAmount,
+    pending: pending,
+  };
+
+  type PaymentItem = FeePayment & { type: "payment" };
+  type AdjustmentItem = FeeAdjustment & { type: "adjustment" };
+  type HistoryItem = PaymentItem | AdjustmentItem;
+
+  const paymentHistory = student.feeRecords
+    .flatMap((fr) => fr.payments)
+    .map((p) => ({ ...p, itemType: "payment" as const }));
+  const adjustmentHistory = (student.FeeAdjustment || []).map((adj) => ({
+    ...adj,
+    itemType: "adjustment" as const,
+  }));
+
+  const feeHistory = [...paymentHistory, ...adjustmentHistory].sort((a, b) => {
+    let dateA: Date | undefined | null;
+    let dateB: Date | undefined | null;
+    if (a.itemType === "payment") {
+      dateA = a.paidDate;
+    } else {
+      dateA = a.date;
     }
 
-    const attendanceTotal = await prisma.attendanceRecord.count({
-      where: { studentId: studentId },
-    });
-    const attendancePresent = await prisma.attendanceRecord.count({
-      where: { studentId: studentId, status: "Present" },
-    });
-    const attendance = {
-      total: attendanceTotal,
-      present: attendancePresent,
-      percentage:
-        attendanceTotal > 0 ? (attendancePresent / attendanceTotal) * 100 : 100,
-    };
-    const activeFeeRecord = student.feeRecords[0];
-    const templateAmount = student.class?.feeTemplate?.amount || 0;
+    if (b.itemType === "payment") {
+      dateB = b.paidDate;
+    } else {
+      dateB = b.date;
+    }
+    const timeA = dateA ? new Date(dateA).getTime() : 0;
+    const timeB = dateB ? new Date(dateB).getTime() : 0;
+    return timeB - timeA;
+  });
 
-    const baseTotal = activeFeeRecord
-      ? activeFeeRecord.totalAmount
-      : templateAmount;
-    const paidAmount = activeFeeRecord ? activeFeeRecord.paidAmount : 0;
-    const adjustments = student.FeeAdjustment || [];
-    const totalAdjustments = adjustments.reduce((acc, adj) => {
-      return adj.type === "charge" ? acc + adj.amount : acc - adj.amount;
-    }, 0);
+  const grades = student.examMarks.map((mark) => ({
+    courseName: mark.examSchedule.subject.name,
+    score: mark.score,
+  }));
 
-    const netTotal = baseTotal + totalAdjustments;
-    const pending = netTotal - paidAmount;
+  const rank = { class: "N/A", school: "N/A" };
 
-    const feeStatus = {
-      total: netTotal,
-      paid: paidAmount,
-      pending: pending,
-    };
-
-    type PaymentItem = FeePayment & { type: "payment" };
-    type AdjustmentItem = FeeAdjustment & { type: "adjustment" };
-    type HistoryItem = PaymentItem | AdjustmentItem;
-
-    const paymentHistory = student.feeRecords
-      .flatMap((fr) => fr.payments)
-      .map((p) => ({ ...p, itemType: "payment" as const }));
-    const adjustmentHistory = (student.FeeAdjustment || []).map((adj) => ({
-      ...adj,
-      itemType: "adjustment" as const,
-    }));
-
-    const feeHistory = [...paymentHistory, ...adjustmentHistory].sort(
-      (a, b) => {
-        let dateA: Date | undefined | null;
-        let dateB: Date | undefined | null;
-        if (a.itemType === "payment") {
-          dateA = a.paidDate;
-        } else {
-          dateA = a.date;
+  const skills = [
+    { subject: "Communication", A: Math.random() * 5 },
+    { subject: "Problem Solving", A: Math.random() * 5 },
+    { subject: "Teamwork", A: Math.random() * 5 },
+    { subject: "Creativity", A: Math.random() * 5 },
+    { subject: "Leadership", A: Math.random() * 5 },
+  ];
+  const profile = {
+    student: {
+      ...student,
+      userId: student.user?.userId || "N/A",
+      passwordHash: undefined,
+      feeRecords: undefined,
+      attendanceRecords: undefined,
+      suspensionRecords: undefined,
+      examMarks: undefined,
+      FeeAdjustment: undefined,
+    },
+    parent: student.parent
+      ? {
+          ...student.parent,
+          passwordHash: undefined,
         }
-
-        if (b.itemType === "payment") {
-          dateB = b.paidDate;
-        } else {
-          dateB = b.date;
-        }
-        const timeA = dateA ? new Date(dateA).getTime() : 0;
-        const timeB = dateB ? new Date(dateB).getTime() : 0;
-        return timeB - timeA;
-      }
-    );
-
-    const grades = student.examMarks.map((mark) => ({
-      courseName: mark.examSchedule.subject.name,
-      score: mark.score,
-    }));
-
-    const rank = { class: "N/A", school: "N/A" };
-
-    const skills = [
-      { subject: "Communication", A: Math.random() * 5 },
-      { subject: "Problem Solving", A: Math.random() * 5 },
-      { subject: "Teamwork", A: Math.random() * 5 },
-      { subject: "Creativity", A: Math.random() * 5 },
-      { subject: "Leadership", A: Math.random() * 5 },
-    ];
-    const profile = {
-      student: {
-        ...student,
-        userId: student.user?.userId || "N/A",
-        passwordHash: undefined,
-        feeRecords: undefined,
-        attendanceRecords: undefined,
-        suspensionRecords: undefined,
-        examMarks: undefined,
-        FeeAdjustment: undefined,
-      },
-      parent: student.parent
-        ? {
-            ...student.parent,
-            passwordHash: undefined,
-          }
+      : null,
+    classInfo: student.class
+      ? `Grade ${student.class.gradeLevel} - ${student.class.section}`
+      : "Unassigned",
+    attendance: attendance,
+    feeStatus: feeStatus,
+    attendanceHistory: student.attendanceRecords,
+    feeHistory: feeHistory,
+    grades: grades,
+    rank: rank,
+    skills: skills,
+    activeSuspension:
+      student.suspensionRecords.length > 0
+        ? student.suspensionRecords[0]
         : null,
-      classInfo: student.class
-        ? `Grade ${student.class.gradeLevel} - ${student.class.section}`
-        : "Unassigned",
-      attendance: attendance,
-      feeStatus: feeStatus, 
-      attendanceHistory: student.attendanceRecords,
-      feeHistory: feeHistory,
-      grades: grades,
-      rank: rank,
-      skills: skills,
-      activeSuspension:
-        student.suspensionRecords.length > 0
-          ? student.suspensionRecords[0]
-          : null,
-    };
+    feeBreakdown: student.class?.feeTemplate?.monthlyBreakdown || [],
+  };
 
-    res.status(200).json(profile);
-  } catch (error) {
-    console.error("Error fetching student profile:", error);
-    next(error);
-  }
+  res.status(200).json(profile);
+} catch (error) {
+  console.error("Error fetching student profile:", error);
+  next(error);
+}
 };
 
 
