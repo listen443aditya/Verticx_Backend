@@ -4449,13 +4449,18 @@ export const getStudentProfileDetails = async (
   }
 
   try {
-    // 1. Fetch Student and essential relations
     const student = await prisma.student.findFirst({
       where: { id: studentId, branchId: branchId },
       include: {
         parent: true,
         user: true,
-        class: true,
+        class: {
+          select: {
+            gradeLevel: true,
+            section: true,
+            feeTemplate: { select: { amount: true } },
+          },
+        },
         feeRecords: { include: { payments: true } },
         attendanceRecords: { orderBy: { date: "desc" }, take: 90 },
         suspensionRecords: {
@@ -4477,8 +4482,6 @@ export const getStudentProfileDetails = async (
         .json({ message: "Student not found in your branch." });
     }
 
-    // 2. Calculate Summaries and Format Data
-
     const attendanceTotal = await prisma.attendanceRecord.count({
       where: { studentId: studentId },
     });
@@ -4491,26 +4494,38 @@ export const getStudentProfileDetails = async (
       percentage:
         attendanceTotal > 0 ? (attendancePresent / attendanceTotal) * 100 : 100,
     };
+    const activeFeeRecord = student.feeRecords[0];
+    const templateAmount = student.class?.feeTemplate?.amount || 0;
+
+    const baseTotal = activeFeeRecord
+      ? activeFeeRecord.totalAmount
+      : templateAmount;
+    const paidAmount = activeFeeRecord ? activeFeeRecord.paidAmount : 0;
+    const adjustments = student.FeeAdjustment || [];
+    const totalAdjustments = adjustments.reduce((acc, adj) => {
+      return adj.type === "charge" ? acc + adj.amount : acc - adj.amount;
+    }, 0);
+
+    const netTotal = baseTotal + totalAdjustments;
+    const pending = netTotal - paidAmount;
 
     const feeStatus = {
-      total: student.feeRecords.reduce((sum, r) => sum + r.totalAmount, 0),
-      paid: student.feeRecords.reduce((sum, r) => sum + r.paidAmount, 0),
-      pending: student.feeRecords.reduce(
-        (sum, r) => sum + (r.totalAmount - r.paidAmount),
-        0
-      ),
+      total: netTotal,
+      paid: paidAmount,
+      pending: pending,
     };
 
     type PaymentItem = FeePayment & { type: "payment" };
-    type AdjustmentItem = FeeAdjustment & { type: "adjustment" }; 
+    type AdjustmentItem = FeeAdjustment & { type: "adjustment" };
     type HistoryItem = PaymentItem | AdjustmentItem;
 
     const paymentHistory = student.feeRecords
       .flatMap((fr) => fr.payments)
-      .map((p) => ({ ...p, itemType: "payment" as const })); 
-    const adjustmentHistory = (student.FeeAdjustment || []).map(
-      (adj) => ({ ...adj, itemType: "adjustment" as const }) 
-    );
+      .map((p) => ({ ...p, itemType: "payment" as const }));
+    const adjustmentHistory = (student.FeeAdjustment || []).map((adj) => ({
+      ...adj,
+      itemType: "adjustment" as const,
+    }));
 
     const feeHistory = [...paymentHistory, ...adjustmentHistory].sort(
       (a, b) => {
@@ -4566,9 +4581,9 @@ export const getStudentProfileDetails = async (
         : null,
       classInfo: student.class
         ? `Grade ${student.class.gradeLevel} - ${student.class.section}`
-        : "N/A",
+        : "Unassigned",
       attendance: attendance,
-      feeStatus: feeStatus,
+      feeStatus: feeStatus, 
       attendanceHistory: student.attendanceRecords,
       feeHistory: feeHistory,
       grades: grades,
