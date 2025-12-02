@@ -2649,7 +2649,9 @@ export const getFeeCollectionOverview = async (
       select: {
         id: true,
         name: true,
-        userId: true, 
+        user: {
+          select: { userId: true },
+        },
         class: { select: { gradeLevel: true, section: true } },
         feeRecords: {
           include: {
@@ -2667,8 +2669,7 @@ export const getFeeCollectionOverview = async (
       let paidAmount = 0;
       let pending = 0;
       let lastPaidDate = null;
-      let dueDate = new Date().toISOString(); 
-
+      let dueDate = new Date().toISOString();
       if (record) {
         const adjustments = student.FeeAdjustment || [];
         const totalAdjustments = adjustments.reduce((acc, adj) => {
@@ -2684,7 +2685,7 @@ export const getFeeCollectionOverview = async (
 
       return {
         studentId: student.id,
-        userId: student.userId || "N/A",
+        userId: student.user?.userId || "N/A",
         name: student.name,
         className: student.class
           ? `Grade ${student.class.gradeLevel}-${student.class.section}`
@@ -2694,7 +2695,7 @@ export const getFeeCollectionOverview = async (
         pendingAmount: pending,
         lastPaidDate: lastPaidDate,
         dueDate: dueDate,
-        status: pending <= 0 && netTotal > 0 ? "Paid" : "Due", 
+        status: pending <= 0 && netTotal > 0 ? "Paid" : "Due",
       };
     });
 
