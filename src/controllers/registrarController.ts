@@ -1354,7 +1354,7 @@ export const resetStudentAndParentPasswords = async (
 ) => {
   const branchId = getRegistrarBranchId(req);
   const { id } = req.params; // This is the Student ID
-
+console.log("Backend received reset request for:", id);
   if (!branchId) {
     return res.status(401).json({ message: "Authentication required." });
   }
