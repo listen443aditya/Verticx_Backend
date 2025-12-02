@@ -4363,44 +4363,35 @@ export const getStudentProfileDetails = async (
       ),
     };
 
-    type PaymentItem = FeePayment & { type: "payment" }; // <-- Corrected
-    type AdjustmentItem = FeeAdjustment & { type: "adjustment" }; // <-- Corrected
+    type PaymentItem = FeePayment & { type: "payment" };
+    type AdjustmentItem = FeeAdjustment & { type: "adjustment" }; 
     type HistoryItem = PaymentItem | AdjustmentItem;
 
     const paymentHistory = student.feeRecords
       .flatMap((fr) => fr.payments)
-      .map((p) => ({ ...p, itemType: "payment" as const })); // Use a different property name like 'itemType'
-
-    // Map adjustments, adding the same 'itemType' property
+      .map((p) => ({ ...p, itemType: "payment" as const })); 
     const adjustmentHistory = (student.FeeAdjustment || []).map(
-      (adj) => ({ ...adj, itemType: "adjustment" as const }) // Use 'itemType'
+      (adj) => ({ ...adj, itemType: "adjustment" as const }) 
     );
 
-    // Combine the arrays (TypeScript can now infer the union type)
     const feeHistory = [...paymentHistory, ...adjustmentHistory].sort(
       (a, b) => {
         let dateA: Date | undefined | null;
         let dateB: Date | undefined | null;
-
-        // Check the discriminating property 'itemType'
         if (a.itemType === "payment") {
           dateA = a.paidDate;
         } else {
-          // 'a' must be AdjustmentItem
           dateA = a.date;
         }
 
         if (b.itemType === "payment") {
           dateB = b.paidDate;
         } else {
-          // 'b' must be AdjustmentItem
           dateB = b.date;
         }
-
-        // Ensure dates are valid before comparing
         const timeA = dateA ? new Date(dateA).getTime() : 0;
         const timeB = dateB ? new Date(dateB).getTime() : 0;
-        return timeB - timeA; // Sort descending (most recent first)
+        return timeB - timeA;
       }
     );
 
@@ -4418,14 +4409,11 @@ export const getStudentProfileDetails = async (
       { subject: "Creativity", A: Math.random() * 5 },
       { subject: "Leadership", A: Math.random() * 5 },
     ];
-
-    // FIX 3: Remove the frontend-specific 'StudentProfile' type annotation.
-    // The structure returned implicitly matches what the frontend expects.
     const profile = {
       student: {
         ...student,
+        userId: student?.userId || "N/A",
         passwordHash: undefined,
-        // Explicitly remove relations included for calculation but not needed in final student object
         feeRecords: undefined,
         attendanceRecords: undefined,
         suspensionRecords: undefined,
@@ -4443,7 +4431,7 @@ export const getStudentProfileDetails = async (
         : "N/A",
       attendance: attendance,
       feeStatus: feeStatus,
-      attendanceHistory: student.attendanceRecords, // Send the original records
+      attendanceHistory: student.attendanceRecords, 
       feeHistory: feeHistory,
       grades: grades,
       rank: rank,
