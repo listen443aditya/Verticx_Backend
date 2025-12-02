@@ -2644,15 +2644,22 @@ export const getFeeCollectionOverview = async (
   if (!branchId) return res.status(401).json({ message: "Unauthorized" });
 
   try {
+    // 1. Fetch Students with Class AND Linked Fee Template
     const students = await prisma.student.findMany({
       where: { branchId },
       select: {
         id: true,
         name: true,
-        user: {
-          select: { userId: true },
+        // Get Readable User ID
+        user: { select: { userId: true } },
+        // Get Class AND the linked Fee Template
+        class: {
+          select: {
+            gradeLevel: true,
+            section: true,
+            feeTemplate: { select: { amount: true } }, // <--- FETCH TEMPLATE AMOUNT
+          },
         },
-        class: { select: { gradeLevel: true, section: true } },
         feeRecords: {
           include: {
             payments: { orderBy: { paidDate: "desc" }, take: 1 },
@@ -2663,25 +2670,28 @@ export const getFeeCollectionOverview = async (
       orderBy: { name: "asc" },
     });
 
+    // 2. Flatten and Calculate
     const overview = students.map((student) => {
       const record = student.feeRecords[0];
-      let netTotal = 0;
-      let paidAmount = 0;
-      let pending = 0;
-      let lastPaidDate = null;
-      let dueDate = new Date().toISOString();
-      if (record) {
-        const adjustments = student.FeeAdjustment || [];
-        const totalAdjustments = adjustments.reduce((acc, adj) => {
-          return adj.type === "charge" ? acc + adj.amount : acc - adj.amount;
-        }, 0);
+      const templateAmount = student.class?.feeTemplate?.amount || 0;
 
-        netTotal = record.totalAmount + totalAdjustments;
-        paidAmount = record.paidAmount;
-        pending = netTotal - paidAmount;
-        lastPaidDate = record.payments[0]?.paidDate || null;
-        dueDate = record.dueDate.toISOString();
-      }
+      // LOGIC: Use Record if exists, otherwise fallback to Template Amount
+      const baseTotal = record ? record.totalAmount : templateAmount;
+
+      // Calculate Adjustments (Fines/Discounts)
+      const adjustments = student.FeeAdjustment || [];
+      const totalAdjustments = adjustments.reduce((acc, adj) => {
+        return adj.type === "charge" ? acc + adj.amount : acc - adj.amount;
+      }, 0);
+
+      // Final Math
+      const netTotal = baseTotal + totalAdjustments;
+      const paidAmount = record ? record.paidAmount : 0;
+      const pending = netTotal - paidAmount;
+
+      // Formatting
+      const lastPaidDate = record?.payments[0]?.paidDate || null;
+      const dueDate = record?.dueDate.toISOString() || new Date().toISOString();
 
       return {
         studentId: student.id,
@@ -2693,9 +2703,10 @@ export const getFeeCollectionOverview = async (
         totalFee: netTotal,
         paidAmount: paidAmount,
         pendingAmount: pending,
+
         lastPaidDate: lastPaidDate,
         dueDate: dueDate,
-        status: pending <= 0 && netTotal > 0 ? "Paid" : "Due",
+        status: pending <= 0 ? "Paid" : "Due",
       };
     });
 
