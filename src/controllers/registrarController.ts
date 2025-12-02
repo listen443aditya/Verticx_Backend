@@ -2644,56 +2644,59 @@ export const getFeeCollectionOverview = async (
   if (!branchId) return res.status(401).json({ message: "Unauthorized" });
 
   try {
-    // 1. Fetch all students with their fee data
     const students = await prisma.student.findMany({
-      where: { branchId, status: "active" },
+      where: { branchId },
       select: {
         id: true,
         name: true,
-        userId: true, // Readable ID
+        userId: true, 
         class: { select: { gradeLevel: true, section: true } },
         feeRecords: {
           include: {
-            payments: { orderBy: { paidDate: "desc" }, take: 1 }, // Get last payment
+            payments: { orderBy: { paidDate: "desc" }, take: 1 },
           },
         },
-        FeeAdjustment: true, // Get principal's adjustments
+        FeeAdjustment: true,
       },
       orderBy: { name: "asc" },
     });
 
-    // 2. Flatten the data for the table
-    const overview = students
-      .map((student) => {
-        const record = student.feeRecords[0];
-        // If no record exists, they haven't been initialized for fees yet
-        if (!record) return null;
+    const overview = students.map((student) => {
+      const record = student.feeRecords[0];
+      let netTotal = 0;
+      let paidAmount = 0;
+      let pending = 0;
+      let lastPaidDate = null;
+      let dueDate = new Date().toISOString(); 
 
-        // Calculate Real Totals including Adjustments
+      if (record) {
         const adjustments = student.FeeAdjustment || [];
         const totalAdjustments = adjustments.reduce((acc, adj) => {
           return adj.type === "charge" ? acc + adj.amount : acc - adj.amount;
         }, 0);
 
-        const netTotal = record.totalAmount + totalAdjustments;
-        const pending = netTotal - record.paidAmount;
+        netTotal = record.totalAmount + totalAdjustments;
+        paidAmount = record.paidAmount;
+        pending = netTotal - paidAmount;
+        lastPaidDate = record.payments[0]?.paidDate || null;
+        dueDate = record.dueDate.toISOString();
+      }
 
-        return {
-          studentId: student.id,
-          userId: student.userId, // VRTX ID
-          name: student.name,
-          className: student.class
-            ? `Grade ${student.class.gradeLevel}-${student.class.section}`
-            : "N/A",
-          totalFee: netTotal,
-          paidAmount: record.paidAmount,
-          pendingAmount: pending,
-          lastPaidDate: record.payments[0]?.paidDate || null,
-          dueDate: record.dueDate,
-          status: pending <= 0 ? "Paid" : "Due",
-        };
-      })
-      .filter(Boolean); // Remove nulls
+      return {
+        studentId: student.id,
+        userId: student.userId || "N/A",
+        name: student.name,
+        className: student.class
+          ? `Grade ${student.class.gradeLevel}-${student.class.section}`
+          : "Unassigned",
+        totalFee: netTotal,
+        paidAmount: paidAmount,
+        pendingAmount: pending,
+        lastPaidDate: lastPaidDate,
+        dueDate: dueDate,
+        status: pending <= 0 && netTotal > 0 ? "Paid" : "Due", 
+      };
+    });
 
     res.status(200).json(overview);
   } catch (error) {
