@@ -1443,7 +1443,6 @@ export const getSchoolClassesByBranch = async (
   try {
     const classes = await prisma.schoolClass.findMany({
       where: { branchId },
-      // FIX: Include the count of students and the names of subjects for each class
       include: {
         _count: {
           select: { students: true },
@@ -1451,10 +1450,17 @@ export const getSchoolClassesByBranch = async (
         subjects: {
           select: { id: true, name: true },
         },
+        mentor: { select: { id: true, name: true } },
       },
       orderBy: [{ gradeLevel: "asc" }, { section: "asc" }],
     });
-    res.status(200).json(classes);
+    const formattedClasses = classes.map((c) => ({
+      ...c,
+      mentorTeacherId: c.mentorId,
+      studentCount: c._count.students,
+    }));
+
+    res.status(200).json(formattedClasses);
   } catch (error) {
     next(error);
   }
