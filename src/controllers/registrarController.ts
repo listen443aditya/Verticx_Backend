@@ -2635,6 +2635,129 @@ export const requestFeeTemplateDeletion = async (req: Request, res: Response, ne
     }
 };
 
+export const getFeeCollectionOverview = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  if (!branchId) return res.status(401).json({ message: "Unauthorized" });
+
+  try {
+    // 1. Fetch all students with their fee data
+    const students = await prisma.student.findMany({
+      where: { branchId, status: "active" },
+      select: {
+        id: true,
+        name: true,
+        userId: true, // Readable ID
+        class: { select: { gradeLevel: true, section: true } },
+        feeRecords: {
+          include: {
+            payments: { orderBy: { paidDate: "desc" }, take: 1 }, // Get last payment
+          },
+        },
+        FeeAdjustment: true, // Get principal's adjustments
+      },
+      orderBy: { name: "asc" },
+    });
+
+    // 2. Flatten the data for the table
+    const overview = students
+      .map((student) => {
+        const record = student.feeRecords[0];
+        // If no record exists, they haven't been initialized for fees yet
+        if (!record) return null;
+
+        // Calculate Real Totals including Adjustments
+        const adjustments = student.FeeAdjustment || [];
+        const totalAdjustments = adjustments.reduce((acc, adj) => {
+          return adj.type === "charge" ? acc + adj.amount : acc - adj.amount;
+        }, 0);
+
+        const netTotal = record.totalAmount + totalAdjustments;
+        const pending = netTotal - record.paidAmount;
+
+        return {
+          studentId: student.id,
+          userId: student.userId, // VRTX ID
+          name: student.name,
+          className: student.class
+            ? `Grade ${student.class.gradeLevel}-${student.class.section}`
+            : "N/A",
+          totalFee: netTotal,
+          paidAmount: record.paidAmount,
+          pendingAmount: pending,
+          lastPaidDate: record.payments[0]?.paidDate || null,
+          dueDate: record.dueDate,
+          status: pending <= 0 ? "Paid" : "Due",
+        };
+      })
+      .filter(Boolean); // Remove nulls
+
+    res.status(200).json(overview);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const collectFeePayment = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  if (!branchId) return res.status(401).json({ message: "Unauthorized" });
+
+  const { studentId, amount, remarks, transactionId } = req.body;
+
+  if (!studentId || !amount) {
+    return res
+      .status(400)
+      .json({ message: "Student ID and Amount are required." });
+  }
+
+  try {
+    const student = await prisma.student.findUnique({
+      where: { id: studentId },
+      include: { feeRecords: true },
+    });
+
+    if (!student || !student.feeRecords.length) {
+      return res.status(404).json({ message: "Student fee record not found." });
+    }
+
+    const recordId = student.feeRecords[0].id;
+
+    // Perform transaction
+    await prisma.$transaction([
+      // 1. Create Payment Record
+      prisma.feePayment.create({
+        data: {
+          studentId,
+          feeRecordId: recordId,
+          amount: parseFloat(amount),
+          paidDate: new Date(),
+          transactionId: transactionId || `CASH-${Date.now()}`,
+          details: remarks || "Cash Payment collected by Registrar",
+        },
+      }),
+      // 2. Update the main Fee Record
+      prisma.feeRecord.update({
+        where: { id: recordId },
+        data: {
+          paidAmount: { increment: parseFloat(amount) },
+        },
+      }),
+    ]);
+
+    res.status(201).json({ message: "Payment collected successfully." });
+  } catch (error) {
+    next(error);
+  }
+};
+
+
 /**
  * @description Get a list of fee defaulters for a specific class.
  * @route GET /api/registrar/classes/:classId/defaulters

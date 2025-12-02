@@ -201,6 +201,11 @@ router.get(
   registrarController.getDefaultersForClass
 );
 
+router.get(
+  "/fees/collection-overview",
+  registrarController.getFeeCollectionOverview
+);
+router.post("/fees/collect", registrarController.collectFeePayment);
 // --- Attendance ---
 router.get(
   "/classes/:classId/attendance",
