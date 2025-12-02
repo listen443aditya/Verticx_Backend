@@ -2642,20 +2642,17 @@ export const getFeeCollectionOverview = async (
   if (!branchId) return res.status(401).json({ message: "Unauthorized" });
 
   try {
-    // 1. Fetch Students with Class AND Linked Fee Template
     const students = await prisma.student.findMany({
       where: { branchId },
       select: {
         id: true,
         name: true,
-        // Get Readable User ID
         user: { select: { userId: true } },
-        // Get Class AND the linked Fee Template
         class: {
           select: {
             gradeLevel: true,
             section: true,
-            feeTemplate: { select: { amount: true } }, // <--- FETCH TEMPLATE AMOUNT
+            feeTemplate: { select: { amount: true } },
           },
         },
         feeRecords: {
@@ -2663,31 +2660,22 @@ export const getFeeCollectionOverview = async (
             payments: { orderBy: { paidDate: "desc" }, take: 1 },
           },
         },
-        FeeAdjustment: true,
+        // We don't need FeeAdjustment here anymore for calculation!
       },
       orderBy: { name: "asc" },
     });
 
-    // 2. Flatten and Calculate
     const overview = students.map((student) => {
       const record = student.feeRecords[0];
       const templateAmount = student.class?.feeTemplate?.amount || 0;
 
-      // LOGIC: Use Record if exists, otherwise fallback to Template Amount
-      const baseTotal = record ? record.totalAmount : templateAmount;
-
-      // Calculate Adjustments (Fines/Discounts)
-      const adjustments = student.FeeAdjustment || [];
-      const totalAdjustments = adjustments.reduce((acc, adj) => {
-        return adj.type === "charge" ? acc + adj.amount : acc - adj.amount;
-      }, 0);
-
-      // Final Math
-      const netTotal = baseTotal + totalAdjustments;
+      // LOGIC:
+      // If record exists, TRUST IT (it has adjustments applied).
+      // If not, fallback to template.
+      const netTotal = record ? record.totalAmount : templateAmount;
       const paidAmount = record ? record.paidAmount : 0;
       const pending = netTotal - paidAmount;
 
-      // Formatting
       const lastPaidDate = record?.payments[0]?.paidDate || null;
       const dueDate = record?.dueDate.toISOString() || new Date().toISOString();
 
@@ -2701,7 +2689,6 @@ export const getFeeCollectionOverview = async (
         totalFee: netTotal,
         paidAmount: paidAmount,
         pendingAmount: pending,
-
         lastPaidDate: lastPaidDate,
         dueDate: dueDate,
         status: pending <= 0 ? "Paid" : "Due",
@@ -4556,14 +4543,21 @@ try {
   const baseTotal = activeFeeRecord
     ? activeFeeRecord.totalAmount
     : templateAmount;
-  const paidAmount = activeFeeRecord ? activeFeeRecord.paidAmount : 0;
+  
+    const feeRecord = student.feeRecords[0];
+    const netTotal = feeRecord ? feeRecord.totalAmount : 0;
+    const paidAmount = feeRecord ? feeRecord.paidAmount : 0;
+
+  // const paidAmount = activeFeeRecord ? activeFeeRecord.paidAmount : 0;
   const adjustments = student.FeeAdjustment || [];
   const totalAdjustments = adjustments.reduce((acc, adj) => {
     return adj.type === "charge" ? acc + adj.amount : acc - adj.amount;
   }, 0);
 
-  const netTotal = baseTotal + totalAdjustments;
+  // const netTotal = baseTotal + totalAdjustments;
   const pending = netTotal - paidAmount;
+
+
 
   const feeStatus = {
     total: netTotal,
@@ -4622,6 +4616,7 @@ try {
       userId: student.user?.userId || "N/A",
       passwordHash: undefined,
       feeRecords: undefined,
+      
       attendanceRecords: undefined,
       suspensionRecords: undefined,
       examMarks: undefined,

@@ -1781,7 +1781,7 @@ export const addFeeAdjustment = async (
       return res.status(401).json({ message: "Authentication required." });
     }
 
-    // 1. Get the Principal's Name directly from the DB
+    // 1. Get Principal Name
     const principal = await prisma.user.findUnique({
       where: { id: req.user?.id },
       select: { name: true },
@@ -1792,24 +1792,71 @@ export const addFeeAdjustment = async (
     }
 
     const { studentId, type, amount, reason } = req.body;
+    const adjustmentAmount = parseFloat(amount);
 
     if (!studentId || !type || !amount || !reason) {
       return res.status(400).json({ message: "All fields are required." });
     }
 
-    // 2. Create the Fee Adjustment directly in the database
-    await prisma.feeAdjustment.create({
-      data: {
-        studentId,
-        amount: parseFloat(amount),
-        type, // "concession" or "charge"
-        reason,
-        adjustedBy: principal.name,
-        date: new Date(),
+    // 2. Find the Student's Fee Record
+    const student = await prisma.student.findUnique({
+      where: { id: studentId },
+      include: {
+        feeRecords: true,
+        class: { include: { feeTemplate: true } },
       },
     });
 
-    res.status(201).json({ message: "Fee adjustment added." });
+    if (!student) {
+      return res.status(404).json({ message: "Student not found." });
+    }
+
+    let feeRecordId = student.feeRecords[0]?.id;
+
+    // Logic: If no fee record exists, we must create one first (based on template)
+    // before we can adjust it.
+    if (!feeRecordId) {
+      const templateAmount = student.class?.feeTemplate?.amount || 0;
+      const newRecord = await prisma.feeRecord.create({
+        data: {
+          studentId,
+          totalAmount: templateAmount,
+          paidAmount: 0,
+          dueDate: new Date(new Date().getFullYear(), 3, 1), // Default due date
+        },
+      });
+      feeRecordId = newRecord.id;
+    }
+
+    // 3. Transaction: Log Adjustment AND Update Balance
+    await prisma.$transaction([
+      // A. Create Audit Log
+      prisma.feeAdjustment.create({
+        data: {
+          studentId,
+          amount: adjustmentAmount,
+          type,
+          reason,
+          adjustedBy: principal.name,
+          date: new Date(),
+        },
+      }),
+
+      // B. Update the Main Record (The "Saved" logic)
+      prisma.feeRecord.update({
+        where: { id: feeRecordId },
+        data: {
+          totalAmount:
+            type === "concession"
+              ? { decrement: adjustmentAmount } // Reduce total if concession
+              : { increment: adjustmentAmount }, // Increase total if charge
+        },
+      }),
+    ]);
+
+    res
+      .status(201)
+      .json({ message: "Fee adjustment applied and balance updated." });
   } catch (error: any) {
     next(error);
   }
@@ -2875,179 +2922,174 @@ export const getStudentProfileDetails = async (
   res: Response,
   next: NextFunction
 ) => {
-  try {
-    // 1. Authorization & Input Validation
-    const branchId = await getPrincipalAuth(req);
-    const { id: studentId } = req.params;
+ try {
+   const branchId = await getPrincipalAuth(req);
+   const { id: studentId } = req.params;
 
-    if (!branchId) {
-      return res.status(401).json({ message: "Unauthorized." });
-    }
+   if (!branchId) return res.status(401).json({ message: "Unauthorized." });
 
-    // 2. Fetch Full Student Data
-    const student = await prisma.student.findFirst({
-      where: {
-        id: studentId,
-        branchId: branchId,
-      },
-      include: {
-        class: { select: { id: true, gradeLevel: true, section: true } },
-        parent: true,
-        user: true,
-        FeeAdjustment: true,
-        feeRecords: { include: { payments: true } },
-        attendanceRecords: { orderBy: { date: "desc" } },
-        grades: { include: { course: { select: { name: true } } } },
-        skillAssessments: { orderBy: { assessedAt: "desc" }, take: 1 },
-        submissions: {
-          take: 5,
-          orderBy: { submittedAt: "desc" },
-          include: { assignment: { select: { title: true } } },
-        },
-      },
-    });
+   const student = await prisma.student.findFirst({
+     where: { id: studentId, branchId },
+     include: {
+       class: { select: { id: true, gradeLevel: true, section: true } },
+       parent: true,
+       user: true,
+       FeeAdjustment: true,
+       feeRecords: { include: { payments: true } },
+       attendanceRecords: { orderBy: { date: "desc" }, take: 90 },
+       grades: { include: { course: { select: { name: true } } } },
+       skillAssessments: { orderBy: { assessedAt: "desc" }, take: 1 },
+       submissions: {
+         take: 5,
+         orderBy: { submittedAt: "desc" },
+         include: { assignment: { select: { title: true } } },
+       },
+     },
+   });
 
-    if (!student) {
-      return res
-        .status(404)
-        .json({ message: "Student not found in your branch." });
-    }
-    let rankStats = { class: 0, school: 0 };
-    if (student.class) {
-      const gradePerformance = await prisma.examMark.groupBy({
-        by: ["studentId"],
-        where: {
-          student: {
-            branchId: branchId,
-            gradeLevel: student.gradeLevel,
-            status: "active",
-          },
-        },
-        _sum: {
-          score: true,
-          totalMarks: true,
-        },
-      });
-      const peers = await prisma.student.findMany({
-        where: {
-          branchId: branchId,
-          gradeLevel: student.gradeLevel,
-          status: "active",
-        },
-        select: { id: true, classId: true },
-      });
-      const leaderboard = peers.map((peer) => {
-        const stats = gradePerformance.find((p) => p.studentId === peer.id);
-        const totalScore = stats?._sum.score || 0;
-        const maxScore = stats?._sum.totalMarks || 0;
-        const percentage = maxScore > 0 ? (totalScore / maxScore) * 100 : 0;
-        return {
-          studentId: peer.id,
-          classId: peer.classId,
-          percentage: percentage,
-        };
-      });
-      leaderboard.sort((a, b) => b.percentage - a.percentage);
-      const schoolRankIndex = leaderboard.findIndex(
-        (p) => p.studentId === studentId
-      );
-      rankStats.school = schoolRankIndex !== -1 ? schoolRankIndex + 1 : 0;
-      const classLeaderboard = leaderboard.filter(
-        (p) => p.classId === student.classId
-      );
-      const classRankIndex = classLeaderboard.findIndex(
-        (p) => p.studentId === studentId
-      );
-      rankStats.class = classRankIndex !== -1 ? classRankIndex + 1 : 0;
-    }
-    const {
-      FeeAdjustment,
-      feeRecords,
-      attendanceRecords,
-      grades,
-      skillAssessments,
-      user: studentUser,
-      parent,
-      submissions,
-      ...studentData
-    } = student;
+   if (!student) {
+     return res
+       .status(404)
+       .json({ message: "Student not found in your branch." });
+   }
+   let rankStats = { class: 0, school: 0 };
+   if (student.class) {
+     const gradePerformance = await prisma.examMark.groupBy({
+       by: ["studentId"],
+       where: {
+         student: {
+           branchId: branchId,
+           gradeLevel: student.gradeLevel,
+           status: "active",
+         },
+       },
+       _sum: {
+         score: true,
+         totalMarks: true,
+       },
+     });
+     const peers = await prisma.student.findMany({
+       where: {
+         branchId: branchId,
+         gradeLevel: student.gradeLevel,
+         status: "active",
+       },
+       select: { id: true, classId: true },
+     });
+     const leaderboard = peers.map((peer) => {
+       const stats = gradePerformance.find((p) => p.studentId === peer.id);
+       const totalScore = stats?._sum.score || 0;
+       const maxScore = stats?._sum.totalMarks || 0;
+       const percentage = maxScore > 0 ? (totalScore / maxScore) * 100 : 0;
+       return {
+         studentId: peer.id,
+         classId: peer.classId,
+         percentage: percentage,
+       };
+     });
+     leaderboard.sort((a, b) => b.percentage - a.percentage);
+     const schoolRankIndex = leaderboard.findIndex(
+       (p) => p.studentId === studentId
+     );
+     rankStats.school = schoolRankIndex !== -1 ? schoolRankIndex + 1 : 0;
+     const classLeaderboard = leaderboard.filter(
+       (p) => p.classId === student.classId
+     );
+     const classRankIndex = classLeaderboard.findIndex(
+       (p) => p.studentId === studentId
+     );
+     rankStats.class = classRankIndex !== -1 ? classRankIndex + 1 : 0;
+   }
+   const {
+     FeeAdjustment,
+     feeRecords,
+     attendanceRecords,
+     grades,
+     skillAssessments,
+     user: studentUser,
+     parent,
+     submissions,
+     ...studentData
+   } = student;
 
-    const present = attendanceRecords.filter(
-      (a) => a.status === "Present"
-    ).length;
-    const totalDays = attendanceRecords.length;
+   const present = attendanceRecords.filter(
+     (a) => a.status === "Present"
+   ).length;
+   const totalDays = attendanceRecords.length;
 
-    const feeRecord = feeRecords[0];
-    const totalPaid =
-      feeRecord?.payments.reduce((acc, p) => acc + p.amount, 0) || 0;
+const feeRecord = student.feeRecords[0];
+const netTotal = feeRecord ? feeRecord.totalAmount : 0;
+const paidAmount = feeRecord ? feeRecord.paidAmount : 0;
+   const totalPaid =
+     feeRecord?.payments.reduce((acc, p) => acc + p.amount, 0) || 0;
 
-    const feeHistory = [
-      ...(feeRecord?.payments || []),
-      ...(FeeAdjustment || []),
-    ];
+   const feeHistory = [
+     ...(feeRecord?.payments || []),
+     ...(FeeAdjustment || []),
+   ];
 
-    feeHistory.sort((a, b) => {
-      const dateA = "paidDate" in a ? a.paidDate : a.date;
-      const dateB = "paidDate" in b ? b.paidDate : b.date;
-      return new Date(dateA).getTime() - new Date(dateB).getTime();
-    });
+   feeHistory.sort((a, b) => {
+     const dateA = "paidDate" in a ? a.paidDate : a.date;
+     const dateB = "paidDate" in b ? b.paidDate : b.date;
+     return new Date(dateA).getTime() - new Date(dateB).getTime();
+   });
 
-    let formattedSkills: { skill: string; value: number }[] = [];
-    if (skillAssessments.length > 0 && skillAssessments[0].skills) {
-      const skillObj = skillAssessments[0].skills as Record<string, number>;
-      formattedSkills = Object.entries(skillObj).map(([key, value]) => ({
-        skill: key,
-        value: value,
-      }));
-    }
+   let formattedSkills: { skill: string; value: number }[] = [];
+   if (skillAssessments.length > 0 && skillAssessments[0].skills) {
+     const skillObj = skillAssessments[0].skills as Record<string, number>;
+     formattedSkills = Object.entries(skillObj).map(([key, value]) => ({
+       skill: key,
+       value: value,
+     }));
+   }
 
-    const recentActivity = [
-      ...attendanceRecords.slice(0, 3).map((a) => ({
-        date: a.date.toISOString().split("T")[0],
-        activity: `Marked ${a.status}`,
-      })),
-      ...submissions.map((s) => ({
-        date: s.submittedAt.toISOString().split("T")[0],
-        activity: `Submitted "${s.assignment.title}"`,
-      })),
-    ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+   const recentActivity = [
+     ...attendanceRecords.slice(0, 3).map((a) => ({
+       date: a.date.toISOString().split("T")[0],
+       activity: `Marked ${a.status}`,
+     })),
+     ...submissions.map((s) => ({
+       date: s.submittedAt.toISOString().split("T")[0],
+       activity: `Submitted "${s.assignment.title}"`,
+     })),
+   ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-    const profile = {
-      student: {
-        ...studentData,
-        userId: studentUser?.userId || "N/A",
-      },
-      userId: studentUser?.userId || "N/A",
-      studentUser: studentUser,
-      parent: parent,
-      classInfo: student.class
-        ? `Grade ${student.class.gradeLevel}-${student.class.section}`
-        : "Unassigned",
-      attendance: {
-        present,
-        absent: totalDays - present,
-        total: totalDays,
-      },
-      attendanceHistory: attendanceRecords,
-      feeStatus: {
-        total: feeRecord?.totalAmount || 0,
-        paid: totalPaid,
-        dueDate: feeRecord?.dueDate,
-      },
-      feeHistory,
-      grades: grades.map((g) => ({
-        ...g,
-        courseName: g.course.name,
-      })),
-      skills: formattedSkills,
-      recentActivity: recentActivity,
-      rank: rankStats,
-    };
+   const profile = {
+     student: {
+       ...studentData,
+       userId: studentUser?.userId || "N/A",
+     },
+     userId: studentUser?.userId || "N/A",
+     studentUser: studentUser,
+     parent: parent,
+     classInfo: student.class
+       ? `Grade ${student.class.gradeLevel}-${student.class.section}`
+       : "Unassigned",
+     attendance: {
+       present,
+       absent: totalDays - present,
+       total: totalDays,
+     },
+     attendanceHistory: attendanceRecords,
+     feeStatus: {
+       total: netTotal,
+       paid: paidAmount,
+       pending: netTotal - paidAmount,
+     },
+     feeHistory,
+     grades: grades.map((g) => ({
+       ...g,
+       courseName: g.course.name,
+     })),
+     skills: formattedSkills,
+     recentActivity: recentActivity,
+     rank: rankStats,
+   };
 
-    res.status(200).json(profile);
-  } catch (error: any) {
-    next(error);
-  }
+   res.status(200).json(profile);
+ } catch (error: any) {
+   next(error);
+ }
 };
 export const getFeeTemplatesByBranch = async (
   req: Request,
