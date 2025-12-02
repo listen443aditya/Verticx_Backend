@@ -128,7 +128,7 @@ export const getStudentDashboardData = async (
     // --- 3. Aggregate & Format Data ---
     const profile = {
       id: student.id,
-      userId: student?.userId || "N/A",
+      userId: userId || "N/A",
       name: student.name,
       class: `Grade ${classInfo.gradeLevel}-${classInfo.section}`,
       classId: classInfo.id,
@@ -190,6 +190,7 @@ export const getStudentDashboardData = async (
     const dashboardData = {
       student,
       branch,
+      userId,
       branchId,
       profile,
       performance,

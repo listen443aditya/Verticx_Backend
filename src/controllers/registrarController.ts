@@ -4412,7 +4412,7 @@ export const getStudentProfileDetails = async (
     const profile = {
       student: {
         ...student,
-        userId: student.userId || "N/A",
+        userId: student.user?.userId || "N/A",
         passwordHash: undefined,
         feeRecords: undefined,
         attendanceRecords: undefined,
@@ -4431,7 +4431,7 @@ export const getStudentProfileDetails = async (
         : "N/A",
       attendance: attendance,
       feeStatus: feeStatus,
-      attendanceHistory: student.attendanceRecords, 
+      attendanceHistory: student.attendanceRecords,
       feeHistory: feeHistory,
       grades: grades,
       rank: rank,
