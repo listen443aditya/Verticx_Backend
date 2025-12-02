@@ -2733,38 +2733,75 @@ export const collectFeePayment = async (
   }
 
   try {
+    // 1. Fetch student AND their class template info
     const student = await prisma.student.findUnique({
       where: { id: studentId },
-      include: { feeRecords: true },
+      include: {
+        feeRecords: true, // Check if record exists
+        class: {
+          include: { feeTemplate: true }, // Get template to initialize if record is missing
+        },
+      },
     });
 
-    if (!student || !student.feeRecords.length) {
-      return res.status(404).json({ message: "Student fee record not found." });
+    if (!student) {
+      return res.status(404).json({ message: "Student not found." });
     }
 
-    const recordId = student.feeRecords[0].id;
+    const paymentAmount = parseFloat(amount);
 
-    // Perform transaction
-    await prisma.$transaction([
-      // 1. Create Payment Record
-      prisma.feePayment.create({
+    // CASE A: Fee Record ALREADY Exists -> Update it
+    if (student.feeRecords.length > 0) {
+      const recordId = student.feeRecords[0].id;
+
+      await prisma.$transaction([
+        prisma.feePayment.create({
+          data: {
+            studentId,
+            feeRecordId: recordId,
+            amount: paymentAmount,
+            paidDate: new Date(),
+            transactionId: transactionId || `CASH-${Date.now()}`,
+            details: remarks || "Cash Payment collected by Registrar",
+          },
+        }),
+        prisma.feeRecord.update({
+          where: { id: recordId },
+          data: {
+            paidAmount: { increment: paymentAmount },
+          },
+        }),
+      ]);
+    }
+    // CASE B: Fee Record DOES NOT Exist -> Create it (Initialize + Pay)
+    else {
+      // We need a template to know the Total Amount
+      const templateAmount = student.class?.feeTemplate?.amount;
+
+      if (!templateAmount) {
+        return res.status(400).json({
+          message:
+            "Cannot collect fee: No Fee Template assigned to this student's class.",
+        });
+      }
+      await prisma.feeRecord.create({
         data: {
-          studentId,
-          feeRecordId: recordId,
-          amount: parseFloat(amount),
-          paidDate: new Date(),
-          transactionId: transactionId || `CASH-${Date.now()}`,
-          details: remarks || "Cash Payment collected by Registrar",
+          studentId: studentId,
+          totalAmount: templateAmount,
+          paidAmount: paymentAmount, // Initialize with this payment
+          dueDate: new Date(new Date().getFullYear(), 3, 1), 
+          payments: {
+            create: {
+              studentId: studentId,
+              amount: paymentAmount,
+              paidDate: new Date(),
+              transactionId: transactionId || `CASH-${Date.now()}`,
+              details: remarks || "Initial Payment collected by Registrar",
+            },
+          },
         },
-      }),
-      // 2. Update the main Fee Record
-      prisma.feeRecord.update({
-        where: { id: recordId },
-        data: {
-          paidAmount: { increment: parseFloat(amount) },
-        },
-      }),
-    ]);
+      });
+    }
 
     res.status(201).json({ message: "Payment collected successfully." });
   } catch (error) {
