@@ -1770,32 +1770,48 @@ export const getFinancialsOverview = async (req: Request, res: Response, next: N
   }
 };
 
-export const addFeeAdjustment = async (req: Request, res: Response) => {
+export const addFeeAdjustment = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
-    if (!req.user || !req.user.branchId) {
+    const branchId = req.user?.branchId;
+    if (!branchId) {
       return res.status(401).json({ message: "Authentication required." });
     }
-    const staff = await principalApiService.getStaffByBranch(req.user.branchId);
-    // FIX: Added explicit type for find parameter
-    const principal = staff.find((u: { id: string }) => u.id === req.user!.id);
+
+    // 1. Get the Principal's Name directly from the DB
+    const principal = await prisma.user.findUnique({
+      where: { id: req.user?.id },
+      select: { name: true },
+    });
 
     if (!principal || !principal.name) {
-      return res
-        .status(404)
-        .json({ message: "Authenticated user not found or name is missing." });
+      return res.status(404).json({ message: "Authenticated user not found." });
     }
 
     const { studentId, type, amount, reason } = req.body;
-    await principalApiService.addFeeAdjustment(
-      studentId,
-      type,
-      amount,
-      reason,
-      principal.name
-    );
+
+    if (!studentId || !type || !amount || !reason) {
+      return res.status(400).json({ message: "All fields are required." });
+    }
+
+    // 2. Create the Fee Adjustment directly in the database
+    await prisma.feeAdjustment.create({
+      data: {
+        studentId,
+        amount: parseFloat(amount),
+        type, // "concession" or "charge"
+        reason,
+        adjustedBy: principal.name,
+        date: new Date(),
+      },
+    });
+
     res.status(201).json({ message: "Fee adjustment added." });
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 };
 
