@@ -2998,6 +2998,7 @@ export const getStudentProfileDetails = async (
 
     const profile = {
       student: studentData,
+      userId: studentUser?.userId || "N/A",
       studentUser: studentUser,
       parent: parent,
       classInfo: student.class
