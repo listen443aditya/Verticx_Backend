@@ -1129,11 +1129,21 @@ export const getStudentsForPrincipal = async (
       return res
         .status(404)
         .json({ message: "Branch not found for this principal." });
+
     const students = await prisma.student.findMany({
       where: { branchId },
+      include: {
+        user: { select: { userId: true } },
+      },
       orderBy: { name: "asc" },
     });
-    res.status(200).json(students);
+    const formattedStudents = students.map((s) => ({
+      ...s,
+      userId: s.user?.userId || "N/A", 
+      user: undefined,
+    }));
+
+    res.status(200).json(formattedStudents);
   } catch (error) {
     next(error);
   }

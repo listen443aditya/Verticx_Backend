@@ -4269,20 +4269,33 @@ export const getStudentLeaveApplications = async (
 };
 
 
-export const getStudentsForBranch = async (req: Request, res: Response, next: NextFunction) => {
-    const branchId = getAuthenticatedBranchId(req);
-    if (!branchId) {
-        return res.status(401).json({ message: "Unauthorized." });
-    }
-    try {
-        const students = await prisma.student.findMany({
-            where: { branchId },
-            orderBy: { name: 'asc' }
-        });
-        res.status(200).json(students);
-    } catch (error) {
-        next(error);
-    }
+export const getStudentsForBranch = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getAuthenticatedBranchId(req);
+  if (!branchId) {
+    return res.status(401).json({ message: "Unauthorized." });
+  }
+  try {
+    const students = await prisma.student.findMany({
+      where: { branchId },
+      include: {
+        user: { select: { userId: true } }, 
+      },
+      orderBy: { name: "asc" },
+    });
+    const formattedStudents = students.map((s) => ({
+      ...s,
+      userId: s.user?.userId || "N/A", 
+      user: undefined, 
+    }));
+
+    res.status(200).json(formattedStudents);
+  } catch (error) {
+    next(error);
+  }
 };
 
 export const getStudentProfileDetails = async (
