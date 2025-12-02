@@ -731,64 +731,62 @@ export const getClassFeeSummaries = async (
   }
 
   try {
-    // 1. Get all classes for the registrar's branch
     const classes = await prisma.schoolClass.findMany({
       where: { branchId },
       select: { id: true, gradeLevel: true, section: true },
     });
 
-    // 2. Process each class to calculate its fee summary in parallel
+    // 2. Calculate summaries for each class
     const summaries = await Promise.all(
       classes.map(async (sClass) => {
-        // Find all student IDs for the current class
-        const studentsInClass = await prisma.student.findMany({
+        // Fetch students with their fee records AND adjustments
+        const students = await prisma.student.findMany({
           where: { classId: sClass.id },
-          select: { id: true },
-        });
-        const studentIds = studentsInClass.map((s) => s.id);
-        const studentCount = studentIds.length;
-        // If the class has no students, return a zero-value summary
-        if (studentIds.length === 0) {
-          return {
-            classId: sClass.id,
-            className: `Grade ${sClass.gradeLevel} - ${sClass.section}`,
-            totalBilled: 0,
-            totalCollected: 0,
-            totalPending: 0,
-            defaulterCount: 0,
-            studentCount: 0,
-          };
-        }
-
-        // 3. Aggregate the total and paid amounts for all students in the class
-        const feeTotals = await prisma.feeRecord.aggregate({
-          where: { studentId: { in: studentIds } },
-          _sum: {
-            totalAmount: true,
-            paidAmount: true,
+          select: {
+            id: true,
+            feeRecords: {
+              select: { totalAmount: true, paidAmount: true },
+            },
+            FeeAdjustment: {
+              select: { type: true, amount: true },
+            },
           },
         });
 
-        // 4. Count how many students have outstanding fees (defaulters)
-        const defaulterResult = await prisma.$queryRaw<[{ count: bigint }]>`
-            SELECT COUNT(DISTINCT "studentId")
-            FROM "FeeRecord"
-            WHERE "studentId" IN (${Prisma.join(studentIds)})
-            AND "totalAmount" > "paidAmount"
-        `;
-        const defaulterCount = Number(defaulterResult[0]?.count || 0);
+        let classTotalPending = 0;
+        let defaulterCount = 0;
 
-        const totalBilled = feeTotals._sum.totalAmount || 0;
-        const totalCollected = feeTotals._sum.paidAmount || 0;
+        students.forEach((student) => {
+          const record = student.feeRecords[0];
+          const adjustments = student.FeeAdjustment || [];
+
+          // Calculate Adjustment Total
+          const totalAdjustments = adjustments.reduce((acc, adj) => {
+            return adj.type === "charge" ? acc + adj.amount : acc - adj.amount;
+          }, 0);
+
+          // Base Logic: If no record, use 0 (or template default if you prefer logic from previous steps)
+          // For summary, we usually only count students who have records generated.
+          const baseTotal = record ? record.totalAmount : 0;
+          const paid = record ? record.paidAmount : 0;
+
+          const netTotal = baseTotal + totalAdjustments;
+          const pending = netTotal - paid;
+
+          if (pending > 0) {
+            classTotalPending += pending;
+            defaulterCount++;
+          }
+        });
 
         return {
           classId: sClass.id,
           className: `Grade ${sClass.gradeLevel} - ${sClass.section}`,
-          totalBilled,
-          totalCollected,
-          totalPending: totalBilled - totalCollected,
-          defaulterCount: defaulterCount,
-          studentCount: studentCount,
+          studentCount: students.length,
+          defaulterCount,
+          pendingAmount: classTotalPending,
+          // Note: totalBilled/totalCollected removed from this specific view
+          // to save processing, as frontend only shows pending.
         };
       })
     );
@@ -2814,58 +2812,78 @@ export const collectFeePayment = async (
  * @description Get a list of fee defaulters for a specific class.
  * @route GET /api/registrar/classes/:classId/defaulters
  */
-export const getDefaultersForClass = async (req: Request, res: Response, next: NextFunction) => {
-    const branchId = getRegistrarBranchId(req);
-    const { classId } = req.params;
+export const getDefaultersForClass = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  const { classId } = req.params;
 
-    if (!branchId) {
-        return res.status(401).json({ message: "Authentication required." });
-    }
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
 
-    try {
-        // Security Check: Ensure the class belongs to the registrar's branch.
-        const schoolClass = await prisma.schoolClass.findFirst({
-            where: { id: classId, branchId }
-        });
-        if (!schoolClass) {
-            return res.status(404).json({ message: "Class not found in your branch." });
-        }
+  try {
+    // 1. Fetch students in this class
+    const students = await prisma.student.findMany({
+      where: { classId, branchId },
+      select: {
+        id: true,
+        name: true,
+        userId: true, // VRTX ID
+        classRollNumber: true, // <--- FETCH ROLL NUMBER
+        guardianInfo: true, // <--- FETCH GUARDIAN INFO (Phone is inside here)
+        feeRecords: {
+          select: { totalAmount: true, paidAmount: true },
+        },
+        FeeAdjustment: {
+          select: { type: true, amount: true },
+        },
+      },
+    });
 
-        const defaulters = await prisma.student.findMany({
-            where: {
-                classId,
-                feeRecords: {
-                    some: {
-                        paidAmount: { lt: prisma.feeRecord.fields.totalAmount }
-                    }
-                }
-            },
-            select: {
-                id: true,
-                name: true,
-                feeRecords: {
-                    select: {
-                        totalAmount: true,
-                        paidAmount: true
-                    }
-                }
-            }
-        });
+    // 2. Filter and Map
+    const defaulters = students
+      .map((student) => {
+        const record = student.feeRecords[0];
+        // If no fee record, they aren't a defaulter (or debt is 0)
+        if (!record) return null;
 
-        // Process the data to calculate pending amounts for each student
-        const result = defaulters.map(student => {
-            const pendingAmount = student.feeRecords.reduce((sum, record) => sum + (record.totalAmount - record.paidAmount), 0);
-            return {
-                studentId: student.id,
-                studentName: student.name,
-                pendingAmount: pendingAmount
-            };
-        });
+        const adjustments = student.FeeAdjustment || [];
+        const totalAdjustments = adjustments.reduce((acc, adj) => {
+          return adj.type === "charge" ? acc + adj.amount : acc - adj.amount;
+        }, 0);
 
-        res.status(200).json(result);
-    } catch (error) {
-        next(error);
-    }
+        const netTotal = record.totalAmount + totalAdjustments;
+        const pending = netTotal - record.paidAmount;
+
+        // Only return if they owe money
+        if (pending <= 0) return null;
+
+        // Extract phone safely from JSON
+        const gInfo = student.guardianInfo as {
+          phone?: string;
+          name?: string;
+        } | null;
+
+        return {
+          studentId: student.id, // Internal UUID for links
+          userId: student.userId, // Readable ID
+          studentName: student.name,
+          // FIX: Map database 'classRollNumber' to frontend 'rollNo'
+          rollNo: student.classRollNumber || "N/A",
+          // FIX: Extract phone from guardianInfo JSON
+          guardianPhone: gInfo?.phone || "N/A",
+          pendingAmount: pending,
+        };
+      })
+      .filter((s) => s !== null); // Remove nulls (non-defaulters)
+
+    res.status(200).json(defaulters);
+  } catch (error) {
+    next(error);
+  }
 };
 
 /**
