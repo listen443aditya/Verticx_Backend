@@ -4412,7 +4412,7 @@ export const getStudentProfileDetails = async (
     const profile = {
       student: {
         ...student,
-        userId: student?.userId || "N/A",
+        userId: student.userId || "N/A",
         passwordHash: undefined,
         feeRecords: undefined,
         attendanceRecords: undefined,
