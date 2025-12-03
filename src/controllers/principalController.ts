@@ -2236,19 +2236,53 @@ export const processFeeRectificationRequest = async (
 
     // 2. Perform the Action Transactionally
     await prisma.$transaction(async (tx) => {
-      // A. If Approved, Apply the changes to the FeeTemplate
+      // A. If Approved, Apply the changes
       if (status === "Approved") {
         if (request.requestType === "update" && request.newData) {
-          // Apply updates
-          // We cast newData because it's stored as JSON but needs to match the Input type
-          const updates = request.newData as Prisma.FeeTemplateUpdateInput;
+          const updates = request.newData as any; // Cast JSON to any to access fields
 
           await tx.feeTemplate.update({
             where: { id: request.templateId },
-            data: updates,
+            data: updates as Prisma.FeeTemplateUpdateInput,
           });
+
+          // --- LOGIC PART 2: PROPAGATE CHANGES TO STUDENTS (The Fix) ---
+          // If the total amount changed, we must update all student records
+          // linked to this template to reflect the new total.
+          if (updates.amount) {
+            const newTotalAmount = Number(updates.amount);
+
+            // 1. Find all classes using this template
+            const linkedClasses = await tx.schoolClass.findMany({
+              where: { feeTemplateId: request.templateId },
+              select: { id: true },
+            });
+
+            const classIds = linkedClasses.map((c) => c.id);
+
+            // 2. Update all FeeRecords for students in these classes
+            // We update 'totalAmount'. The 'pending' amount is calculated
+            // dynamically (Total - Paid) in your controllers, so this automatically
+            // increases the due amount for everyone.
+            await tx.feeRecord.updateMany({
+              where: {
+                student: {
+                  classId: { in: classIds },
+                },
+              },
+              data: {
+                totalAmount: newTotalAmount,
+              },
+            });
+          }
         } else if (request.requestType === "delete") {
-          // Delete template
+          // Handle Delete: Unlink template from classes first, then delete
+          // (Optional: You might want to keep the records but nullify the template link)
+          await tx.schoolClass.updateMany({
+            where: { feeTemplateId: request.templateId },
+            data: { feeTemplateId: null },
+          });
+
           await tx.feeTemplate.delete({
             where: { id: request.templateId },
           });
@@ -2266,7 +2300,11 @@ export const processFeeRectificationRequest = async (
       });
     });
 
-    res.status(200).json({ message: `Request ${status} successfully.` });
+    res
+      .status(200)
+      .json({
+        message: `Request ${status} and applied to students successfully.`,
+      });
   } catch (error: any) {
     next(error);
   }
