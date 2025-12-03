@@ -731,9 +731,17 @@ export const getClassFeeSummaries = async (
   }
 
   try {
+    // 1. Get all classes
     const classes = await prisma.schoolClass.findMany({
       where: { branchId },
-      select: { id: true, gradeLevel: true, section: true },
+      select: {
+        id: true,
+        gradeLevel: true,
+        section: true,
+        // Get the template amount for fallback
+        feeTemplate: { select: { amount: true } },
+      },
+      orderBy: [{ gradeLevel: "asc" }, { section: "asc" }],
     });
 
     // 2. Calculate summaries for each class
@@ -741,7 +749,7 @@ export const getClassFeeSummaries = async (
       classes.map(async (sClass) => {
         // Fetch students with their fee records AND adjustments
         const students = await prisma.student.findMany({
-          where: { classId: sClass.id },
+          where: { classId: sClass.id, status: "active" },
           select: {
             id: true,
             feeRecords: {
@@ -760,19 +768,24 @@ export const getClassFeeSummaries = async (
           const record = student.feeRecords[0];
           const adjustments = student.FeeAdjustment || [];
 
-          // Calculate Adjustment Total
+          // A. Base Fee Logic:
+          // If record exists, use it. If not, use Class Template. If neither, 0.
+          const baseTotal = record
+            ? record.totalAmount
+            : sClass.feeTemplate?.amount || 0;
+
+          // B. Adjustment Logic:
+          // Calculate net effect of all concessions/charges
           const totalAdjustments = adjustments.reduce((acc, adj) => {
             return adj.type === "charge" ? acc + adj.amount : acc - adj.amount;
           }, 0);
 
-          // Base Logic: If no record, use 0 (or template default if you prefer logic from previous steps)
-          // For summary, we usually only count students who have records generated.
-          const baseTotal = record ? record.totalAmount : 0;
-          const paid = record ? record.paidAmount : 0;
-
+          // C. Net Calculation
           const netTotal = baseTotal + totalAdjustments;
+          const paid = record ? record.paidAmount : 0;
           const pending = netTotal - paid;
 
+          // Only add positive pending amounts (ignore overpayments)
           if (pending > 0) {
             classTotalPending += pending;
             defaulterCount++;
@@ -785,8 +798,6 @@ export const getClassFeeSummaries = async (
           studentCount: students.length,
           defaulterCount,
           pendingAmount: classTotalPending,
-          // Note: totalBilled/totalCollected removed from this specific view
-          // to save processing, as frontend only shows pending.
         };
       })
     );
