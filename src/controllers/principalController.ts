@@ -2209,6 +2209,21 @@ export const getFeeRectificationRequestsByBranch = async (
   }
 };
 
+const ACADEMIC_MONTH_ORDER = [
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+  "January",
+  "February",
+  "March",
+];
+
 export const processFeeRectificationRequest = async (
   req: Request,
   res: Response,
@@ -2217,7 +2232,7 @@ export const processFeeRectificationRequest = async (
   try {
     const branchId = await getPrincipalAuth(req);
     const { id } = req.params;
-    const { status } = req.body; // "Approved" or "Rejected"
+    const { status } = req.body;
 
     if (!branchId) return res.status(401).json({ message: "Unauthorized." });
 
@@ -2226,85 +2241,114 @@ export const processFeeRectificationRequest = async (
       where: { id, branchId },
     });
 
-    if (!request) {
+    if (!request)
       return res.status(404).json({ message: "Request not found." });
-    }
+    if (request.status !== "Pending")
+      return res.status(400).json({ message: "Request processed." });
 
-    if (request.status !== "Pending") {
-      return res.status(400).json({ message: "Request is already processed." });
-    }
-
-    // 2. Perform the Action Transactionally
     await prisma.$transaction(async (tx) => {
-      // A. If Approved, Apply the changes
       if (status === "Approved") {
         if (request.requestType === "update" && request.newData) {
-          const updates = request.newData as any; // Cast JSON to any to access fields
+          const oldTemplate = request.originalData as any;
+          const newTemplate = request.newData as any;
 
+          // A. Update the Template Definition
           await tx.feeTemplate.update({
             where: { id: request.templateId },
-            data: updates as Prisma.FeeTemplateUpdateInput,
+            data: newTemplate as Prisma.FeeTemplateUpdateInput,
           });
 
-          // --- LOGIC PART 2: PROPAGATE CHANGES TO STUDENTS (The Fix) ---
-          // If the total amount changed, we must update all student records
-          // linked to this template to reflect the new total.
-          if (updates.amount) {
-            const newTotalAmount = Number(updates.amount);
-
-            // 1. Find all classes using this template
-            const linkedClasses = await tx.schoolClass.findMany({
-              where: { feeTemplateId: request.templateId },
-              select: { id: true },
-            });
-
-            const classIds = linkedClasses.map((c) => c.id);
-
-            // 2. Update all FeeRecords for students in these classes
-            // We update 'totalAmount'. The 'pending' amount is calculated
-            // dynamically (Total - Paid) in your controllers, so this automatically
-            // increases the due amount for everyone.
-            await tx.feeRecord.updateMany({
+          // B. PROPAGATION LOGIC
+          // Only run this logic if the financial breakdown actually changed
+          if (
+            JSON.stringify(oldTemplate.monthlyBreakdown) !==
+            JSON.stringify(newTemplate.monthlyBreakdown)
+          ) {
+            // 1. Find all students linked to this template
+            const studentsToUpdate = await tx.student.findMany({
               where: {
-                student: {
-                  classId: { in: classIds },
-                },
+                class: { feeTemplateId: request.templateId },
+                // Only fetch students who actually have a fee record to update
+                feeRecords: { some: {} },
               },
-              data: {
-                totalAmount: newTotalAmount,
+              select: {
+                id: true,
+                feeRecords: { select: { id: true, paidAmount: true } },
               },
             });
+
+            // 2. Calculate specific new totals for each student
+            for (const student of studentsToUpdate) {
+              const feeRecord = student.feeRecords[0];
+              if (!feeRecord) continue;
+
+              let remainingPaid = feeRecord.paidAmount;
+              let newCalculatedTotal = 0;
+
+              // Waterfall: Loop through months chronologically
+              for (const monthName of ACADEMIC_MONTH_ORDER) {
+                // Find cost of this month in Old vs New template
+                const oldMonthData = (
+                  oldTemplate.monthlyBreakdown as any[]
+                ).find((m: any) => m.month === monthName);
+                const newMonthData = (
+                  newTemplate.monthlyBreakdown as any[]
+                ).find((m: any) => m.month === monthName);
+
+                // Calculate monthly totals (summing components)
+                const oldCost = oldMonthData
+                  ? oldMonthData.breakdown.reduce(
+                      (s: number, c: any) => s + Number(c.amount),
+                      0
+                    )
+                  : 0;
+                const newCost = newMonthData
+                  ? newMonthData.breakdown.reduce(
+                      (s: number, c: any) => s + Number(c.amount),
+                      0
+                    )
+                  : 0;
+
+                if (remainingPaid >= oldCost) {
+                  // [Logic]: Student has already cleared this month.
+                  // We LOCK this month to the OLD cost (Price Protection).
+                  newCalculatedTotal += oldCost;
+                  remainingPaid -= oldCost;
+                } else {
+                  // [Logic]: Student has NOT cleared this month.
+                  // The NEW price applies to this and all future months.
+                  // (Note: 'remainingPaid' here is < oldCost, so it's partially paid or 0.
+                  // We still upgrade the total target to the new cost).
+                  newCalculatedTotal += newCost;
+                  remainingPaid = 0; // Exhausted payment buffer
+                }
+              }
+
+              // 3. Update this specific student's record
+              await tx.feeRecord.update({
+                where: { id: feeRecord.id },
+                data: { totalAmount: newCalculatedTotal },
+              });
+            }
           }
         } else if (request.requestType === "delete") {
-          // Handle Delete: Unlink template from classes first, then delete
-          // (Optional: You might want to keep the records but nullify the template link)
+          // Handle Delete (Unlink classes, then delete template)
           await tx.schoolClass.updateMany({
             where: { feeTemplateId: request.templateId },
             data: { feeTemplateId: null },
           });
-
-          await tx.feeTemplate.delete({
-            where: { id: request.templateId },
-          });
+          await tx.feeTemplate.delete({ where: { id: request.templateId } });
         }
       }
 
-      // B. Update the Request Status
+      // C. Update Request Status
       await tx.feeRectificationRequest.update({
         where: { id },
-        data: {
-          status: status,
-          reviewedById: req.user?.id,
-          reviewedAt: new Date(),
-        },
+        data: { status, reviewedById: req.user?.id, reviewedAt: new Date() },
       });
     });
 
-    res
-      .status(200)
-      .json({
-        message: `Request ${status} and applied to students successfully.`,
-      });
+    res.status(200).json({ message: `Request ${status} successfully.` });
   } catch (error: any) {
     next(error);
   }
