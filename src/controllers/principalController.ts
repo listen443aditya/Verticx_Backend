@@ -1781,8 +1781,6 @@ export const addFeeAdjustment = async (
     if (!branchId) {
       return res.status(401).json({ message: "Authentication required." });
     }
-
-    // 1. Get Principal Name
     const principal = await prisma.user.findUnique({
       where: { id: req.user?.id },
       select: { name: true },
@@ -1793,71 +1791,23 @@ export const addFeeAdjustment = async (
     }
 
     const { studentId, type, amount, reason } = req.body;
-    const adjustmentAmount = parseFloat(amount);
 
     if (!studentId || !type || !amount || !reason) {
       return res.status(400).json({ message: "All fields are required." });
     }
 
-    // 2. Find the Student's Fee Record
-    const student = await prisma.student.findUnique({
-      where: { id: studentId },
-      include: {
-        feeRecords: true,
-        class: { include: { feeTemplate: true } },
+    await prisma.feeAdjustment.create({
+      data: {
+        studentId,
+        amount: parseFloat(amount),
+        type, // "concession" or "charge"
+        reason,
+        adjustedBy: principal.name,
+        date: new Date(),
       },
     });
 
-    if (!student) {
-      return res.status(404).json({ message: "Student not found." });
-    }
-
-    let feeRecordId = student.feeRecords[0]?.id;
-
-    // Logic: If no fee record exists, we must create one first (based on template)
-    // before we can adjust it.
-    if (!feeRecordId) {
-      const templateAmount = student.class?.feeTemplate?.amount || 0;
-      const newRecord = await prisma.feeRecord.create({
-        data: {
-          studentId,
-          totalAmount: templateAmount,
-          paidAmount: 0,
-          dueDate: new Date(new Date().getFullYear(), 3, 1), // Default due date
-        },
-      });
-      feeRecordId = newRecord.id;
-    }
-
-    // 3. Transaction: Log Adjustment AND Update Balance
-    await prisma.$transaction([
-      // A. Create Audit Log
-      prisma.feeAdjustment.create({
-        data: {
-          studentId,
-          amount: adjustmentAmount,
-          type,
-          reason,
-          adjustedBy: principal.name,
-          date: new Date(),
-        },
-      }),
-
-      // B. Update the Main Record (The "Saved" logic)
-      prisma.feeRecord.update({
-        where: { id: feeRecordId },
-        data: {
-          totalAmount:
-            type === "concession"
-              ? { decrement: adjustmentAmount } // Reduce total if concession
-              : { increment: adjustmentAmount }, // Increase total if charge
-        },
-      }),
-    ]);
-
-    res
-      .status(201)
-      .json({ message: "Fee adjustment applied and balance updated." });
+    res.status(201).json({ message: "Fee adjustment record added." });
   } catch (error: any) {
     next(error);
   }
@@ -3061,7 +3011,7 @@ export const getStudentProfileDetails = async (
     const student = await prisma.student.findFirst({
       where: { id: studentId, branchId },
       include: {
-        // FIX 1: Include feeTemplate so we know the default fee
+
         class: {
           select: {
             id: true,
