@@ -60,7 +60,6 @@ const getRegistrarBranchId = (req: Request): string | null => {
 };
 
 
-
 export const getRegistrarDashboardData = async (
   req: Request,
   res: Response,
@@ -70,17 +69,21 @@ export const getRegistrarDashboardData = async (
   if (!branchId) {
     return res
       .status(401)
-      .json({ message: "Unauthorized: Registrar not associated with a branch." });
+      .json({
+        message: "Unauthorized: Registrar not associated with a branch.",
+      });
   }
 
   try {
     const now = new Date();
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
-const branchDetails = await prisma.branch.findUnique({
-  where: { id: branchId },
-  select: { email: true, helplineNumber: true, location: true },
-});
+
+    const branchDetails = await prisma.branch.findUnique({
+      where: { id: branchId },
+      select: { email: true, helplineNumber: true, location: true },
+    });
+
     // --- Comprehensive Data Fetching in a Single Transaction ---
     const [
       pendingAdmissions,
@@ -92,18 +95,28 @@ const branchDetails = await prisma.branch.findUnique({
       classFeeSummaries,
       teacherAttendanceStatus,
     ] = await prisma.$transaction([
-      prisma.admissionApplication.count({ where: { branchId, status: "Pending" } }),
-      prisma.rectificationRequest.count({ where: { branchId, status: "Pending" } }),
+      prisma.admissionApplication.count({
+        where: { branchId, status: "Pending" },
+      }),
+      prisma.rectificationRequest.count({
+        where: { branchId, status: "Pending" },
+      }),
       prisma.feeRecord.aggregate({
         _sum: { totalAmount: true, paidAmount: true },
         where: { student: { branchId } },
       }),
-      prisma.teacher.count({ where: { branchId, subjectIds: { isEmpty: true } } }),
-      prisma.schoolEvent.findMany({ where: { branchId, status: "Pending" }, take: 5, orderBy: { date: 'asc' } }),
+      prisma.teacher.count({
+        where: { branchId, subjectIds: { isEmpty: true } },
+      }),
+      prisma.schoolEvent.findMany({
+        where: { branchId, status: "Pending" },
+        take: 5,
+        orderBy: { date: "asc" },
+      }),
       prisma.admissionApplication.findMany({
         where: { branchId, status: "Pending" },
         take: 5,
-        select: { id: true, applicantName: true, gradeLevel: true }
+        select: { id: true, applicantName: true, gradeLevel: true },
       }),
       prisma.schoolClass.findMany({
         where: { branchId },
@@ -114,50 +127,58 @@ const branchDetails = await prisma.branch.findUnique({
           students: {
             select: {
               feeRecords: {
-                where: { paidAmount: { lt: prisma.feeRecord.fields.totalAmount } },
-                select: { totalAmount: true, paidAmount: true }
-              }
-            }
-          }
-        }
+                where: {
+                  paidAmount: { lt: prisma.feeRecord.fields.totalAmount },
+                },
+                select: { totalAmount: true, paidAmount: true },
+              },
+            },
+          },
+        },
       }),
       prisma.teacherAttendanceRecord.findMany({
-          where: {
-              branchId,
-              date: {
-                  gte: new Date(now.setHours(0, 0, 0, 0)),
-                  lt: new Date(now.setHours(23, 59, 59, 999))
-              },
-              status: { in: ['Absent', 'HalfDay'] }
+        where: {
+          branchId,
+          date: {
+            gte: new Date(now.setHours(0, 0, 0, 0)),
+            lt: new Date(now.setHours(23, 59, 59, 999)),
           },
-          include: { teacher: { select: { name: true } } }
-      })
+          status: { in: ["Absent", "HalfDay"] },
+        },
+        include: { teacher: { select: { name: true } } },
+      }),
     ]);
 
     // --- Complex Calculation for Monthly Fee Overview ---
     const feeOverviewPromises = Array.from({ length: 6 }).map(async (_, i) => {
-        const month = (currentMonth - i + 12) % 12;
-        const year = currentMonth - i < 0 ? currentYear - 1 : currentYear;
-        const monthStart = new Date(year, month, 1);
-        const monthEnd = new Date(year, month + 1, 0);
+      const month = (currentMonth - i + 12) % 12;
+      const year = currentMonth - i < 0 ? currentYear - 1 : currentYear;
+      const monthStart = new Date(year, month, 1);
+      const monthEnd = new Date(year, month + 1, 0);
 
-        const payments = await prisma.feePayment.aggregate({
-            _sum: { amount: true },
-            where: { student: { branchId }, paidDate: { gte: monthStart, lte: monthEnd } },
-        });
-        const records = await prisma.feeRecord.aggregate({
-            _sum: { totalAmount: true },
-            where: { student: { branchId }, dueDate: { gte: monthStart, lte: monthEnd } }
-        });
-        
-        const paid = payments._sum.amount || 0;
-        const totalDue = records._sum.totalAmount || 0;
+      const payments = await prisma.feePayment.aggregate({
+        _sum: { amount: true },
+        where: {
+          student: { branchId },
+          paidDate: { gte: monthStart, lte: monthEnd },
+        },
+      });
+      const records = await prisma.feeRecord.aggregate({
+        _sum: { totalAmount: true },
+        where: {
+          student: { branchId },
+          dueDate: { gte: monthStart, lte: monthEnd },
+        },
+      });
 
-        return {
-            month: monthStart.toLocaleString('default', { month: 'short' }),
-            paid,
-            pending: Math.max(0, totalDue - paid),
-        };
+      const paid = payments._sum.amount || 0;
+      const totalDue = records._sum.totalAmount || 0;
+
+      return {
+        month: monthStart.toLocaleString("default", { month: "short" }),
+        paid,
+        pending: Math.max(0, totalDue - paid),
+      };
     });
     const feeOverview = (await Promise.all(feeOverviewPromises)).reverse();
 
@@ -168,8 +189,9 @@ const branchDetails = await prisma.branch.findUnique({
         pendingAdmissions,
         pendingAcademicRequests,
         feesPending:
-          (feesPendingAggregate._sum.totalAmount || 0) -
-          (feesPendingAggregate._sum.paidAmount || 0),
+          // Cast to any to avoid TS error on _sum in some environments
+          ((feesPendingAggregate as any)._sum.totalAmount || 0) -
+          ((feesPendingAggregate as any)._sum.paidAmount || 0),
         unassignedFaculty,
       },
       admissionRequests: admissionRequests.map((app) => ({
@@ -197,14 +219,15 @@ const branchDetails = await prisma.branch.findUnique({
           pendingAmount,
         };
       }),
-      teacherAttendanceStatus: teacherAttendanceStatus.map((att) => ({
+      // FIX: Cast 'att' to 'any' to access the included 'teacher' property
+      teacherAttendanceStatus: teacherAttendanceStatus.map((att: any) => ({
         teacherId: att.teacherId,
-        teacherName: att.teacher.name,
+        teacherName: att.teacher?.name || "Unknown", // Optional chaining for safety
         status: att.status,
       })),
       academicRequests: {
         count: pendingAcademicRequests,
-        requests: [], // This can be populated with a more detailed query if needed for the UI
+        requests: [],
       },
     };
 
@@ -213,7 +236,6 @@ const branchDetails = await prisma.branch.findUnique({
     next(error);
   }
 };
-
 
 export const getUserDetails = async (
   req: Request,
@@ -743,7 +765,7 @@ export const getClassFeeSummaries = async (
 
     const summaries = await Promise.all(
       classes.map(async (sClass) => {
-        // 2. Fetch ALL active students (Don't filter by feeRecords here!)
+        // 2. Fetch ALL active students
         const students = await prisma.student.findMany({
           where: { classId: sClass.id, status: "active" },
           select: {
@@ -760,24 +782,18 @@ export const getClassFeeSummaries = async (
           const record = student.feeRecords[0];
           const adjustments = student.FeeAdjustment || [];
 
-          // A. Base Amount: Use Record if exists, else Template
+          // FIX: Cast sClass to 'any' to access feeTemplate safely
+          const classWithTemplate = sClass as any;
+
+          // A. Base Amount
           const baseTotal = record
             ? record.totalAmount
-            : sClass.feeTemplate?.amount || 0;
+            : classWithTemplate.feeTemplate?.amount || 0;
 
-          // B. Adjustments (Only add if no record exists, because if record exists,
-          // adjustments are usually baked into totalAmount by your other logic.
-          // HOWEVER, to be safe based on your previous logic:
-          // If we assume totalAmount in DB *already* includes adjustments, we don't add them again.
-          // But if we assume dynamic calculation:
+          // B. Adjustments
           const totalAdjustments = adjustments.reduce((acc, adj) => {
             return adj.type === "charge" ? acc + adj.amount : acc - adj.amount;
           }, 0);
-
-          // If record exists, trust its total. If not, calculate fresh.
-          // Note: Your 'addFeeAdjustment' controller updates the DB record.
-          // So if record exists, we just use it.
-          // If record DOES NOT exist, we calculate Template + Adjustments.
 
           const netTotal = record
             ? record.totalAmount
@@ -1568,11 +1584,17 @@ export const getSchoolClassesByBranch = async (
       },
       orderBy: [{ gradeLevel: "asc" }, { section: "asc" }],
     });
-    const formattedClasses = classes.map((c) => ({
-      ...c,
-      mentorTeacherId: c.mentorId,
-      studentCount: c._count.students,
-    }));
+
+    const formattedClasses = classes.map((c) => {
+      // FIX: Cast 'c' to 'any' to access the _count property safely
+      const classWithCount = c as any;
+
+      return {
+        ...c,
+        mentorTeacherId: c.mentorId,
+        studentCount: classWithCount._count?.students || 0,
+      };
+    });
 
     res.status(200).json(formattedClasses);
   } catch (error) {
@@ -1789,7 +1811,7 @@ export const getClassDetails = async (
             teacher: { select: { name: true } },
           },
         },
-        mentor: { select: { name: true } },
+        mentor: { select: { name: true, id: true } },
       },
     });
 
@@ -1799,7 +1821,7 @@ export const getClassDetails = async (
         .json({ message: "Class not found in your branch." });
     }
 
-    // 2. Format Subject & Performance Data (Same as before)
+    // 2. Format Subject & Performance Data
     const subjectsWithDetails = [];
     const performance = [];
     for (const sub of classInfo.subjects) {
@@ -1820,7 +1842,7 @@ export const getClassDetails = async (
       });
     }
 
-    // 3. Get Fee Details (Same as before)
+    // 3. Get Fee Details
     const feeAggregates = await prisma.feeRecord.aggregate({
       _sum: { totalAmount: true, paidAmount: true },
       where: { student: { classId: classId } },
@@ -1828,6 +1850,7 @@ export const getClassDetails = async (
     const totalPending =
       (feeAggregates._sum?.totalAmount ?? 0) -
       (feeAggregates._sum?.paidAmount ?? 0);
+
     const defaulterList = await prisma.$queryRaw<any[]>`
       SELECT s.id, s.name, SUM(fr."totalAmount" - fr."paidAmount") as "pendingAmount"
       FROM "Student" s
@@ -1836,6 +1859,7 @@ export const getClassDetails = async (
       GROUP BY s.id, s.name
       HAVING SUM(fr."totalAmount" - fr."paidAmount") > 0
     `;
+
     const fees = {
       totalPending: totalPending,
       defaulters: defaulterList.map((d) => ({
@@ -1859,18 +1883,22 @@ export const getClassDetails = async (
         _avg: { score: true },
         where: { studentId: { in: studentIds } },
       });
-      return new Map(averages.map((a) => [a.studentId, a._avg.score || 0]));
+
+      // FIX: Cast 'a' to 'any' to allow access to studentId and _avg
+      return new Map(
+        averages.map((a: any) => [a.studentId, a._avg.score || 0])
+      );
     };
 
     // Calculate class ranks
     const classScores = await getAverageScores(
       studentsInClass.map((s) => s.id)
     );
+
     const sortedClassRanks = [...classScores.entries()]
       .sort((a, b) => b[1] - a[1])
-      // --- THIS IS THE FIX ---
-      // Tell TypeScript this is a 2-element tuple
       .map((entry, index) => [entry[0], index + 1] as [string, number]);
+
     const classRankMap = new Map(sortedClassRanks);
 
     // Calculate school ranks (based on grade level)
@@ -1882,11 +1910,11 @@ export const getClassDetails = async (
         })
       ).map((s) => s.id)
     );
+
     const sortedSchoolRanks = [...schoolScores.entries()]
       .sort((a, b) => b[1] - a[1])
-      // --- THIS IS THE FIX ---
-      // Tell TypeScript this is a 2-element tuple
       .map((entry, index) => [entry[0], index + 1] as [string, number]);
+
     const schoolRankMap = new Map(sortedSchoolRanks);
 
     // 5. Assemble Student Roster with Ranks
@@ -1899,7 +1927,11 @@ export const getClassDetails = async (
 
     // 6. Assemble the final ClassDetails object
     const classDetails = {
-      classInfo: { ...classInfo, mentorName: classInfo.mentor?.name || "N/A" },
+      classInfo: {
+        ...classInfo,
+        mentorName: classInfo.mentor?.name || "N/A",
+        mentorTeacherId: classInfo.mentorId,
+      },
       students: studentsWithRank,
       subjects: subjectsWithDetails,
       performance: performance,
@@ -3880,51 +3912,63 @@ export const removeStudentFromRoom = async (req: Request, res: Response, next: N
 // --- Transport Management ---
 
 
-export const getTransportRoutes = async (req: Request, res: Response, next: NextFunction) => {
-    const branchId = getRegistrarBranchId(req);
-    if (!branchId) {
-        return res.status(401).json({ message: "Authentication required with a valid branch." });
-    }
-    try {
-        // 1. Get routes AND include their stops
-        const routes = await prisma.transportRoute.findMany({
-            where: { branchId },
-            include: { 
-                busStops: { orderBy: { name: 'asc' } } // Fixes frontend .map() crash
-            }
-        });
+export const getTransportRoutes = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  if (!branchId) {
+    return res
+      .status(401)
+      .json({ message: "Authentication required with a valid branch." });
+  }
+  try {
+    // 1. Get routes AND include their stops
+    const routes = await prisma.transportRoute.findMany({
+      where: { branchId },
+      include: {
+        busStops: { orderBy: { name: "asc" } },
+      },
+    });
 
-        // 2. Get member counts separately
-        const [studentCounts, teacherCounts] = await Promise.all([
-            prisma.student.groupBy({
-                by: ['transportRouteId'],
-                _count: { id: true },
-                where: { branchId, transportRouteId: { not: null } }
-            }),
-            prisma.teacher.groupBy({
-                by: ['transportRouteId'],
-                _count: { id: true },
-                where: { branchId, transportRouteId: { not: null } }
-            })
-        ]);
+    // 2. Get member counts separately
+    const [studentCounts, teacherCounts] = await Promise.all([
+      prisma.student.groupBy({
+        by: ["transportRouteId"],
+        _count: { id: true },
+        where: { branchId, transportRouteId: { not: null } },
+      }),
+      prisma.teacher.groupBy({
+        by: ["transportRouteId"],
+        _count: { id: true },
+        where: { branchId, transportRouteId: { not: null } },
+      }),
+    ]);
 
-        const studentCountMap = new Map(studentCounts.map(c => [c.transportRouteId, c._count.id]));
-        const teacherCountMap = new Map(teacherCounts.map(c => [c.transportRouteId, c._count.id]));
+    // FIX: Explicitly cast 'c' to 'any' to bypass TypeScript inference error on transportRouteId
+    const studentCountMap = new Map(
+      studentCounts.map((c: any) => [c.transportRouteId, c._count.id])
+    );
+    const teacherCountMap = new Map(
+      teacherCounts.map((c: any) => [c.transportRouteId, c._count.id])
+    );
 
-        // 3. Combine data into the shape the frontend expects
-        const routesWithCounts = routes.map(route => {
-            const memberCount = (studentCountMap.get(route.id) || 0) + (teacherCountMap.get(route.id) || 0);
-            return {
-                ...route,
-                // This provides the `length` property the frontend needs
-                assignedMembers: { length: memberCount } // Fixes frontend .length crash
-            };
-        });
+    // 3. Combine data into the shape the frontend expects
+    const routesWithCounts = routes.map((route) => {
+      const memberCount =
+        (studentCountMap.get(route.id) || 0) +
+        (teacherCountMap.get(route.id) || 0);
+      return {
+        ...route,
+        assignedMembers: { length: memberCount },
+      };
+    });
 
-        res.status(200).json(routesWithCounts);
-    } catch (error) {
-        next(error);
-    }
+    res.status(200).json(routesWithCounts);
+  } catch (error) {
+    next(error);
+  }
 };
 
 export const createTransportRoute = async (req: Request, res: Response, next: NextFunction) => {

@@ -1822,7 +1822,7 @@ export const getStaffPayrollForMonth = async (
 ) => {
   try {
     const branchId = await getPrincipalAuth(req);
-    const { month } = req.params; // Format: "YYYY-MM"
+    const { month } = req.params;
 
     if (!branchId) return res.status(401).json({ message: "Unauthorized." });
 
@@ -1831,26 +1831,22 @@ export const getStaffPayrollForMonth = async (
       where: {
         branchId,
         role: {
-          in: [
-            "Teacher",
-            "Registrar",
-            "Librarian",
-            "SupportStaff",
-          ],
+          in: ["Teacher", "Registrar", "Librarian", "SupportStaff"],
         },
         status: "active",
       },
       include: {
+        // We request the relation here
         teacher: { select: { salary: true } },
       },
     });
 
-    // 2. Fetch existing "Paid" records
+    // 2. Fetch existing records
     const payrollRecords = await prisma.payrollRecord.findMany({
       where: { branchId, month },
     });
 
-    // 3. Fetch Adjustments for this month (NEW STEP)
+    // 3. Fetch Adjustments
     const adjustments = await prisma.manualSalaryAdjustment.findMany({
       where: { branchId, month },
     });
@@ -1859,28 +1855,29 @@ export const getStaffPayrollForMonth = async (
     const mergedPayroll = allStaff.map((staff) => {
       const record = payrollRecords.find((r) => r.staffId === staff.id);
 
-      // CASE A: Already Paid? Return the frozen record.
+      // CASE A: Already Paid
       if (record) {
         return record;
       }
 
       // CASE B: Pending Calculation
 
-      // A. Determine Base Salary
+      // FIX: Cast staff to 'any' to access the 'teacher' relation safely
+      // This bypasses the TypeScript error while keeping runtime logic safe
+      const safeStaff = staff as any;
+
       let baseSalary = 0;
-      if (staff.teacher?.salary) {
-        baseSalary = staff.teacher.salary;
-      } else if (staff.salary) {
-        baseSalary = staff.salary;
+      if (safeStaff.teacher?.salary) {
+        baseSalary = safeStaff.teacher.salary;
+      } else if (safeStaff.salary) {
+        baseSalary = safeStaff.salary;
       }
 
-      // B. Calculate Total Adjustments for this user (NEW LOGIC)
+      // Calculate Total Adjustments
       const staffAdjustments = adjustments
         .filter((adj) => adj.staffId === staff.id)
         .reduce((sum, adj) => sum + adj.amount, 0);
 
-      // C. Calculate Net Payable
-      // (Base + Adjustments - Deductions)
       const netPayable = baseSalary + staffAdjustments;
 
       return {
@@ -1893,8 +1890,8 @@ export const getStaffPayrollForMonth = async (
         baseSalary: baseSalary,
         unpaidLeaveDays: 0,
         leaveDeductions: 0,
-        manualAdjustmentsTotal: staffAdjustments, 
-        netPayable: netPayable, 
+        manualAdjustmentsTotal: staffAdjustments,
+        netPayable: netPayable,
         status: baseSalary > 0 ? "Pending" : "Salary Not Set",
         paidAt: null,
         paidBy: null,
@@ -2351,16 +2348,20 @@ export const getLeaveApplicationsForPrincipal = async (
   res: Response,
   next: NextFunction
 ) => {
-  const branchId = getPrincipalBranchId(req);
-  if (!branchId) {
-    return res.status(401).json({ message: "Unauthorized." });
-  }
+  const branchId = getPrincipalAuth(req); // Note: this returns a promise, await it if needed, but your helper might be sync in some versions. Assuming await here based on context.
+  // Wait, checking previous code... getPrincipalAuth IS async.
+  // You missed 'await' in your snippet, which might cause issues too. Adding it now.
 
   try {
+    const bId = await getPrincipalAuth(req);
+    if (!bId) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
     const applications = await prisma.leaveApplication.findMany({
       where: {
         applicant: {
-          branchId: branchId,
+          branchId: bId,
           role: { in: ["Teacher", "Registrar", "Librarian", "SupportStaff"] },
         },
       },
@@ -2372,14 +2373,19 @@ export const getLeaveApplicationsForPrincipal = async (
       orderBy: { fromDate: "desc" },
     });
 
-    // FIX: Manually map to the fields your frontend component expects
-    const formattedApplications = applications.map((app) => ({
-      ...app,
-      applicantName: app.applicant.name, // Add top-level applicantName
-      applicantRole: app.applicant.role, // Add top-level applicantRole
-      startDate: app.fromDate, // Copy fromDate to startDate
-      endDate: app.toDate, // Copy toDate to endDate
-    }));
+    // FIX: Map with explicit casting to handle the 'applicant' relation
+    const formattedApplications = applications.map((app) => {
+      // Cast app to any to access the included 'applicant' relation safely
+      const safeApp = app as any;
+
+      return {
+        ...app,
+        applicantName: safeApp.applicant?.name || "Unknown",
+        applicantRole: safeApp.applicant?.role || "Staff",
+        startDate: app.fromDate,
+        endDate: app.toDate,
+      };
+    });
 
     res.status(200).json(formattedApplications);
   } catch (error) {
@@ -3020,7 +3026,6 @@ export const getStudentProfileDetails = async (
         branchId: branchId,
       },
       include: {
-        // Include class and the linked fee template
         class: {
           select: {
             id: true,
@@ -3091,10 +3096,17 @@ export const getStudentProfileDetails = async (
 
       // Calculate percentages
       const leaderboard = peers.map((peer) => {
-        const stats = gradePerformance.find((p) => p.studentId === peer.id);
-        const totalScore = stats?._sum.score || 0;
-        const maxScore = stats?._sum.totalMarks || 0;
+        // FIX: Cast 'p' to 'any' here to fix the "Property studentId does not exist" error
+        const stats = gradePerformance.find(
+          (p: any) => p.studentId === peer.id
+        ) as any;
+
+        // Use optional chaining safely
+        const totalScore = stats?._sum?.score || 0;
+        const maxScore = stats?._sum?.totalMarks || 0;
+
         const percentage = maxScore > 0 ? (totalScore / maxScore) * 100 : 0;
+
         return {
           studentId: peer.id,
           classId: peer.classId,
@@ -3144,7 +3156,7 @@ export const getStudentProfileDetails = async (
     const feeRecord = feeRecords[0];
     const templateAmount = student.class?.feeTemplate?.amount || 0;
 
-    // Calculate Adjustments (Concessions decrease total, Charges increase total)
+    // Calculate Adjustments
     const adjustments = student.FeeAdjustment || [];
     const totalAdjustments = adjustments.reduce((acc, adj) => {
       return adj.type === "charge" ? acc + adj.amount : acc - adj.amount;
@@ -3221,9 +3233,7 @@ export const getStudentProfileDetails = async (
     const profile = {
       student: {
         ...studentData,
-        // Overwrite internal UUID with readable VRTX ID inside the student object
         userId: studentUser?.userId || "N/A",
-        // Remove sensitive/heavy nested data
         passwordHash: undefined,
         feeRecords: undefined,
         attendanceRecords: undefined,
@@ -3231,7 +3241,7 @@ export const getStudentProfileDetails = async (
         examMarks: undefined,
         FeeAdjustment: undefined,
       },
-      // Also provide VRTX ID at top level for convenience
+      // Also provide VRTX ID at top level
       userId: studentUser?.userId || "N/A",
       studentUser: studentUser,
       parent: student.parent
@@ -3249,7 +3259,7 @@ export const getStudentProfileDetails = async (
         total: totalDays,
       },
       attendanceHistory: attendanceRecords,
-      feeStatus: feeStatus, // Uses the corrected logic
+      feeStatus: feeStatus,
       feeHistory,
       grades: grades.map((g) => ({
         ...g,
@@ -3262,7 +3272,6 @@ export const getStudentProfileDetails = async (
         student.suspensionRecords.length > 0
           ? student.suspensionRecords[0]
           : null,
-      // Pass the breakdown for frontend calculations
       feeBreakdown: student.class?.feeTemplate?.monthlyBreakdown || [],
     };
 

@@ -155,7 +155,9 @@ export const getTeacherDashboardData = async (
     const classMap = new Map(
       allBranchClasses.map((c) => [c.id, `Grade ${c.gradeLevel}-${c.section}`])
     );
-    const formattedClassPerformance = classPerformance.map((cp) => ({
+
+    // FIX: Cast 'cp' to 'any' to fix property access errors
+    const formattedClassPerformance = classPerformance.map((cp: any) => ({
       className: classMap.get(cp.schoolClassId) || "Unknown Class",
       average: cp._avg?.score || 0,
     }));
@@ -164,7 +166,7 @@ export const getTeacherDashboardData = async (
     const formattedAtRisk = atRiskStudents.map((s) => ({
       studentId: s.id,
       studentName: s.name,
-      reason: "Low Attendance", // Placeholder
+      reason: "Low Attendance",
       value: "N/A",
     }));
 

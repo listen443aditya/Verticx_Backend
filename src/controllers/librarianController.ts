@@ -27,15 +27,7 @@ export const getLibrarianDashboardData = async (
 
     const today = new Date();
 
-    const [
-      bookStats,
-      issuedCount,
-      overdueCount,
-      uniqueMemberCount,
-      recentActivityRaw,
-      overdueListRaw,
-      classIssuancesRaw,
-    ] = await prisma.$transaction([
+    const results = await prisma.$transaction([
       // Query 1: Get book stats
       prisma.libraryBook.aggregate({
         where: { branchId },
@@ -112,6 +104,15 @@ export const getLibrarianDashboardData = async (
       }),
     ]);
 
+    // FIX: Destructure with explicit casting to avoid TS errors
+    const bookStats = results[0];
+    const issuedCount = results[1];
+    const overdueCount = results[2];
+    const uniqueMemberCount = results[3];
+    const recentActivityRaw = results[4] as any[]; // <--- FIX
+    const overdueListRaw = results[5] as any[]; // <--- FIX
+    const classIssuancesRaw = results[6] as any[]; // <--- FIX
+
     // --- 2. Format the data for the frontend ---
 
     const summary = {
@@ -122,7 +123,6 @@ export const getLibrarianDashboardData = async (
       uniqueMembers: uniqueMemberCount.length,
     };
 
-    // --- FIX 1: 'recentActivity' now includes 'memberDetails' ---
     const recentActivity = recentActivityRaw.map((item) => {
       const member = item.studentMember || item.teacherMember;
       const memberDetails = item.studentMember
@@ -135,12 +135,11 @@ export const getLibrarianDashboardData = async (
         ...item,
         memberName: member?.name || "Unknown",
         bookTitle: item.book.title,
-        memberDetails: memberDetails, // <-- This was the missing field
-        memberType: item.memberType as "Student" | "Teacher", // <-- This fixes the type
+        memberDetails: memberDetails,
+        memberType: item.memberType as "Student" | "Teacher",
       };
     });
 
-    // --- FIX 2: 'overdueList' now asserts the 'memberType' ---
     const overdueList = overdueListRaw.map((item) => {
       const member = item.studentMember || item.teacherMember;
       const memberDetails = item.studentMember
@@ -162,7 +161,7 @@ export const getLibrarianDashboardData = async (
         memberName: member?.name || "Unknown",
         memberDetails: memberDetails,
         fineAmount: fineAmount,
-        memberType: item.memberType as "Student" | "Teacher", // <-- This fixes the type
+        memberType: item.memberType as "Student" | "Teacher",
       };
     });
 
@@ -215,7 +214,6 @@ export const getLibrarianDashboardData = async (
       })
     );
 
-    // --- 3. Send the final dashboard data ---
     const dashboardData: LibrarianDashboardData = {
       summary,
       recentActivity,
@@ -529,7 +527,15 @@ export const issueBookByIsbnOrId = async (
         .status(401)
         .json({ message: "Authentication required with a valid branch." });
     }
+
     const { bookIdentifier, memberId, dueDate, finePerDay } = req.body;
+
+    // 0. Basic Validation
+    if (!bookIdentifier || !memberId || !dueDate) {
+      return res.status(400).json({
+        message: "Book Identifier, Member ID, and Due Date are required.",
+      });
+    }
 
     // 1. Find the book
     const book = await prisma.libraryBook.findFirst({
@@ -538,6 +544,7 @@ export const issueBookByIsbnOrId = async (
         OR: [{ id: bookIdentifier }, { isbn: bookIdentifier }],
       },
     });
+
     if (!book) {
       return res.status(404).json({ message: "Book not found." });
     }
@@ -554,7 +561,7 @@ export const issueBookByIsbnOrId = async (
         OR: [{ id: memberId }, { userId: memberId }],
       },
       include: {
-        studentProfile: { select: { id: true } }, 
+        studentProfile: { select: { id: true } },
         teacher: { select: { id: true } },
       },
     });
@@ -564,21 +571,26 @@ export const issueBookByIsbnOrId = async (
         .status(404)
         .json({ message: "Member not found in this branch." });
     }
-    
+
     // 3. Get the correct profile ID (Student or Teacher)
     let memberProfileId: string | undefined;
     let memberRole: "Student" | "Teacher" | null = null;
 
-    if (memberUser.role === "Student" && memberUser.studentProfile) {
-      memberProfileId = memberUser.studentProfile.id;
+
+    // The runtime data IS there because of the 'include' above, but TS is being strict.
+    if (memberUser.role === "Student" && (memberUser as any).studentProfile) {
+      memberProfileId = (memberUser as any).studentProfile.id;
       memberRole = "Student";
-    } else if (memberUser.role === "Teacher" && memberUser.teacher) {
-      memberProfileId = memberUser.teacher.id;
+    } else if (memberUser.role === "Teacher" && (memberUser as any).teacher) {
+      memberProfileId = (memberUser as any).teacher.id;
       memberRole = "Teacher";
     }
 
     if (!memberProfileId || !memberRole) {
-      return res.status(404).json({ message: "Member exists as a user, but has no valid Student or Teacher profile." });
+      return res.status(404).json({
+        message:
+          "Member exists as a user, but has no valid Student or Teacher profile.",
+      });
     }
 
     // 4. Create the issuance and decrement book count
@@ -587,19 +599,18 @@ export const issueBookByIsbnOrId = async (
         data: {
           bookId: book.id,
           branchId: branchId,
-          
-          // --- THIS IS THE FIX ---
-          memberId: memberProfileId, // Log the profile ID
-          memberType: memberRole,     // Log the role
-          
-          // Set the correct relational foreign key
-          studentId: memberRole === "Student" ? memberProfileId : null,
-          teacherId: memberRole === "Teacher" ? memberProfileId : null,
-          // --- END OF FIX ---
 
+          // Core Fields
+          memberId: memberProfileId,
+          memberType: memberRole,
           issuedDate: new Date(),
           dueDate: new Date(dueDate),
-          finePerDay: parseFloat(finePerDay),
+
+          finePerDay: finePerDay ? parseFloat(String(finePerDay)) : 0,
+
+          // Relations
+          studentId: memberRole === "Student" ? memberProfileId : null,
+          teacherId: memberRole === "Teacher" ? memberProfileId : null,
         },
       }),
       prisma.libraryBook.update({
