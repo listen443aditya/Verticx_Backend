@@ -1093,6 +1093,124 @@ export const createExamSchedule = async (
   }
 };
 
+export const deleteExamination = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  const { id } = req.params;
+
+  if (!branchId) return res.status(401).json({ message: "Unauthorized" });
+
+  try {
+    // Security: Use deleteMany to ensure we only delete if it belongs to this branch
+    const result = await prisma.examination.deleteMany({
+      where: { id, branchId },
+    });
+
+    if (result.count === 0) {
+      return res
+        .status(404)
+        .json({ message: "Examination not found in your branch." });
+    }
+
+    res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateExamination = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  const { id } = req.params;
+  const { name, startDate, endDate } = req.body;
+
+  if (!branchId) return res.status(401).json({ message: "Unauthorized" });
+
+  try {
+    const result = await prisma.examination.updateMany({
+      where: { id, branchId },
+      data: {
+        name,
+        startDate: startDate ? new Date(startDate) : undefined,
+        endDate: endDate ? new Date(endDate) : undefined,
+      },
+    });
+
+    if (result.count === 0) {
+      return res.status(404).json({ message: "Examination not found." });
+    }
+
+    res.status(200).json({ message: "Examination updated successfully." });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deleteExamSchedule = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  const { id } = req.params; // Schedule ID
+
+  if (!branchId) return res.status(401).json({ message: "Unauthorized" });
+
+  try {
+    const result = await prisma.examSchedule.deleteMany({
+      where: { id, branchId },
+    });
+
+    if (result.count === 0) {
+      return res.status(404).json({ message: "Schedule not found." });
+    }
+
+    res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateExamSchedule = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  const { id } = req.params;
+  const { date, startTime, endTime, room, totalMarks } = req.body;
+
+  if (!branchId) return res.status(401).json({ message: "Unauthorized" });
+
+  try {
+    const result = await prisma.examSchedule.updateMany({
+      where: { id, branchId },
+      data: {
+        date: date ? new Date(date) : undefined,
+        startTime,
+        endTime,
+        room,
+        totalMarks: totalMarks ? Number(totalMarks) : undefined,
+      },
+    });
+
+    if (result.count === 0) {
+      return res.status(404).json({ message: "Schedule not found." });
+    }
+
+    res.status(200).json({ message: "Schedule updated successfully." });
+  } catch (error) {
+    next(error);
+  }
+};
+
+
 
 export const getExamSchedulesForExamination = async (
   req: Request,

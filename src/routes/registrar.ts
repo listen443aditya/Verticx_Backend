@@ -155,18 +155,31 @@ router.get(
   "/requests/exam-marks",
   registrarController.getExamMarkRectificationRequestsByBranch
 );
-router.post("/examinations/schedules", registrarController.createExamSchedule);
+// --- Examination Management ---
+
+// 1. Exam Operations
 router.get("/examinations", registrarController.getExaminations);
 router.post("/examinations", registrarController.createExamination);
-router.put(
-  "/requests/exam-marks/:id/process",
-  registrarController.processExamMarkRectificationRequest
-);
-router.post("/exam-schedules", registrarController.createExamSchedule);
+router.patch("/examinations/:id", registrarController.updateExamination);
+router.delete("/examinations/:id", registrarController.deleteExamination);
+
+// 2. Schedule Operations
+router.post("/exam-schedules", registrarController.createExamSchedule); 
+router.patch("/exam-schedules/:id", registrarController.updateExamSchedule);
+router.delete("/exam-schedules/:id", registrarController.deleteExamSchedule);
+
+// 3. Specific Fetching
 router.get(
   "/examinations/:examinationId/schedules",
   registrarController.getExamSchedulesForExamination
 );
+
+// 4. Request Processing
+router.put(
+  "/requests/exam-marks/:id/process",
+  registrarController.processExamMarkRectificationRequest
+);
+
 router.get(
   "/leaves/student-applications",
   registrarController.getStudentLeaveApplications
