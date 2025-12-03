@@ -2555,82 +2555,101 @@ export const createFeeTemplate = async (req: Request, res: Response, next: NextF
  * @description Request an update to a fee template by creating a RectificationRequest.
  * @route POST /api/registrar/fee-templates/request-update
  */
-export const requestFeeTemplateUpdate = async (req: Request, res: Response, next: NextFunction) => {
-    const branchId = getRegistrarBranchId(req);
-    const { templateId, newData, reason } = req.body;
+export const requestFeeTemplateUpdate = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  const { templateId, newData, reason } = req.body;
 
-    if (!branchId || !req.user) {
-        return res.status(401).json({ message: "Authentication required." });
+  if (!branchId || !req.user) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+  if (!templateId || !newData || !reason) {
+    return res
+      .status(400)
+      .json({ message: "templateId, newData, and reason are required." });
+  }
+
+  try {
+    const template = await prisma.feeTemplate.findFirst({
+      where: { id: templateId, branchId },
+    });
+    if (!template) {
+      return res
+        .status(404)
+        .json({ message: "Fee template not found in your branch." });
     }
-    if (!templateId || !newData || !reason) {
-        return res.status(400).json({ message: "templateId, newData, and reason are required." });
-    }
 
-    try {
-        // Security Check: Ensure the template belongs to the registrar's branch.
-        const template = await prisma.feeTemplate.findFirst({
-            where: { id: templateId, branchId }
-        });
-        if (!template) {
-            return res.status(404).json({ message: "Fee template not found in your branch." });
-        }
+    await prisma.feeRectificationRequest.create({
+      data: {
+        branchId,
+        registrarId: req.user.id,
+        registrarName: req.user.name || "Registrar",
+        templateId: templateId,
+        requestType: "update", // simple string, matching your schema expectation
+        originalData: JSON.parse(JSON.stringify(template)), // Store current state
+        newData: JSON.parse(JSON.stringify(newData)), // Store proposed state
+        reason: reason,
+        status: "Pending",
+      },
+    });
 
-        await prisma.rectificationRequest.create({
-            data: {
-                branchId,
-                teacherId: req.user.id, // Log who made the request
-                studentId: "system", // Placeholder as this isn't student-specific
-                requestType: 'FEE_TEMPLATE_UPDATE',
-                description: `Request to update fee template '${template.name}'. Reason: ${reason}`,
-                // You might want to store newData in a specific field if you add it to the schema
-                status: 'Pending'
-            }
-        });
-
-        res.status(200).json({ message: "Update request submitted successfully for review." });
-    } catch (error) {
-        next(error);
-    }
+    res.status(200).json({
+      message: "Update request submitted successfully for review.",
+    });
+  } catch (error) {
+    next(error);
+  }
 };
 
-/**
- * @description Request the deletion of a fee template by creating a RectificationRequest.
- * @route POST /api/registrar/fee-templates/request-deletion
- */
-export const requestFeeTemplateDeletion = async (req: Request, res: Response, next: NextFunction) => {
-    const branchId = getRegistrarBranchId(req);
-    const { templateId, reason } = req.body;
+export const requestFeeTemplateDeletion = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  const { templateId, reason } = req.body;
 
-    if (!branchId || !req.user) {
-        return res.status(401).json({ message: "Authentication required." });
-    }
-    if (!templateId || !reason) {
-        return res.status(400).json({ message: "templateId and reason are required." });
-    }
+  if (!branchId || !req.user) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+  if (!templateId || !reason) {
+    return res
+      .status(400)
+      .json({ message: "templateId and reason are required." });
+  }
 
-    try {
-        const template = await prisma.feeTemplate.findFirst({
-            where: { id: templateId, branchId }
-        });
-        if (!template) {
-            return res.status(404).json({ message: "Fee template not found in your branch." });
-        }
-
-        await prisma.rectificationRequest.create({
-            data: {
-                branchId,
-                teacherId: req.user.id,
-                studentId: "system",
-                requestType: 'FEE_TEMPLATE_DELETE',
-                description: `Request to delete fee template '${template.name}'. Reason: ${reason}`,
-                status: 'Pending'
-            }
-        });
-        
-        res.status(200).json({ message: "Deletion request submitted successfully for review." });
-    } catch (error) {
-        next(error);
+  try {
+    const template = await prisma.feeTemplate.findFirst({
+      where: { id: templateId, branchId },
+    });
+    if (!template) {
+      return res
+        .status(404)
+        .json({ message: "Fee template not found in your branch." });
     }
+    await prisma.feeRectificationRequest.create({
+      data: {
+        branchId,
+        registrarId: req.user.id,
+        registrarName: req.user.name || "Registrar",
+        templateId: templateId,
+        requestType: "delete",
+        originalData: JSON.parse(JSON.stringify(template)),
+        newData: Prisma.JsonNull, 
+        reason: reason,
+        status: "Pending",
+      },
+    });
+
+    res.status(200).json({
+      message: "Deletion request submitted successfully for review.",
+    });
+  } catch (error) {
+    next(error);
+  }
 };
 
 export const getFeeCollectionOverview = async (
