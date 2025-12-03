@@ -12,6 +12,7 @@ import {
   FeeRecord,
   Branch,
   UserRole,
+  Prisma,
   ExamResultStatus,
 } from "@prisma/client";
 import { generatePassword } from "../utils/helpers";
@@ -2186,41 +2187,88 @@ export const addManualExpense = async (req: Request, res: Response) => {
 
 export const getFeeRectificationRequestsByBranch = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ) => {
   try {
-    if (!req.user?.branchId) {
-      return res
-        .status(401)
-        .json({ message: "Authentication required with a valid branch." });
-    }
-    const requests =
-      await principalApiService.getFeeRectificationRequestsByBranch(
-        req.user.branchId
-      );
+    const branchId = await getPrincipalAuth(req);
+    if (!branchId) return res.status(401).json({ message: "Unauthorized." });
+
+    const requests = await prisma.feeRectificationRequest.findMany({
+      where: { branchId },
+      include: {
+        template: { select: { name: true } }, // Fetch template name
+        registrar: { select: { name: true } }, // Fetch registrar name
+      },
+      orderBy: { requestedAt: "desc" },
+    });
+
     res.status(200).json(requests);
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 };
 
 export const processFeeRectificationRequest = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ) => {
   try {
-    if (!req.user) {
-      return res.status(401).json({ message: "Authentication required." });
+    const branchId = await getPrincipalAuth(req);
+    const { id } = req.params;
+    const { status } = req.body; // "Approved" or "Rejected"
+
+    if (!branchId) return res.status(401).json({ message: "Unauthorized." });
+
+    // 1. Find the request
+    const request = await prisma.feeRectificationRequest.findFirst({
+      where: { id, branchId },
+    });
+
+    if (!request) {
+      return res.status(404).json({ message: "Request not found." });
     }
-    const { status } = req.body;
-    await principalApiService.processFeeRectificationRequest(
-      req.params.id,
-      req.user.id,
-      status
-    );
-    res.status(200).json({ message: "Request processed." });
+
+    if (request.status !== "Pending") {
+      return res.status(400).json({ message: "Request is already processed." });
+    }
+
+    // 2. Perform the Action Transactionally
+    await prisma.$transaction(async (tx) => {
+      // A. If Approved, Apply the changes to the FeeTemplate
+      if (status === "Approved") {
+        if (request.requestType === "update" && request.newData) {
+          // Apply updates
+          // We cast newData because it's stored as JSON but needs to match the Input type
+          const updates = request.newData as Prisma.FeeTemplateUpdateInput;
+
+          await tx.feeTemplate.update({
+            where: { id: request.templateId },
+            data: updates,
+          });
+        } else if (request.requestType === "delete") {
+          // Delete template
+          await tx.feeTemplate.delete({
+            where: { id: request.templateId },
+          });
+        }
+      }
+
+      // B. Update the Request Status
+      await tx.feeRectificationRequest.update({
+        where: { id },
+        data: {
+          status: status,
+          reviewedById: req.user?.id,
+          reviewedAt: new Date(),
+        },
+      });
+    });
+
+    res.status(200).json({ message: `Request ${status} successfully.` });
   } catch (error: any) {
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 };
 
