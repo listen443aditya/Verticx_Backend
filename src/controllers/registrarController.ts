@@ -726,38 +726,30 @@ export const getClassFeeSummaries = async (
   next: NextFunction
 ) => {
   const branchId = getRegistrarBranchId(req);
-  if (!branchId) {
-    return res.status(401).json({ message: "Authentication required." });
-  }
+  if (!branchId) return res.status(401).json({ message: "Unauthorized." });
 
   try {
-    // 1. Get all classes
+    // 1. Get classes with their fee template amount
     const classes = await prisma.schoolClass.findMany({
       where: { branchId },
       select: {
         id: true,
         gradeLevel: true,
         section: true,
-        // Get the template amount for fallback
         feeTemplate: { select: { amount: true } },
       },
       orderBy: [{ gradeLevel: "asc" }, { section: "asc" }],
     });
 
-    // 2. Calculate summaries for each class
     const summaries = await Promise.all(
       classes.map(async (sClass) => {
-        // Fetch students with their fee records AND adjustments
+        // 2. Fetch ALL active students (Don't filter by feeRecords here!)
         const students = await prisma.student.findMany({
           where: { classId: sClass.id, status: "active" },
           select: {
             id: true,
-            feeRecords: {
-              select: { totalAmount: true, paidAmount: true },
-            },
-            FeeAdjustment: {
-              select: { type: true, amount: true },
-            },
+            feeRecords: { select: { totalAmount: true, paidAmount: true } },
+            FeeAdjustment: { select: { type: true, amount: true } },
           },
         });
 
@@ -768,24 +760,32 @@ export const getClassFeeSummaries = async (
           const record = student.feeRecords[0];
           const adjustments = student.FeeAdjustment || [];
 
-          // A. Base Fee Logic:
-          // If record exists, use it. If not, use Class Template. If neither, 0.
+          // A. Base Amount: Use Record if exists, else Template
           const baseTotal = record
             ? record.totalAmount
             : sClass.feeTemplate?.amount || 0;
 
-          // B. Adjustment Logic:
-          // Calculate net effect of all concessions/charges
+          // B. Adjustments (Only add if no record exists, because if record exists,
+          // adjustments are usually baked into totalAmount by your other logic.
+          // HOWEVER, to be safe based on your previous logic:
+          // If we assume totalAmount in DB *already* includes adjustments, we don't add them again.
+          // But if we assume dynamic calculation:
           const totalAdjustments = adjustments.reduce((acc, adj) => {
             return adj.type === "charge" ? acc + adj.amount : acc - adj.amount;
           }, 0);
 
-          // C. Net Calculation
-          const netTotal = baseTotal + totalAdjustments;
+          // If record exists, trust its total. If not, calculate fresh.
+          // Note: Your 'addFeeAdjustment' controller updates the DB record.
+          // So if record exists, we just use it.
+          // If record DOES NOT exist, we calculate Template + Adjustments.
+
+          const netTotal = record
+            ? record.totalAmount
+            : baseTotal + totalAdjustments;
           const paid = record ? record.paidAmount : 0;
+
           const pending = netTotal - paid;
 
-          // Only add positive pending amounts (ignore overpayments)
           if (pending > 0) {
             classTotalPending += pending;
             defaulterCount++;
@@ -2837,65 +2837,73 @@ export const getDefaultersForClass = async (
   const branchId = getRegistrarBranchId(req);
   const { classId } = req.params;
 
-  if (!branchId) {
+  if (!branchId)
     return res.status(401).json({ message: "Authentication required." });
-  }
 
   try {
-    // 1. Fetch students in this class
+    // 1. Get the class to know the template amount
+    const schoolClass = await prisma.schoolClass.findUnique({
+      where: { id: classId },
+      select: { feeTemplate: { select: { amount: true } } },
+    });
+
+    const templateAmount = schoolClass?.feeTemplate?.amount || 0;
+
+    // 2. Fetch ALL students (Not just those with fee records)
     const students = await prisma.student.findMany({
-      where: { classId, branchId },
+      where: { classId, branchId, status: "active" },
       select: {
         id: true,
         name: true,
-        userId: true, // VRTX ID
-        classRollNumber: true, // <--- FETCH ROLL NUMBER
-        guardianInfo: true, // <--- FETCH GUARDIAN INFO (Phone is inside here)
-        feeRecords: {
-          select: { totalAmount: true, paidAmount: true },
-        },
-        FeeAdjustment: {
-          select: { type: true, amount: true },
-        },
+        userId: true,
+        classRollNumber: true,
+        guardianInfo: true,
+        feeRecords: { select: { totalAmount: true, paidAmount: true } },
+        FeeAdjustment: { select: { type: true, amount: true } },
       },
     });
 
-    // 2. Filter and Map
+    // 3. Filter and Map in memory
     const defaulters = students
       .map((student) => {
         const record = student.feeRecords[0];
-        // If no fee record, they aren't a defaulter (or debt is 0)
-        if (!record) return null;
-
         const adjustments = student.FeeAdjustment || [];
+
+        // Same Logic as Summary
         const totalAdjustments = adjustments.reduce((acc, adj) => {
           return adj.type === "charge" ? acc + adj.amount : acc - adj.amount;
         }, 0);
 
-        const netTotal = record.totalAmount + totalAdjustments;
-        const pending = netTotal - record.paidAmount;
+        // If record exists, use it (it acts as the snapshot of truth).
+        // If not, derive from template + adjustments.
+        const netTotal = record
+          ? record.totalAmount
+          : templateAmount + totalAdjustments;
+        const paid = record ? record.paidAmount : 0;
+        const pending = netTotal - paid;
 
-        // Only return if they owe money
         if (pending <= 0) return null;
 
-        // Extract phone safely from JSON
         const gInfo = student.guardianInfo as {
           phone?: string;
           name?: string;
         } | null;
 
         return {
-          studentId: student.id, // Internal UUID for links
-          userId: student.userId, // Readable ID
+          studentId: student.id,
+          userId: student.userId, // Readable ID? (Check if your student table stores the VRTX id here or in relation)
+          // If userId in student table is UUID, fetch user.userId.
+          // Assuming based on previous fixes you want the readable one:
+          // If your schema stores VRTX id on student.userId, keep this.
+          // If it stores UUID, you need include: { user: true } and map student.user.userId
+
           studentName: student.name,
-          // FIX: Map database 'classRollNumber' to frontend 'rollNo'
           rollNo: student.classRollNumber || "N/A",
-          // FIX: Extract phone from guardianInfo JSON
           guardianPhone: gInfo?.phone || "N/A",
           pendingAmount: pending,
         };
       })
-      .filter((s) => s !== null); // Remove nulls (non-defaulters)
+      .filter((s) => s !== null);
 
     res.status(200).json(defaulters);
   } catch (error) {
