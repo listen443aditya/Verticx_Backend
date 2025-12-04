@@ -4856,7 +4856,7 @@ export const getStudentProfileDetails = async (
 ) => {
   try {
     const branchId = await getRegistrarBranchId(req); // or getRegistrarBranchId
-const { studentId } = req.params;
+    const { studentId } = req.params;
     if (!branchId) return res.status(401).json({ message: "Unauthorized." });
 
     // 1. Fetch Student
@@ -4908,7 +4908,6 @@ const { studentId } = req.params;
       FeeAdjustment,
       feeRecords,
       attendanceRecords,
-      grades,
       skillAssessments,
       user: studentUser,
       parent,
@@ -5048,6 +5047,48 @@ const { studentId } = req.params;
         new Date(b.date || b.paidDate).getTime() -
         new Date(a.date || a.paidDate).getTime()
     );
+
+    const grades = s.examMarks.map((mark: any) => ({
+      courseName: mark.examSchedule?.subject?.name || "Unknown Subject",
+      score: mark.score,
+      total: mark.totalMarks || 100, // Optional: Include total if your frontend needs it
+    }));
+
+    // --- 2. Skills Logic ---
+    // Takes the most recent assessment and converts the JSON object to an array
+    let skills: { skill: string; value: number }[] = [];
+    if (skillAssessments.length > 0 && skillAssessments[0].skills) {
+      const skillObj = skillAssessments[0].skills as Record<string, number>;
+      skills = Object.entries(skillObj).map(([key, value]) => ({
+        skill: key,
+        value: value,
+      }));
+    } else {
+      // Optional: Default skills if none exist (prevents empty charts)
+      skills = [
+        { skill: "Communication", value: 0 },
+        { skill: "Discipline", value: 0 },
+        { skill: "Participation", value: 0 },
+      ];
+    }
+
+    // --- 3. Recent Activity Logic ---
+    // Combines Attendance (Top 3) and Assignment Submissions into one timeline
+    const recentActivity = [
+      ...attendanceRecords.slice(0, 3).map((a: any) => ({
+        date: new Date(a.date).toISOString().split("T")[0],
+        activity: `Marked ${a.status}`,
+      })),
+      ...submissions.map((sub: any) => ({
+        date: new Date(sub.submittedAt).toISOString().split("T")[0],
+        activity: `Submitted "${sub.assignment.title}"`,
+      })),
+    ]
+      .sort(
+        (a: any, b: any) =>
+          new Date(b.date).getTime() - new Date(a.date).getTime()
+      )
+      .slice(0, 10); // Keep only the 10 most recent events
 
     // --- Final Response ---
     const profile = {
