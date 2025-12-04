@@ -4872,9 +4872,7 @@ export const getStudentProfileDetails = async (
             id: true,
             gradeLevel: true,
             section: true,
-            feeTemplate: {
-              select: { amount: true, monthlyBreakdown: true },
-            },
+            feeTemplate: { select: { amount: true, monthlyBreakdown: true } },
           },
         },
         room: { select: { fee: true, roomNumber: true } },
@@ -4896,16 +4894,13 @@ export const getStudentProfileDetails = async (
           orderBy: { endDate: "desc" },
         },
         examMarks: {
-          include: {
-            examSchedule: { include: { subject: true } },
-          },
+          include: { examSchedule: { include: { subject: true } } },
         },
       },
     });
 
-    if (!student) {
+    if (!student)
       return res.status(404).json({ message: "Student not found." });
-    }
 
     // --- 3. Ranking Logic ---
     let rankStats = { class: 0, school: 0 };
@@ -4921,16 +4916,10 @@ export const getStudentProfileDetails = async (
         },
         _sum: { score: true, totalMarks: true },
       });
-
       const peers = await prisma.student.findMany({
-        where: {
-          branchId,
-          gradeLevel: student.gradeLevel,
-          status: "active",
-        },
+        where: { branchId, gradeLevel: student.gradeLevel, status: "active" },
         select: { id: true, classId: true },
       });
-
       const leaderboard = peers.map((peer) => {
         const stats = gradePerformance.find(
           (p: any) => p.studentId === peer.id
@@ -4940,24 +4929,17 @@ export const getStudentProfileDetails = async (
         const percentage = maxScore > 0 ? (totalScore / maxScore) * 100 : 0;
         return { studentId: peer.id, classId: peer.classId, percentage };
       });
-
       leaderboard.sort((a, b) => b.percentage - a.percentage);
-
-      const schoolRankIndex = leaderboard.findIndex(
-        (p) => p.studentId === studentId
-      );
-      rankStats.school = schoolRankIndex !== -1 ? schoolRankIndex + 1 : 0;
+      rankStats.school =
+        leaderboard.findIndex((p) => p.studentId === studentId) + 1 || 0;
 
       const classLeaderboard = leaderboard.filter(
         (p) => p.classId === student.classId
       );
-      const classRankIndex = classLeaderboard.findIndex(
-        (p) => p.studentId === studentId
-      );
-      rankStats.class = classRankIndex !== -1 ? classRankIndex + 1 : 0;
+      rankStats.class =
+        classLeaderboard.findIndex((p) => p.studentId === studentId) + 1 || 0;
     }
 
-    // --- 4. Data Setup (Casting for safety) ---
     const s = student as any;
     const {
       FeeAdjustment,
@@ -4971,25 +4953,39 @@ export const getStudentProfileDetails = async (
       ...studentData
     } = s;
 
-    // --- 5. SMART FEE BREAKDOWN LOGIC ---
     const ACADEMIC_MONTHS = [
-      "April", "May", "June", "July", "August", "September",
-      "October", "November", "December", "January", "February", "March",
+      "April",
+      "May",
+      "June",
+      "July",
+      "August",
+      "September",
+      "October",
+      "November",
+      "December",
+      "January",
+      "February",
+      "March",
     ];
 
+    // A. Calculate "Theoretical" Breakdown from Template & Services
+    const templateBreakdown =
+      (s.class?.feeTemplate?.monthlyBreakdown as any[]) || [];
+    const monthlyHostelFee = Number(s.room?.fee || 0);
+    const monthlyTransportFee = Number(s.busStop?.charges || 0);
+
+    // Find start dates (logic same as before)
     const sessionStartYear =
       new Date().getMonth() < 3
         ? new Date().getFullYear() - 1
         : new Date().getFullYear();
     const sessionStartDate = new Date(sessionStartYear, 3, 1);
-
     const findAssignmentDate = (keyword: string) => {
       const log = FeeAdjustment.find(
         (adj: any) => adj.reason && adj.reason.includes(keyword)
       );
       return log ? new Date(log.date) : sessionStartDate;
     };
-
     const hostelStartDate = s.room
       ? findAssignmentDate("Hostel Assigned")
       : null;
@@ -4997,28 +4993,21 @@ export const getStudentProfileDetails = async (
       ? findAssignmentDate("Transport Assigned")
       : null;
 
-    const templateBreakdown =
-      (s.class?.feeTemplate?.monthlyBreakdown as any[]) || [];
-    const monthlyHostelFee = s.room?.fee || 0;
-    const monthlyTransportFee = s.busStop?.charges || 0;
-
-    let calculatedTotalFee = 0;
-
     const getMonthDate = (monthName: string) => {
       const monthIndex = ACADEMIC_MONTHS.indexOf(monthName);
       const year =
         monthIndex + 3 < 12 ? sessionStartYear : sessionStartYear + 1;
-      const month = (monthIndex + 3) % 12;
-      return new Date(year, month, 1);
+      return new Date(year, (monthIndex + 3) % 12, 1);
     };
 
-    const dynamicBreakdown = ACADEMIC_MONTHS.map((monthName) => {
+    let calculatedBreakdownTotal = 0;
+
+    let dynamicBreakdown = ACADEMIC_MONTHS.map((monthName) => {
       const templateMonth = templateBreakdown.find(
         (m: any) => m.month === monthName
       );
       const currentMonthDate = getMonthDate(monthName);
 
-      // 1. Tuition
       let tuition = 0;
       if (templateMonth) {
         if (templateMonth.total) tuition = Number(templateMonth.total);
@@ -5031,7 +5020,6 @@ export const getStudentProfileDetails = async (
         tuition = Math.ceil(s.class.feeTemplate.amount / 12);
       }
 
-      // 2. Hostel
       let hostelCharge = 0;
       if (
         hostelStartDate &&
@@ -5040,8 +5028,6 @@ export const getStudentProfileDetails = async (
       ) {
         hostelCharge = monthlyHostelFee;
       }
-
-      // 3. Transport
       let transportCharge = 0;
       if (
         transportStartDate &&
@@ -5056,7 +5042,7 @@ export const getStudentProfileDetails = async (
       }
 
       const monthTotal = tuition + hostelCharge + transportCharge;
-      calculatedTotalFee += monthTotal;
+      calculatedBreakdownTotal += monthTotal;
 
       return {
         month: monthName,
@@ -5083,10 +5069,14 @@ export const getStudentProfileDetails = async (
       };
     });
 
-    // C. Ledger Logic
+    // B. Ledger Logic (Source of Truth)
     const feeRecord = feeRecords[0];
+
+    // Adjustments (Non-service charges like fines/discounts)
     const adjustments = s.FeeAdjustment || [];
     const totalAdjustments = adjustments.reduce((acc: number, adj: any) => {
+      // Filter out service charges we just calculated to avoid double counting if we were summing
+      // BUT here we just want the net impact.
       return adj.type === "charge" ? acc + adj.amount : acc - adj.amount;
     }, 0);
 
@@ -5094,20 +5084,32 @@ export const getStudentProfileDetails = async (
     let paidAmount = 0;
 
     if (feeRecord) {
-      netTotal = feeRecord.totalAmount;
+      netTotal = feeRecord.totalAmount; // The 26,000 from your screenshot
       paidAmount = feeRecord.paidAmount;
     } else {
-      netTotal = calculatedTotalFee;
+      netTotal = calculatedBreakdownTotal + totalAdjustments;
       paidAmount = 0;
     }
 
+    // --- C. THE FIX: RECONCILIATION ---
+    // If the DB has a Total (26k) but our breakdown calculation yielded 0 (because template is missing/empty),
+    // we must distribute the 26k across the months so the UI buttons work.
+    if (netTotal > 0 && calculatedBreakdownTotal === 0) {
+      const monthlyAvg = Math.ceil(netTotal / 12);
+      dynamicBreakdown = ACADEMIC_MONTHS.map((month) => ({
+        month,
+        total: monthlyAvg,
+        breakdown: [
+          { component: "Consolidated Fee (Record)", amount: monthlyAvg },
+        ],
+      }));
+    }
+    // ---------------------------------
+
     const pending = netTotal - paidAmount;
-    const feeStatus = { total: netTotal, paid: paidAmount, pending: pending };
+    const feeStatus = { total: netTotal, paid: paidAmount, pending };
 
-    // --- 6. Formatting Arrays (History, Grades, Activity) ---
-    type PaymentItem = FeePayment & { itemType: "payment" };
-    type AdjustmentItem = FeeAdjustment & { itemType: "adjustment" };
-
+    // --- 6. History & Formatting ---
     const paymentHistory = (feeRecord?.payments || []).map((p: any) => ({
       ...p,
       itemType: "payment" as const,
@@ -5117,37 +5119,37 @@ export const getStudentProfileDetails = async (
       itemType: "adjustment" as const,
     }));
     const feeHistory = [...paymentHistory, ...adjustmentHistory].sort(
-      (a: any, b: any) => {
-        const dateA = a.paidDate || a.date;
-        const dateB = b.paidDate || b.date;
-        return new Date(dateB).getTime() - new Date(dateA).getTime();
-      }
+      (a: any, b: any) =>
+        new Date(b.date || b.paidDate).getTime() -
+        new Date(a.date || a.paidDate).getTime()
     );
 
     const present = attendanceRecords.filter(
       (a: any) => a.status === "Present"
     ).length;
-    const totalDays = attendanceRecords.length;
+    const totalAttendance = attendanceRecords.length;
 
     const formattedGrades = s.grades.map((g: any) => ({
       ...g,
       courseName: g.course.name,
     }));
-
-    let formattedSkills: { skill: string; value: number }[] = [];
-    if (skillAssessments.length > 0 && skillAssessments[0].skills) {
-      const skillObj = skillAssessments[0].skills as Record<string, number>;
-      formattedSkills = Object.entries(skillObj).map(([key, value]) => ({
-        skill: key,
-        value: value,
-      }));
-    }
+    const formattedSkills = (skillAssessments[0]?.skills as Record<
+      string,
+      number
+    >)
+      ? Object.entries(skillAssessments[0].skills).map(([k, v]) => ({
+          skill: k,
+          value: v,
+        }))
+      : [];
 
     const recentActivity = [
-      ...attendanceRecords.slice(0, 3).map((a: any) => ({
-        date: a.date.toISOString().split("T")[0],
-        activity: `Marked ${a.status}`,
-      })),
+      ...attendanceRecords
+        .slice(0, 3)
+        .map((a: any) => ({
+          date: a.date.toISOString().split("T")[0],
+          activity: `Marked ${a.status}`,
+        })),
       ...submissions.map((sub: any) => ({
         date: sub.submittedAt.toISOString().split("T")[0],
         activity: `Submitted "${sub.assignment.title}"`,
@@ -5157,14 +5159,13 @@ export const getStudentProfileDetails = async (
         new Date(b.date).getTime() - new Date(a.date).getTime()
     );
 
-    // --- 7. Construct Final Profile ---
     const profile = {
       student: {
         ...studentData,
         userId: studentUser?.userId || "N/A",
         passwordHash: undefined,
         feeRecords,
-        attendanceRecords, // Now defined
+        attendanceRecords,
         suspensionRecords: s.suspensionRecords,
         examMarks: s.examMarks,
         FeeAdjustment,
@@ -5179,14 +5180,12 @@ export const getStudentProfileDetails = async (
       classInfo: s.class
         ? `Grade ${s.class.gradeLevel}-${s.class.section}`
         : "Unassigned",
-      
       attendance: {
         present,
-        absent: totalDays - present,
-        total: totalDays,
+        absent: totalAttendance - present,
+        total: totalAttendance,
       },
-      
-      attendanceHistory: attendanceRecords, // Now defined
+      attendanceHistory: attendanceRecords,
       feeStatus,
       feeHistory,
       grades: formattedGrades,
@@ -5194,6 +5193,7 @@ export const getStudentProfileDetails = async (
       recentActivity,
       rank: rankStats,
       activeSuspension: s.suspensionRecords[0] || null,
+
       feeBreakdown: dynamicBreakdown,
     };
 
