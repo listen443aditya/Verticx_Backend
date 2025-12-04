@@ -45,6 +45,21 @@ interface SupportStaffUpdatePayload {
   salary?: number; // Add salary here
 }
 
+const ACADEMIC_MONTH_NAMES = [
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+  "January",
+  "February",
+  "March",
+];
+
 const getAuthenticatedBranchId = (req: Request): string | null => {
   if (req.user && req.user.branchId) {
     return req.user.branchId;
@@ -3604,6 +3619,35 @@ export const processLeaveApplication = async (req: Request, res: Response, next:
 
 // --- Hostel Management ---
 
+const getRemainingMonthsCount = (): number => {
+  const now = new Date();
+  const currentMonth = now.getMonth(); // 0 = Jan, 11 = Dec
+
+  // Academic Year Map (0-based index):
+  // Apr(3), May(4), Jun(5), Jul(6), Aug(7), Sep(8), Oct(9), Nov(10), Dec(11), Jan(0), Feb(1), Mar(2)
+
+  // If it's March (end of session), remaining is 0.
+  if (currentMonth === 2) return 0;
+
+  // If it's April (start), remaining is 12.
+  // Logic:
+  // Apr (3) -> 12 months left
+  // Dec (11) -> 4 months left (Dec, Jan, Feb, Mar)
+  // Jan (0) -> 3 months left (Jan, Feb, Mar)
+
+  if (currentMonth >= 3) {
+    // April to December
+    // e.g., April(3): 12 - (3-3) = 12
+    // e.g., Dec(11): 12 - (11-3) = 4
+    return 12 - (currentMonth - 3);
+  } else {
+    // January to February
+    // e.g., Jan(0): 3 - 0 = 3
+    // e.g., Feb(1): 3 - 1 = 2
+    return 3 - currentMonth;
+  }
+};
+
 export const getHostels = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     if (!branchId) {
@@ -3865,43 +3909,41 @@ export const getRooms = async (
   }
 };
 
-export const assignStudentToRoom = async (req: Request, res: Response, next: NextFunction) => {
-    const branchId = getRegistrarBranchId(req);
-    const { roomId } = req.params;
-    const { studentId } = req.body;
+export const assignStudentToRoom = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  const { roomId } = req.params;
+  const { studentId } = req.body;
 
-    if (!branchId) return res.status(401).json({ message: "Authentication required." });
-    if (!studentId) return res.status(400).json({ message: "studentId is required." });
+  if (!branchId)
+    return res.status(401).json({ message: "Authentication required." });
 
-    try {
-        await prisma.$transaction(async (tx) => {
-            // 1. Security Check: Verify both the student and the room's hostel are in the same branch.
-            const student = await tx.student.findFirst({ where: { id: studentId, branchId } });
-            if (!student) throw new Error("Student not found in your branch.");
+  try {
+    await prisma.$transaction(async (tx) => {
+      // 1. Check Capacity
+      const room = await tx.room.findFirst({
+        where: { id: roomId, hostel: { branchId } },
+        include: { _count: { select: { occupants: true } } },
+      });
 
-            const room = await tx.room.findFirst({
-                where: { id: roomId, hostel: { branchId } },
-                include: { _count: { select: { occupants: true } } } // Check capacity
-            });
-            if (!room) throw new Error("Room not found in your branch.");
-            
-            // 2. Business Logic: Check if the room is full.
-            if (room._count.occupants >= room.capacity) {
-                throw new Error("This room is already at full capacity.");
-            }
+      if (!room) throw new Error("Room not found.");
+      if (room._count.occupants >= room.capacity)
+        throw new Error("Room is full.");
 
-            // 3. Perform the assignment.
-            await tx.student.update({
-                where: { id: studentId },
-                data: { roomId: roomId }
-            });
-        });
-        res.status(200).json({ message: "Student assigned to room successfully." });
-    } catch (error: any) {
-        if (error.message.includes("not found")) return res.status(404).json({ message: error.message });
-        if (error.message.includes("capacity")) return res.status(409).json({ message: error.message }); // 409 Conflict
-        next(error);
-    }
+      // 2. Assign Student (Pure Assignment, No Fee Logic Here)
+      // The fee will be calculated dynamically when viewing the profile
+      await tx.student.update({
+        where: { id: studentId },
+        data: { roomId: roomId },
+      });
+    });
+    res.status(200).json({ message: "Student assigned to room." });
+  } catch (error: any) {
+    next(error);
+  }
 };
 
 export const removeStudentFromRoom = async (req: Request, res: Response, next: NextFunction) => {
@@ -3925,6 +3967,7 @@ export const removeStudentFromRoom = async (req: Request, res: Response, next: N
         next(error);
     }
 };
+
 
 
 // --- Transport Management ---
@@ -4176,47 +4219,40 @@ export const getUnassignedMembers = async (req: Request, res: Response, next: Ne
 };
 
 
-export const assignMemberToRoute = async (req: Request, res: Response, next: NextFunction) => {
-    const branchId = getRegistrarBranchId(req);
-    const { routeId, memberId, memberType, stopId } = req.body;
+export const assignMemberToRoute = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  const { routeId, memberId, memberType, stopId } = req.body;
 
-    if (!branchId) return res.status(401).json({ message: "Authentication required." });
-    if (!routeId || !memberId || !memberType || !stopId) {
-        return res.status(400).json({ message: "routeId, memberId, memberType, and stopId are required." });
+  if (!branchId)
+    return res.status(401).json({ message: "Authentication required." });
+
+  try {
+    // 1. Verify Stop
+    const stop = await prisma.busStop.findFirst({
+      where: { id: stopId, routeId },
+    });
+    if (!stop) return res.status(404).json({ message: "Stop not found." });
+
+    // 2. Assign Member (Pure Assignment)
+    if (memberType === "Student") {
+      await prisma.student.update({
+        where: { id: memberId, branchId },
+        data: { transportRouteId: routeId, busStopId: stopId },
+      });
+    } else if (memberType === "Teacher") {
+      await prisma.teacher.update({
+        where: { id: memberId, branchId },
+        data: { transportRouteId: routeId, busStopId: stopId },
+      });
     }
-
-    try {
-        await prisma.$transaction(async (tx) => {
-            // 1. Security Check: Verify the route and stop belong to the registrar's branch.
-            const route = await tx.transportRoute.findFirst({ where: { id: routeId, branchId } });
-            if (!route) throw new Error("Transport route not found in your branch.");
-
-            const stop = await tx.busStop.findFirst({ where: { id: stopId, routeId: route.id } });
-            if (!stop) throw new Error("Bus stop does not belong to the specified route.");
-
-            // 2. Based on memberType, update the correct model, ensuring the member is also in the same branch.
-            if (memberType === 'Student') {
-                const result = await tx.student.updateMany({
-                    where: { id: memberId, branchId },
-                    data: { transportRouteId: routeId, busStopId: stopId }
-                });
-                if (result.count === 0) throw new Error("Student not found in your branch.");
-            } else if (memberType === 'Teacher') {
-                const result = await tx.teacher.updateMany({
-                    where: { id: memberId, branchId },
-                    data: { transportRouteId: routeId, busStopId: stopId }
-                });
-                if (result.count === 0) throw new Error("Teacher not found in your branch.");
-            } else {
-                throw new Error("Invalid memberType specified.");
-            }
-        });
-        res.status(200).json({ message: "Member assigned to route successfully." });
-    } catch (error: any) {
-        if (error.message.includes("not found")) return res.status(404).json({ message: error.message });
-        if (error.message.includes("Invalid memberType")) return res.status(400).json({ message: error.message });
-        next(error);
-    }
+    res.status(200).json({ message: "Transport assigned successfully." });
+  } catch (error: any) {
+    next(error);
+  }
 };
 
 
