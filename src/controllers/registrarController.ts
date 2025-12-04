@@ -5108,9 +5108,9 @@ export const getStudentProfileDetails = async (
       attendanceHistory: attendanceRecords,
       feeStatus,
       feeHistory,
-      grades: [],
-      skills: [],
-      recentActivity: [],
+      grades: grades,
+      skills: skills,
+      recentActivity: recentActivity,
       rank: rankStats,
       activeSuspension: null,
       feeBreakdown: dynamicBreakdown, // <--- Now guaranteed to have values
