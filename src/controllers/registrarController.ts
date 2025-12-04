@@ -2846,10 +2846,11 @@ export const getFeeCollectionOverview = async (
 
   try {
     // 1. Fetch all students with ALL fee-related data
-    // We use 'include' for relations to avoid "select" type conflicts
     const students = await prisma.student.findMany({
       where: { branchId },
-      include: {
+      select: {
+        id: true,
+        name: true,
         user: { select: { userId: true } },
         class: {
           select: {
@@ -2858,12 +2859,7 @@ export const getFeeCollectionOverview = async (
             feeTemplate: { select: { amount: true } },
           },
         },
-        // Include Room & Transport for dynamic calculation
         room: { select: { fee: true } },
-        // FIX: Ensure we are using the correct relation name.
-        // If 'busStop' fails, check your schema. It might be named differently?
-        // Assuming it is 'busStop' based on your schema.
-        // We use 'include' logic here effectively via the top-level include.
         busStop: { select: { charges: true } },
 
         feeRecords: {
@@ -2878,17 +2874,13 @@ export const getFeeCollectionOverview = async (
 
     // 2. Flatten and Calculate
     const overview = students.map((studentRaw) => {
-      // FIX: Cast to 'any' to strictly bypass the "busStop does not exist" error
-      // if the generated client is acting up.
       const student = studentRaw as any;
-
       const record = student.feeRecords[0];
 
       // A. Base Tuition (Template or 0)
       const templateAmount = student.class?.feeTemplate?.amount || 0;
 
       // B. Dynamic Recurring Fees (Hostel + Transport)
-      // Use optional chaining heavily here
       const annualHostelFee = (student.room?.fee || 0) * 12;
       const annualTransportFee = (student.busStop?.charges || 0) * 12;
 
@@ -2902,10 +2894,8 @@ export const getFeeCollectionOverview = async (
       let netTotal = 0;
 
       if (record) {
-        // If record exists, trust its total.
         netTotal = record.totalAmount;
       } else {
-        // No record yet. Project the cost.
         netTotal =
           templateAmount +
           annualHostelFee +
