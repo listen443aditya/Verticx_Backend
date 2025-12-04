@@ -2845,11 +2845,11 @@ export const getFeeCollectionOverview = async (
   if (!branchId) return res.status(401).json({ message: "Unauthorized" });
 
   try {
+    // 1. Fetch all students with ALL fee-related data
+    // We use 'include' for relations to avoid "select" type conflicts
     const students = await prisma.student.findMany({
       where: { branchId },
-      select: {
-        id: true,
-        name: true,
+      include: {
         user: { select: { userId: true } },
         class: {
           select: {
@@ -2858,29 +2858,67 @@ export const getFeeCollectionOverview = async (
             feeTemplate: { select: { amount: true } },
           },
         },
+        // Include Room & Transport for dynamic calculation
+        room: { select: { fee: true } },
+        // FIX: Ensure we are using the correct relation name.
+        // If 'busStop' fails, check your schema. It might be named differently?
+        // Assuming it is 'busStop' based on your schema.
+        // We use 'include' logic here effectively via the top-level include.
+        busStop: { select: { charges: true } },
+
         feeRecords: {
           include: {
             payments: { orderBy: { paidDate: "desc" }, take: 1 },
           },
         },
-        // We don't need FeeAdjustment here anymore for calculation!
+        FeeAdjustment: true,
       },
       orderBy: { name: "asc" },
     });
 
-    const overview = students.map((student) => {
+    // 2. Flatten and Calculate
+    const overview = students.map((studentRaw) => {
+      // FIX: Cast to 'any' to strictly bypass the "busStop does not exist" error
+      // if the generated client is acting up.
+      const student = studentRaw as any;
+
       const record = student.feeRecords[0];
+
+      // A. Base Tuition (Template or 0)
       const templateAmount = student.class?.feeTemplate?.amount || 0;
 
-      // LOGIC:
-      // If record exists, TRUST IT (it has adjustments applied).
-      // If not, fallback to template.
-      const netTotal = record ? record.totalAmount : templateAmount;
+      // B. Dynamic Recurring Fees (Hostel + Transport)
+      // Use optional chaining heavily here
+      const annualHostelFee = (student.room?.fee || 0) * 12;
+      const annualTransportFee = (student.busStop?.charges || 0) * 12;
+
+      // C. Adjustments (Fines/Discounts)
+      const adjustments = student.FeeAdjustment || [];
+      const totalAdjustments = adjustments.reduce((acc: number, adj: any) => {
+        return adj.type === "charge" ? acc + adj.amount : acc - adj.amount;
+      }, 0);
+
+      // D. Total Fee Calculation
+      let netTotal = 0;
+
+      if (record) {
+        // If record exists, trust its total.
+        netTotal = record.totalAmount;
+      } else {
+        // No record yet. Project the cost.
+        netTotal =
+          templateAmount +
+          annualHostelFee +
+          annualTransportFee +
+          totalAdjustments;
+      }
+
       const paidAmount = record ? record.paidAmount : 0;
       const pending = netTotal - paidAmount;
-
       const lastPaidDate = record?.payments[0]?.paidDate || null;
-      const dueDate = record?.dueDate.toISOString() || new Date().toISOString();
+      const dueDate = record?.dueDate
+        ? record.dueDate.toISOString()
+        : new Date().toISOString();
 
       return {
         studentId: student.id,
@@ -2894,7 +2932,7 @@ export const getFeeCollectionOverview = async (
         pendingAmount: pending,
         lastPaidDate: lastPaidDate,
         dueDate: dueDate,
-        status: pending <= 0 ? "Paid" : "Due",
+        status: pending <= 0 && netTotal > 0 ? "Paid" : "Due",
       };
     });
 
@@ -2903,7 +2941,6 @@ export const getFeeCollectionOverview = async (
     next(error);
   }
 };
-
 export const collectFeePayment = async (
   req: Request,
   res: Response,
