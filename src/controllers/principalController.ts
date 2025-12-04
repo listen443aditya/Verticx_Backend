@@ -3046,7 +3046,7 @@ export const getStudentProfileDetails = async (
 
         // Relations
         parent: true,
-        user: true,
+        user: true, // For VRTX ID
         // Order adjustments to find first assignment date
         FeeAdjustment: { orderBy: { date: "asc" } },
         feeRecords: { include: { payments: true } },
@@ -3078,36 +3078,52 @@ export const getStudentProfileDetails = async (
 
     // --- 3. Ranking Logic ---
     let rankStats = { class: 0, school: 0 };
+
     if (student.class) {
+      // Aggregate scores for the entire grade level
       const gradePerformance = await prisma.examMark.groupBy({
         by: ["studentId"],
         where: {
           student: {
-            branchId,
+            branchId: branchId,
             gradeLevel: student.gradeLevel,
             status: "active",
           },
         },
         _sum: { score: true, totalMarks: true },
       });
+
+      // Get all peers in this grade level
       const peers = await prisma.student.findMany({
-        where: { branchId, gradeLevel: student.gradeLevel, status: "active" },
+        where: {
+          branchId: branchId,
+          gradeLevel: student.gradeLevel,
+          status: "active",
+        },
         select: { id: true, classId: true },
       });
+
+      // Calculate percentages
       const leaderboard = peers.map((peer) => {
         const stats = gradePerformance.find(
           (p: any) => p.studentId === peer.id
         ) as any;
+
         const totalScore = stats?._sum?.score || 0;
         const maxScore = stats?._sum?.totalMarks || 0;
         const percentage = maxScore > 0 ? (totalScore / maxScore) * 100 : 0;
+
         return { studentId: peer.id, classId: peer.classId, percentage };
       });
+
+      // Sort descending
       leaderboard.sort((a, b) => b.percentage - a.percentage);
+
       const schoolRankIndex = leaderboard.findIndex(
         (p) => p.studentId === studentId
       );
       rankStats.school = schoolRankIndex !== -1 ? schoolRankIndex + 1 : 0;
+
       const classLeaderboard = leaderboard.filter(
         (p) => p.classId === student.classId
       );
@@ -3131,9 +3147,12 @@ export const getStudentProfileDetails = async (
       ...studentData
     } = s;
 
-    // --- 5. SMART FEE BREAKDOWN LOGIC (Added to Principal Controller) ---
+    // --- 5. SMART FEE BREAKDOWN LOGIC ---
 
     // A. Identify Start Dates for Services
+    // This logic checks the audit logs to see WHEN a hostel/transport was assigned.
+    // This prevents charging for previous months where the student wasn't using the service.
+
     const sessionStartYear =
       new Date().getMonth() < 3
         ? new Date().getFullYear() - 1
@@ -3160,17 +3179,32 @@ export const getStudentProfileDetails = async (
     const monthlyHostelFee = s.room?.fee || 0;
     const monthlyTransportFee = s.busStop?.charges || 0;
 
+    const ACADEMIC_MONTHS = [
+      "April",
+      "May",
+      "June",
+      "July",
+      "August",
+      "September",
+      "October",
+      "November",
+      "December",
+      "January",
+      "February",
+      "March",
+    ];
+
     let calculatedTotalFee = 0;
 
     const getMonthDate = (monthName: string) => {
-      const monthIndex = ACADEMIC_MONTH_ORDER.indexOf(monthName);
+      const monthIndex = ACADEMIC_MONTHS.indexOf(monthName);
       const year =
         monthIndex + 3 < 12 ? sessionStartYear : sessionStartYear + 1;
       const month = (monthIndex + 3) % 12;
       return new Date(year, month, 1);
     };
 
-    const dynamicBreakdown = ACADEMIC_MONTH_ORDER.map((monthName) => {
+    const dynamicBreakdown = ACADEMIC_MONTHS.map((monthName) => {
       const templateMonth = templateBreakdown.find(
         (m: any) => m.month === monthName
       );
@@ -3189,7 +3223,7 @@ export const getStudentProfileDetails = async (
         tuition = Math.ceil(s.class.feeTemplate.amount / 12);
       }
 
-      // 2. Hostel (Check Date)
+      // 2. Hostel (Apply only if month is >= start date)
       let hostelCharge = 0;
       if (
         hostelStartDate &&
@@ -3199,7 +3233,7 @@ export const getStudentProfileDetails = async (
         hostelCharge = monthlyHostelFee;
       }
 
-      // 3. Transport (Check Date)
+      // 3. Transport (Apply only if month is >= start date)
       let transportCharge = 0;
       if (
         transportStartDate &&
@@ -3241,10 +3275,13 @@ export const getStudentProfileDetails = async (
       };
     });
 
-    // C. Ledger Logic
+    // C. Ledger Logic (Total Due)
     const feeRecord = feeRecords[0];
     const adjustments = s.FeeAdjustment || [];
 
+    // We only sum adjustments that are NOT auto-generated service charges
+    // if we assume those are baked into the calculation.
+    // BUT, for robustness, we trust the FeeRecord if it exists.
     const totalAdjustments = adjustments.reduce((acc: number, adj: any) => {
       return adj.type === "charge" ? acc + adj.amount : acc - adj.amount;
     }, 0);
@@ -3253,11 +3290,12 @@ export const getStudentProfileDetails = async (
     let paidAmount = 0;
 
     if (feeRecord) {
-      // Trust Database Record
+      // If record exists, trust its totalAmount.
+      // (Our assignStudentToRoom function updates this value directly).
       netTotal = feeRecord.totalAmount;
       paidAmount = feeRecord.paidAmount;
     } else {
-      // Fallback Calculation
+      // Fallback for new students: Calculated Base + Adjustments
       netTotal = calculatedTotalFee;
       paidAmount = 0;
     }
@@ -3278,6 +3316,7 @@ export const getStudentProfileDetails = async (
       ...p,
       itemType: "payment" as const,
     }));
+
     const adjustmentHistory = (s.FeeAdjustment || []).map((adj: any) => ({
       ...adj,
       itemType: "adjustment" as const,
@@ -3312,12 +3351,10 @@ export const getStudentProfileDetails = async (
     }
 
     const recentActivity = [
-      ...attendanceRecords
-        .slice(0, 3)
-        .map((a: any) => ({
-          date: a.date.toISOString().split("T")[0],
-          activity: `Marked ${a.status}`,
-        })),
+      ...attendanceRecords.slice(0, 3).map((a: any) => ({
+        date: a.date.toISOString().split("T")[0],
+        activity: `Marked ${a.status}`,
+      })),
       ...submissions.map((sub: any) => ({
         date: sub.submittedAt.toISOString().split("T")[0],
         activity: `Submitted "${sub.assignment.title}"`,
@@ -3327,12 +3364,12 @@ export const getStudentProfileDetails = async (
         new Date(b.date).getTime() - new Date(a.date).getTime()
     );
 
-    // --- 8. Final Profile ---
+    // --- 8. Final Response ---
     const profile = {
       student: {
         ...studentData,
         userId: studentUser?.userId || "N/A",
-        passwordHash: undefined,
+        // We keep the raw data for frontend flexibility
         feeRecords,
         attendanceRecords,
         suspensionRecords: s.suspensionRecords,
@@ -3340,6 +3377,8 @@ export const getStudentProfileDetails = async (
         FeeAdjustment,
         room: s.room,
         busStop: s.busStop,
+        // Remove sensitive field
+        passwordHash: undefined,
       },
       userId: studentUser?.userId || "N/A",
       studentUser,
@@ -3349,7 +3388,11 @@ export const getStudentProfileDetails = async (
       classInfo: s.class
         ? `Grade ${s.class.gradeLevel}-${s.class.section}`
         : "Unassigned",
-      attendance: { present, absent: totalDays - present, total: totalDays },
+      attendance: {
+        present,
+        absent: totalDays - present,
+        total: totalDays,
+      },
       attendanceHistory: attendanceRecords,
       feeStatus,
       feeHistory,
@@ -3359,6 +3402,7 @@ export const getStudentProfileDetails = async (
       rank: rankStats,
       activeSuspension: s.suspensionRecords[0] || null,
 
+      // The dynamic breakdown for the UI modal
       feeBreakdown: dynamicBreakdown,
     };
 
