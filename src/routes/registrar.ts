@@ -230,7 +230,7 @@ router.post("/staff/attendance", registrarController.saveTeacherAttendance);
 // --- Infrastructure: Hostels & Transport ---
 router.get("/hostels", registrarController.getHostels);
 router.post("/hostels", registrarController.createHostel);
-router.patch("/hostels/:id", registrarController.updateHostel);
+router.put("/hostels/:id", registrarController.updateHostel);
 router.delete("/hostels/:id", registrarController.deleteHostel);
 router.get("/hostels/all-rooms", registrarController.getAllRoomsByBranch);
 router.get("/hostels/:id/rooms", registrarController.getRooms);

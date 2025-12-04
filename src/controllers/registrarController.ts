@@ -3681,9 +3681,7 @@ export const updateHostel = async (
   next: NextFunction
 ) => {
   const branchId = getRegistrarBranchId(req);
-  const { id: hostelId } = req.params; // This is the hostel's ID
-
-  // 1. Destructure ALL data from the body
+  const { id: hostelId } = req.params;
   const { name, warden, wardenNumber, rooms = [] } = req.body;
 
   if (!branchId) {
@@ -3692,9 +3690,10 @@ export const updateHostel = async (
 
   try {
     await prisma.$transaction(async (tx) => {
-      // 2. Update the hostel's main details (name, warden, etc.)
+      // 1. Update Hostel Details
+      // Also ensures the hostel belongs to the branch (Security)
       await tx.hostel.update({
-        where: { id: hostelId, branchId: branchId }, // Security check
+        where: { id: hostelId, branchId: branchId },
         data: {
           name,
           warden,
@@ -3702,53 +3701,63 @@ export const updateHostel = async (
         },
       });
 
-      // 3. Separate new rooms from existing rooms
-      const newRooms = rooms.filter((room: any) => room.id.startsWith("new-"));
-      const existingRoomIds = rooms
-        .filter((room: any) => !room.id.startsWith("new-"))
-        .map((room: any) => room.id);
+      // 2. Handle Room Updates
+      // Logic:
+      // - IDs present in DB but missing in 'rooms' array -> DELETE
+      // - IDs with "new-" prefix -> CREATE
+      // - Existing IDs -> UPDATE (optional, if you allow editing room details)
 
-      // 4. Find any rooms in the DB that are no longer in our list
-      const roomsToDelete = await tx.room.findMany({
-        where: {
-          hostelId: hostelId,
-          id: { notIn: existingRoomIds }, // Find rooms NOT in the list
-        },
+      // Get current rooms in DB
+      const currentRooms = await tx.room.findMany({
+        where: { hostelId },
         select: { id: true },
       });
-      const roomIdsToDelete = roomsToDelete.map((r) => r.id);
+      const currentRoomIds = currentRooms.map((r) => r.id);
 
-      // 5. If we have rooms to delete...
-      if (roomIdsToDelete.length > 0) {
-        // 5a. ...first un-assign all students from those rooms
+      // Filter incoming IDs
+      const incomingRoomIds = rooms
+        .filter((r: any) => !r.id.startsWith("new-"))
+        .map((r: any) => r.id);
+
+      // A. DELETE rooms that were removed in UI
+      const roomsToDelete = currentRoomIds.filter(
+        (id) => !incomingRoomIds.includes(id)
+      );
+
+      if (roomsToDelete.length > 0) {
+        // Unassign students first
         await tx.student.updateMany({
-          where: { roomId: { in: roomIdsToDelete } },
+          where: { roomId: { in: roomsToDelete } },
           data: { roomId: null },
         });
-
-        // 5b. ...then safely delete the empty rooms
+        // Delete rooms
         await tx.room.deleteMany({
-          where: { id: { in: roomIdsToDelete } },
+          where: { id: { in: roomsToDelete } },
         });
       }
 
-      // 6. Create all the new rooms
+      // B. CREATE new rooms
+      const newRooms = rooms.filter((r: any) => r.id.startsWith("new-"));
       if (newRooms.length > 0) {
         await tx.room.createMany({
           data: newRooms.map((room: any) => ({
+            hostelId,
             roomNumber: room.roomNumber,
             roomType: room.roomType,
-            capacity: room.capacity,
-            fee: room.fee,
-            hostelId: hostelId, // Link to this hostel
+            capacity: parseInt(room.capacity, 10),
+            fee: parseFloat(room.fee),
           })),
         });
       }
+
+      // C. UPDATE existing rooms (Optional, but good to have)
+      // Since createMany/deleteMany is bulk, updates usually need a loop or careful handling.
+      // For simplicity in this specific modal, we assume re-creating structure logic
+      // often handles basic edits via delete/create if IDs change, but let's leave existing IDs alone.
     });
 
     res.status(200).json({ message: "Hostel updated successfully." });
   } catch (error: any) {
-    // Handle case where the hostel ID wasn't found
     if (error.code === "P2025") {
       return res
         .status(404)
@@ -4662,14 +4671,16 @@ export const getStudentsForBranch = async (
     const students = await prisma.student.findMany({
       where: { branchId },
       include: {
-        user: { select: { userId: true } }, 
+        user: { select: { userId: true } },
       },
       orderBy: { name: "asc" },
     });
+
+    // Swap the internal UUID with the readable VRTX- ID
     const formattedStudents = students.map((s) => ({
       ...s,
-      userId: s.user?.userId || "N/A", 
-      user: undefined, 
+      userId: s.user?.userId || "N/A",
+      user: undefined,
     }));
 
     res.status(200).json(formattedStudents);
