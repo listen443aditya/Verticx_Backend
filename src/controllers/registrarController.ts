@@ -3682,7 +3682,7 @@ export const updateHostel = async (
 ) => {
   const branchId = getRegistrarBranchId(req);
   const { id: hostelId } = req.params;
-  const { name, warden, wardenNumber, rooms = [] } = req.body;
+  const { name, warden, wardenNumber, rooms } = req.body; // 'rooms' is optional
 
   if (!branchId) {
     return res.status(401).json({ message: "Authentication required." });
@@ -3690,8 +3690,7 @@ export const updateHostel = async (
 
   try {
     await prisma.$transaction(async (tx) => {
-      // 1. Update Hostel Details
-      // Also ensures the hostel belongs to the branch (Security)
+      // 1. Update Hostel Basic Details
       await tx.hostel.update({
         where: { id: hostelId, branchId: branchId },
         data: {
@@ -3701,59 +3700,69 @@ export const updateHostel = async (
         },
       });
 
-      // 2. Handle Room Updates
-      // Logic:
-      // - IDs present in DB but missing in 'rooms' array -> DELETE
-      // - IDs with "new-" prefix -> CREATE
-      // - Existing IDs -> UPDATE (optional, if you allow editing room details)
-
-      // Get current rooms in DB
-      const currentRooms = await tx.room.findMany({
-        where: { hostelId },
-        select: { id: true },
-      });
-      const currentRoomIds = currentRooms.map((r) => r.id);
-
-      // Filter incoming IDs
-      const incomingRoomIds = rooms
-        .filter((r: any) => !r.id.startsWith("new-"))
-        .map((r: any) => r.id);
-
-      // A. DELETE rooms that were removed in UI
-      const roomsToDelete = currentRoomIds.filter(
-        (id) => !incomingRoomIds.includes(id)
-      );
-
-      if (roomsToDelete.length > 0) {
-        // Unassign students first
-        await tx.student.updateMany({
-          where: { roomId: { in: roomsToDelete } },
-          data: { roomId: null },
+      // 2. SMART ROOM UPDATE LOGIC
+      // Only touch rooms if the 'rooms' array is explicitly provided.
+      // If 'rooms' is undefined or null, we assume the user only wanted to edit the hostel name/warden.
+      if (Array.isArray(rooms)) {
+        // Get current IDs in DB
+        const currentRooms = await tx.room.findMany({
+          where: { hostelId },
+          select: { id: true },
         });
-        // Delete rooms
-        await tx.room.deleteMany({
-          where: { id: { in: roomsToDelete } },
-        });
+        const currentRoomIds = currentRooms.map((r) => r.id);
+
+        // Identify IDs coming from frontend
+        const incomingRoomIds = rooms
+          .filter((r: any) => !r.id.startsWith("new-")) // Filter out temp IDs
+          .map((r: any) => r.id);
+
+        // A. DELETE rooms that are in DB but NOT in the new list
+        const roomsToDelete = currentRoomIds.filter(
+          (id) => !incomingRoomIds.includes(id)
+        );
+
+        if (roomsToDelete.length > 0) {
+          // Unassign students first to avoid FK constraint errors
+          await tx.student.updateMany({
+            where: { roomId: { in: roomsToDelete } },
+            data: { roomId: null },
+          });
+          await tx.room.deleteMany({
+            where: { id: { in: roomsToDelete } },
+          });
+        }
+
+        // B. CREATE new rooms (IDs starting with "new-")
+        const newRooms = rooms.filter((r: any) => r.id.startsWith("new-"));
+        if (newRooms.length > 0) {
+          await tx.room.createMany({
+            data: newRooms.map((room: any) => ({
+              hostelId,
+              roomNumber: room.roomNumber,
+              roomType: room.roomType,
+              capacity: parseInt(room.capacity, 10),
+              fee: parseFloat(room.fee),
+            })),
+          });
+        }
+
+        // C. UPDATE existing rooms
+        // We iterate through existing rooms to update capacity/fee if changed
+        const roomsToUpdate = rooms.filter(
+          (r: any) => !r.id.startsWith("new-")
+        );
+        for (const room of roomsToUpdate) {
+          await tx.room.update({
+            where: { id: room.id },
+            data: {
+              roomNumber: room.roomNumber,
+              roomType: room.roomType,
+              capacity: parseInt(room.capacity, 10),
+              fee: parseFloat(room.fee),
+            },
+          });
+        }
       }
-
-      // B. CREATE new rooms
-      const newRooms = rooms.filter((r: any) => r.id.startsWith("new-"));
-      if (newRooms.length > 0) {
-        await tx.room.createMany({
-          data: newRooms.map((room: any) => ({
-            hostelId,
-            roomNumber: room.roomNumber,
-            roomType: room.roomType,
-            capacity: parseInt(room.capacity, 10),
-            fee: parseFloat(room.fee),
-          })),
-        });
-      }
-
-      // C. UPDATE existing rooms (Optional, but good to have)
-      // Since createMany/deleteMany is bulk, updates usually need a loop or careful handling.
-      // For simplicity in this specific modal, we assume re-creating structure logic
-      // often handles basic edits via delete/create if IDs change, but let's leave existing IDs alone.
     });
 
     res.status(200).json({ message: "Hostel updated successfully." });
