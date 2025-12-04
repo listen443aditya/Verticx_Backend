@@ -3011,7 +3011,7 @@ export const getStudentProfileDetails = async (
   next: NextFunction
 ) => {
   try {
-    // 1. Authorization & Input Validation
+    // 1. Authorization (Specific to Principal)
     const branchId = await getPrincipalAuth(req);
     const { id: studentId } = req.params;
 
@@ -3019,7 +3019,7 @@ export const getStudentProfileDetails = async (
       return res.status(401).json({ message: "Unauthorized." });
     }
 
-    // 2. Fetch Full Student Data with Relations
+    // 2. Fetch Full Student Data
     const student = await prisma.student.findFirst({
       where: {
         id: studentId,
@@ -3040,7 +3040,7 @@ export const getStudentProfileDetails = async (
           },
         },
         parent: true,
-        user: true, // The student's own user account
+        user: true,
         FeeAdjustment: true,
         feeRecords: { include: { payments: true } },
         attendanceRecords: { orderBy: { date: "desc" }, take: 90 },
@@ -3064,66 +3064,43 @@ export const getStudentProfileDetails = async (
         .json({ message: "Student not found in your branch." });
     }
 
-    // --- 3. Ranking Logic (Class & School) ---
+    // --- 3. Ranking Logic (Preserved for Principal) ---
     let rankStats = { class: 0, school: 0 };
-
     if (student.class) {
-      // Aggregate scores for the entire grade level
       const gradePerformance = await prisma.examMark.groupBy({
         by: ["studentId"],
         where: {
           student: {
-            branchId: branchId,
+            branchId,
             gradeLevel: student.gradeLevel,
             status: "active",
           },
         },
-        _sum: {
-          score: true,
-          totalMarks: true,
-        },
+        _sum: { score: true, totalMarks: true },
       });
 
-      // Get all peers in this grade level
       const peers = await prisma.student.findMany({
-        where: {
-          branchId: branchId,
-          gradeLevel: student.gradeLevel,
-          status: "active",
-        },
+        where: { branchId, gradeLevel: student.gradeLevel, status: "active" },
         select: { id: true, classId: true },
       });
 
-      // Calculate percentages
       const leaderboard = peers.map((peer) => {
-        // FIX: Cast 'p' to 'any' here to fix the "Property studentId does not exist" error
         const stats = gradePerformance.find(
           (p: any) => p.studentId === peer.id
         ) as any;
-
-        // Use optional chaining safely
         const totalScore = stats?._sum?.score || 0;
         const maxScore = stats?._sum?.totalMarks || 0;
-
         const percentage = maxScore > 0 ? (totalScore / maxScore) * 100 : 0;
-
-        return {
-          studentId: peer.id,
-          classId: peer.classId,
-          percentage: percentage,
-        };
+        return { studentId: peer.id, classId: peer.classId, percentage };
       });
 
-      // Sort descending
       leaderboard.sort((a, b) => b.percentage - a.percentage);
 
-      // Find School Rank (Batch Rank)
       const schoolRankIndex = leaderboard.findIndex(
         (p) => p.studentId === studentId
       );
       rankStats.school = schoolRankIndex !== -1 ? schoolRankIndex + 1 : 0;
 
-      // Find Class Rank (Section Rank)
       const classLeaderboard = leaderboard.filter(
         (p) => p.classId === student.classId
       );
@@ -3133,7 +3110,7 @@ export const getStudentProfileDetails = async (
       rankStats.class = classRankIndex !== -1 ? classRankIndex + 1 : 0;
     }
 
-    // --- 4. Data Processing & Formatting ---
+    // --- 4. Data Formatting ---
     const {
       FeeAdjustment,
       feeRecords,
@@ -3146,17 +3123,17 @@ export const getStudentProfileDetails = async (
       ...studentData
     } = student;
 
-    // Attendance Calculation
+    // Attendance
     const present = attendanceRecords.filter(
       (a) => a.status === "Present"
     ).length;
     const totalDays = attendanceRecords.length;
 
-    // --- Robust Fee Calculation Logic ---
+    // --- 5. ROBUST FEE LOGIC (The Fix) ---
     const feeRecord = feeRecords[0];
     const templateAmount = student.class?.feeTemplate?.amount || 0;
 
-    // Calculate Adjustments
+    // Adjustments
     const adjustments = student.FeeAdjustment || [];
     const totalAdjustments = adjustments.reduce((acc, adj) => {
       return adj.type === "charge" ? acc + adj.amount : acc - adj.amount;
@@ -3166,12 +3143,11 @@ export const getStudentProfileDetails = async (
     let paidAmount = 0;
 
     if (feeRecord) {
-      // Scenario A: Record Exists. It is the source of truth.
+      // Scenario A: Record exists (Source of Truth)
       netTotal = feeRecord.totalAmount;
       paidAmount = feeRecord.paidAmount;
     } else {
-      // Scenario B: No Record (New Student).
-      // Calculate dynamically: Template Price + Adjustments
+      // Scenario B: No record (Fallback to Template + Adjustments)
       netTotal = templateAmount + totalAdjustments;
       paidAmount = 0;
     }
@@ -3183,8 +3159,9 @@ export const getStudentProfileDetails = async (
       paid: paidAmount,
       pending: pending,
     };
+    // -------------------------------------
 
-    // Combine Payment and Adjustment History
+    // History
     type PaymentItem = FeePayment & { itemType: "payment" };
     type AdjustmentItem = FeeAdjustment & { itemType: "adjustment" };
 
@@ -3192,13 +3169,11 @@ export const getStudentProfileDetails = async (
       ...p,
       itemType: "payment" as const,
     }));
-
     const adjustmentHistory = (student.FeeAdjustment || []).map((adj) => ({
       ...adj,
       itemType: "adjustment" as const,
     }));
 
-    // Sort history by date descending
     const feeHistory = [...paymentHistory, ...adjustmentHistory].sort(
       (a: any, b: any) => {
         const dateA = a.paidDate || a.date;
@@ -3207,7 +3182,7 @@ export const getStudentProfileDetails = async (
       }
     );
 
-    // Format Skills
+    // Skills & Activity
     let formattedSkills: { skill: string; value: number }[] = [];
     if (skillAssessments.length > 0 && skillAssessments[0].skills) {
       const skillObj = skillAssessments[0].skills as Record<string, number>;
@@ -3217,7 +3192,6 @@ export const getStudentProfileDetails = async (
       }));
     }
 
-    // Recent Activity Log
     const recentActivity = [
       ...attendanceRecords.slice(0, 3).map((a) => ({
         date: a.date.toISOString().split("T")[0],
@@ -3229,7 +3203,7 @@ export const getStudentProfileDetails = async (
       })),
     ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-    // --- 5. Construct Final Profile Object ---
+    // --- 6. Final Profile ---
     const profile = {
       student: {
         ...studentData,
@@ -3241,14 +3215,10 @@ export const getStudentProfileDetails = async (
         examMarks: undefined,
         FeeAdjustment: undefined,
       },
-      // Also provide VRTX ID at top level
       userId: studentUser?.userId || "N/A",
       studentUser: studentUser,
       parent: student.parent
-        ? {
-            ...student.parent,
-            passwordHash: undefined,
-          }
+        ? { ...student.parent, passwordHash: undefined }
         : null,
       classInfo: student.class
         ? `Grade ${student.class.gradeLevel}-${student.class.section}`
@@ -3259,19 +3229,13 @@ export const getStudentProfileDetails = async (
         total: totalDays,
       },
       attendanceHistory: attendanceRecords,
-      feeStatus: feeStatus,
+      feeStatus, // New logic
       feeHistory,
-      grades: grades.map((g) => ({
-        ...g,
-        courseName: g.course.name,
-      })),
+      grades: grades.map((g) => ({ ...g, courseName: g.course.name })),
       skills: formattedSkills,
-      recentActivity: recentActivity,
-      rank: rankStats,
-      activeSuspension:
-        student.suspensionRecords.length > 0
-          ? student.suspensionRecords[0]
-          : null,
+      recentActivity,
+      rank: rankStats, // Principal gets the ranks!
+      activeSuspension: student.suspensionRecords[0] || null,
       feeBreakdown: student.class?.feeTemplate?.monthlyBreakdown || [],
     };
 

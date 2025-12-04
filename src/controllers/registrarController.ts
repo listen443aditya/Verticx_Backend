@@ -60,6 +60,14 @@ const ACADEMIC_MONTH_NAMES = [
   "March",
 ];
 
+const getRemainingMonthsCount = (): number => {
+  const now = new Date();
+  const currentMonth = now.getMonth(); // 0=Jan, 11=Dec
+  // Session: Apr(3) to Mar(2)
+  if (currentMonth === 2) return 1; // If March, 1 month (current)
+  if (currentMonth >= 3) return 12 - (currentMonth - 3); // Apr-Dec
+  return 3 - currentMonth; // Jan-Feb
+};
 const getAuthenticatedBranchId = (req: Request): string | null => {
   if (req.user && req.user.branchId) {
     return req.user.branchId;
@@ -3619,35 +3627,6 @@ export const processLeaveApplication = async (req: Request, res: Response, next:
 
 // --- Hostel Management ---
 
-const getRemainingMonthsCount = (): number => {
-  const now = new Date();
-  const currentMonth = now.getMonth(); // 0 = Jan, 11 = Dec
-
-  // Academic Year Map (0-based index):
-  // Apr(3), May(4), Jun(5), Jul(6), Aug(7), Sep(8), Oct(9), Nov(10), Dec(11), Jan(0), Feb(1), Mar(2)
-
-  // If it's March (end of session), remaining is 0.
-  if (currentMonth === 2) return 0;
-
-  // If it's April (start), remaining is 12.
-  // Logic:
-  // Apr (3) -> 12 months left
-  // Dec (11) -> 4 months left (Dec, Jan, Feb, Mar)
-  // Jan (0) -> 3 months left (Jan, Feb, Mar)
-
-  if (currentMonth >= 3) {
-    // April to December
-    // e.g., April(3): 12 - (3-3) = 12
-    // e.g., Dec(11): 12 - (11-3) = 4
-    return 12 - (currentMonth - 3);
-  } else {
-    // January to February
-    // e.g., Jan(0): 3 - 0 = 3
-    // e.g., Feb(1): 3 - 1 = 2
-    return 3 - currentMonth;
-  }
-};
-
 export const getHostels = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
     if (!branchId) {
@@ -3930,24 +3909,72 @@ export const assignStudentToRoom = async (
 
   try {
     await prisma.$transaction(async (tx) => {
-      // 1. Check Capacity
+      // 1. Fetch Room & Student
       const room = await tx.room.findFirst({
         where: { id: roomId, hostel: { branchId } },
         include: { _count: { select: { occupants: true } } },
       });
-
       if (!room) throw new Error("Room not found.");
       if (room._count.occupants >= room.capacity)
         throw new Error("Room is full.");
 
-      // 2. Assign Student (Pure Assignment, No Fee Logic Here)
-      // The fee will be calculated dynamically when viewing the profile
+      const student = await tx.student.findFirst({
+        where: { id: studentId, branchId },
+        include: {
+          feeRecords: true,
+          class: { include: { feeTemplate: true } },
+        },
+      });
+      if (!student) throw new Error("Student not found.");
+
+      // 2. FINANCIAL LOGIC: Calculate & Apply Charge
+      const monthsLeft = getRemainingMonthsCount();
+      const totalCharge = room.fee * monthsLeft;
+
+      if (totalCharge > 0) {
+        let feeRecordId = student.feeRecords[0]?.id;
+
+        // If student has no fee record yet, create one
+        if (!feeRecordId) {
+          const templateAmount = student.class?.feeTemplate?.amount || 0;
+          const newRecord = await tx.feeRecord.create({
+            data: {
+              studentId,
+              totalAmount: templateAmount,
+              paidAmount: 0,
+              dueDate: new Date(new Date().getFullYear(), 3, 1),
+            },
+          });
+          feeRecordId = newRecord.id;
+        }
+
+        // A. Update the Balance (Permanent Debt Increase)
+        await tx.feeRecord.update({
+          where: { id: feeRecordId },
+          data: { totalAmount: { increment: totalCharge } },
+        });
+
+        // B. Create Audit Log (So we know WHY it increased)
+        await tx.feeAdjustment.create({
+          data: {
+            studentId,
+            type: "charge", // Important: It's a charge, not a discount
+            amount: totalCharge,
+            reason: `Hostel Assigned: Room ${room.roomNumber} (${monthsLeft} months @ ${room.fee})`,
+            adjustedBy: req.user?.name || "Registrar",
+            date: new Date(),
+          },
+        });
+      }
+
+      // 3. Assign Room
       await tx.student.update({
         where: { id: studentId },
         data: { roomId: roomId },
       });
     });
-    res.status(200).json({ message: "Student assigned to room." });
+
+    res.status(200).json({ message: "Student assigned and fees updated." });
   } catch (error: any) {
     next(error);
   }
@@ -4238,25 +4265,73 @@ export const assignMemberToRoute = async (
     return res.status(401).json({ message: "Authentication required." });
 
   try {
-    // 1. Verify Stop
-    const stop = await prisma.busStop.findFirst({
-      where: { id: stopId, routeId },
-    });
-    if (!stop) return res.status(404).json({ message: "Stop not found." });
+    await prisma.$transaction(async (tx) => {
+      const stop = await tx.busStop.findFirst({
+        where: { id: stopId, routeId },
+      });
+      if (!stop) throw new Error("Stop not found.");
 
-    // 2. Assign Member (Pure Assignment)
-    if (memberType === "Student") {
-      await prisma.student.update({
-        where: { id: memberId, branchId },
-        data: { transportRouteId: routeId, busStopId: stopId },
-      });
-    } else if (memberType === "Teacher") {
-      await prisma.teacher.update({
-        where: { id: memberId, branchId },
-        data: { transportRouteId: routeId, busStopId: stopId },
-      });
-    }
-    res.status(200).json({ message: "Transport assigned successfully." });
+      // Financial Logic only for Students
+      if (memberType === "Student") {
+        const monthsLeft = getRemainingMonthsCount();
+        const totalCharge = (stop.charges || 0) * monthsLeft;
+
+        if (totalCharge > 0) {
+          const student = await tx.student.findFirst({
+            where: { id: memberId, branchId },
+            include: {
+              feeRecords: true,
+              class: { include: { feeTemplate: true } },
+            },
+          });
+          if (!student) throw new Error("Student not found.");
+
+          let feeRecordId = student.feeRecords[0]?.id;
+
+          if (!feeRecordId) {
+            const templateAmount = student.class?.feeTemplate?.amount || 0;
+            const newRecord = await tx.feeRecord.create({
+              data: {
+                studentId: memberId,
+                totalAmount: templateAmount,
+                paidAmount: 0,
+                dueDate: new Date(new Date().getFullYear(), 3, 1),
+              },
+            });
+            feeRecordId = newRecord.id;
+          }
+
+          // Update Balance & Log
+          await tx.feeRecord.update({
+            where: { id: feeRecordId },
+            data: { totalAmount: { increment: totalCharge } },
+          });
+
+          await tx.feeAdjustment.create({
+            data: {
+              studentId: memberId,
+              type: "charge",
+              amount: totalCharge,
+              reason: `Transport Assigned: ${stop.name} (${monthsLeft} months @ ${stop.charges})`,
+              adjustedBy: req.user?.name || "Registrar",
+              date: new Date(),
+            },
+          });
+        }
+
+        await tx.student.update({
+          where: { id: memberId },
+          data: { transportRouteId: routeId, busStopId: stopId },
+        });
+      } else {
+        // Teacher logic (usually no fee impact)
+        await tx.teacher.update({
+          where: { id: memberId },
+          data: { transportRouteId: routeId, busStopId: stopId },
+        });
+      }
+    });
+    res.status(200).json({ message: "Transport assigned and fees updated." });
   } catch (error: any) {
     next(error);
   }
@@ -4754,13 +4829,16 @@ export const getStudentProfileDetails = async (
   }
 
   try {
+    // 1. Fetch Student and essential relations
     const student = await prisma.student.findFirst({
       where: { id: studentId, branchId: branchId },
       include: {
         parent: true,
         user: true,
+        // Include feeTemplate so we know the default fee
         class: {
           select: {
+            id: true,
             gradeLevel: true,
             section: true,
             feeTemplate: {
@@ -4792,7 +4870,9 @@ export const getStudentProfileDetails = async (
         .json({ message: "Student not found in your branch." });
     }
 
-    // --- 1. Attendance Stats ---
+    // 2. Calculate Summaries and Format Data
+
+    // --- Attendance Stats ---
     const attendanceTotal = await prisma.attendanceRecord.count({
       where: { studentId: studentId },
     });
@@ -4806,11 +4886,11 @@ export const getStudentProfileDetails = async (
         attendanceTotal > 0 ? (attendancePresent / attendanceTotal) * 100 : 100,
     };
 
-    // --- 2. Fee Stats (CORRECTED LOGIC) ---
+    // --- Fee Stats (ROBUST LOGIC) ---
     const feeRecord = student.feeRecords[0];
     const templateAmount = student.class?.feeTemplate?.amount || 0;
 
-    // Calculate any adjustments (Concessions/Charges)
+    // Calculate Adjustments
     const adjustments = student.FeeAdjustment || [];
     const totalAdjustments = adjustments.reduce((acc, adj) => {
       return adj.type === "charge" ? acc + adj.amount : acc - adj.amount;
@@ -4838,9 +4918,9 @@ export const getStudentProfileDetails = async (
       pending: pending,
     };
 
-    // --- 3. Fee History (Payments + Adjustments) ---
-    type PaymentItem = FeePayment & { type: "payment" };
-    type AdjustmentItem = FeeAdjustment & { type: "adjustment" };
+    // --- Fee History ---
+    type PaymentItem = FeePayment & { itemType: "payment" };
+    type AdjustmentItem = FeeAdjustment & { itemType: "adjustment" };
 
     const paymentHistory = student.feeRecords
       .flatMap((fr) => fr.payments)
@@ -4852,27 +4932,20 @@ export const getStudentProfileDetails = async (
     }));
 
     const feeHistory = [...paymentHistory, ...adjustmentHistory].sort(
-      (a, b) => {
-        let dateA: Date;
-        let dateB: Date;
-
-        if (a.itemType === "payment") dateA = a.paidDate;
-        else dateA = a.date;
-
-        if (b.itemType === "payment") dateB = b.paidDate;
-        else dateB = b.date;
-
+      (a: any, b: any) => {
+        const dateA = a.paidDate || a.date;
+        const dateB = b.paidDate || b.date;
         return new Date(dateB).getTime() - new Date(dateA).getTime();
       }
     );
 
-    // --- 4. Grades & Skills ---
+    // --- Grades & Skills ---
     const grades = student.examMarks.map((mark) => ({
       courseName: mark.examSchedule.subject.name,
       score: mark.score,
     }));
 
-    const rank = { class: "N/A", school: "N/A" }; // Placeholder for complex rank logic
+    const rank = { class: "N/A", school: "N/A" }; // Placeholder logic
 
     const skills = [
       { subject: "Communication", A: Math.random() * 5 },
@@ -4882,7 +4955,7 @@ export const getStudentProfileDetails = async (
       { subject: "Leadership", A: Math.random() * 5 },
     ];
 
-    // --- 5. Final Profile Object ---
+    // --- Final Profile Object ---
     const profile = {
       student: {
         ...student,
