@@ -4935,12 +4935,12 @@ export const getStudentProfileDetails = async (
       : null;
 
     // 3. Calculate Monthly Breakdown
-    const templateBreakdown =
-      (s.class?.feeTemplate?.monthlyBreakdown as any[]) || [];
-    const monthlyHostelFee = Number(s.room?.fee || 0);
-    const monthlyTransportFee = Number(s.busStop?.charges || 0);
+    // const templateBreakdown =
+    //   (s.class?.feeTemplate?.monthlyBreakdown as any[]) || [];
+    // const monthlyHostelFee = Number(s.room?.fee || 0);
+    // const monthlyTransportFee = Number(s.busStop?.charges || 0);
 
-    let calculatedTotalFee = 0;
+    // let calculatedTotalFee = 0;
 
     // Helper to map month name to this session's specific Date
     const getMonthDate = (monthName: string) => {
@@ -4952,73 +4952,82 @@ export const getStudentProfileDetails = async (
       const jsMonthIndex = (monthIndex + 3) % 12;
       return new Date(year, jsMonthIndex, 1);
     };
-
-    const dynamicBreakdown = ACADEMIC_MONTH_NAMES.map((monthName) => {
-      const currentMonthDate = getMonthDate(monthName); // The 1st of that month
-      const components = [];
-      let monthTotal = 0;
-
-      // A. Tuition (From Template)
-      const templateMonth = templateBreakdown.find(
-        (m: any) => m.month === monthName
+    const getServiceStartIndex = (keyword: string) => {
+      const log = FeeAdjustment.find(
+        (adj: any) => adj.reason && adj.reason.includes(keyword)
       );
-      let tuition = 0;
+      if (!log) return 0; // No log = assigned since start
 
-      if (templateMonth) {
-        // Use explicit monthly amount from template
-        tuition = Number(templateMonth.total || templateMonth.amount || 0);
-      } else if (s.class?.feeTemplate?.amount) {
-        // Fallback: Annual / 12
-        tuition = Math.ceil(Number(s.class.feeTemplate.amount) / 12);
-      }
+      const date = new Date(log.date);
+      const month = date.getMonth(); // 0=Jan, 3=Apr
 
-      if (tuition > 0) {
-        monthTotal += tuition;
-        components.push({ component: "Tuition", amount: tuition });
-      }
+      // Convert JS Month (0-11) to Academic Index (Apr=0, Mar=11)
+      if (month >= 3) return month - 3;
+      return month + 9;
+    };
+const hostelStartIndex = s.room ? getServiceStartIndex("Hostel Assigned") : 999;
+const transportStartIndex = s.busStop
+  ? getServiceStartIndex("Transport Assigned")
+  : 999;
+const monthlyHostelFee = Number(s.room?.fee || 0);
+const monthlyTransportFee = Number(s.busStop?.charges || 0);
+const templateBreakdown =
+  (s.class?.feeTemplate?.monthlyBreakdown as any[]) || [];
 
-      // B. Hostel (Time-based Check)
-      // If student has a room AND current month is equal to or after start month
-      if (hostelStartDate && s.room) {
-        const startMonthDate = new Date(
-          hostelStartDate.getFullYear(),
-          hostelStartDate.getMonth(),
-          1
-        );
-        if (currentMonthDate >= startMonthDate) {
-          monthTotal += monthlyHostelFee;
-          components.push({
-            component: `Hostel (${s.room.roomNumber})`,
-            amount: monthlyHostelFee,
-          });
-        }
-      }
+let calculatedTotalFee = 0;
 
-      // C. Transport (Time-based Check)
-      if (transportStartDate && s.busStop) {
-        const startMonthDate = new Date(
-          transportStartDate.getFullYear(),
-          transportStartDate.getMonth(),
-          1
-        );
-        if (currentMonthDate >= startMonthDate) {
-          monthTotal += monthlyTransportFee;
-          components.push({
-            component: `Transport (${s.busStop.name})`,
-            amount: monthlyTransportFee,
-          });
-        }
-      }
+   const dynamicBreakdown = ACADEMIC_MONTH_NAMES.map((monthName, index) => {
+     // A. Tuition
+     const templateMonth = templateBreakdown.find(
+       (m: any) => m.month === monthName
+     );
+     let tuition = 0;
 
-      calculatedTotalFee += monthTotal;
+     if (templateMonth) {
+       if (templateMonth.total) tuition = Number(templateMonth.total);
+       else if (templateMonth.breakdown)
+         tuition = templateMonth.breakdown.reduce(
+           (sum: number, c: any) => sum + (Number(c.amount) || 0),
+           0
+         );
+     } else if (s.class?.feeTemplate?.amount) {
+       tuition = Math.ceil(s.class.feeTemplate.amount / 12);
+     }
 
-      return {
-        month: monthName,
-        total: monthTotal,
-        details: components.map((c) => `${c.component}: ₹${c.amount}`), // For Tooltip
-        breakdown: components, // For detailed view
-      };
-    });
+     // B. Hostel (Simple Index Check)
+     const hostelCharge = index >= hostelStartIndex ? monthlyHostelFee : 0;
+
+     // C. Transport (Simple Index Check)
+     const transportCharge =
+       index >= transportStartIndex ? monthlyTransportFee : 0;
+
+     const monthTotal = tuition + hostelCharge + transportCharge;
+     calculatedTotalFee += monthTotal;
+
+     return {
+       month: monthName,
+       total: monthTotal,
+       breakdown: [
+         { component: "Tuition", amount: tuition },
+         ...(hostelCharge > 0
+           ? [
+               {
+                 component: `Hostel (${s.room?.roomNumber})`,
+                 amount: hostelCharge,
+               },
+             ]
+           : []),
+         ...(transportCharge > 0
+           ? [
+               {
+                 component: `Transport (${s.busStop?.name})`,
+                 amount: transportCharge,
+               },
+             ]
+           : []),
+       ],
+     };
+   });
 
     // --- Ledger Calculations ---
     const feeRecord = s.feeRecords[0];
