@@ -3011,7 +3011,8 @@ export const getStudentProfileDetails = async (
   next: NextFunction
 ) => {
   try {
-    // 1. Authorization (Specific to Principal)
+    // 1. Authorization
+    // CHANGE THIS to getRegistrarBranchId(req) if using in Registrar Controller
     const branchId = await getPrincipalAuth(req);
     const { id: studentId } = req.params;
 
@@ -3019,13 +3020,14 @@ export const getStudentProfileDetails = async (
       return res.status(401).json({ message: "Unauthorized." });
     }
 
-    // 2. Fetch Full Student Data
+    // 2. Fetch Student with ALL Relations
     const student = await prisma.student.findFirst({
       where: {
         id: studentId,
         branchId: branchId,
       },
       include: {
+        // Class & Template
         class: {
           select: {
             id: true,
@@ -3039,8 +3041,13 @@ export const getStudentProfileDetails = async (
             },
           },
         },
+        // Recurring Service Details
+        room: { select: { fee: true, roomNumber: true } },
+        busStop: { select: { charges: true, name: true } },
+
+        // Relations
         parent: true,
-        user: true,
+        user: true, // For VRTX ID
         FeeAdjustment: true,
         feeRecords: { include: { payments: true } },
         attendanceRecords: { orderBy: { date: "desc" }, take: 90 },
@@ -3055,6 +3062,11 @@ export const getStudentProfileDetails = async (
           where: { endDate: { gte: new Date() } },
           orderBy: { endDate: "desc" },
         },
+        examMarks: {
+          include: {
+            examSchedule: { include: { subject: true } },
+          },
+        },
       },
     });
 
@@ -3064,14 +3076,15 @@ export const getStudentProfileDetails = async (
         .json({ message: "Student not found in your branch." });
     }
 
-    // --- 3. Ranking Logic (Preserved for Principal) ---
+    // --- 3. Ranking Logic ---
     let rankStats = { class: 0, school: 0 };
+
     if (student.class) {
       const gradePerformance = await prisma.examMark.groupBy({
         by: ["studentId"],
         where: {
           student: {
-            branchId,
+            branchId: branchId,
             gradeLevel: student.gradeLevel,
             status: "active",
           },
@@ -3080,7 +3093,11 @@ export const getStudentProfileDetails = async (
       });
 
       const peers = await prisma.student.findMany({
-        where: { branchId, gradeLevel: student.gradeLevel, status: "active" },
+        where: {
+          branchId: branchId,
+          gradeLevel: student.gradeLevel,
+          status: "active",
+        },
         select: { id: true, classId: true },
       });
 
@@ -3110,7 +3127,10 @@ export const getStudentProfileDetails = async (
       rankStats.class = classRankIndex !== -1 ? classRankIndex + 1 : 0;
     }
 
-    // --- 4. Data Formatting ---
+    // --- 4. Data Processing & Casting ---
+    // Cast to any to safely access nested relations like room/busStop if types aren't generated
+    const s = student as any;
+
     const {
       FeeAdjustment,
       feeRecords,
@@ -3121,21 +3141,72 @@ export const getStudentProfileDetails = async (
       parent,
       submissions,
       ...studentData
-    } = student;
+    } = s;
 
-    // Attendance
-    const present = attendanceRecords.filter(
-      (a) => a.status === "Present"
-    ).length;
-    const totalDays = attendanceRecords.length;
+    // --- 5. Advanced Fee Logic ---
 
-    // --- 5. ROBUST FEE LOGIC (The Fix) ---
+    // A. Base Data
+    const templateBreakdown =
+      (s.class?.feeTemplate?.monthlyBreakdown as any[]) || [];
+    const monthlyHostelFee = s.room?.fee || 0;
+    const monthlyTransportFee = s.busStop?.charges || 0;
+
+    // B. Construct Dynamic Monthly Breakdown (For UI Visualization)
+    let calculatedTotalFee = 0;
+
+    const dynamicBreakdown = ACADEMIC_MONTH_ORDER.map((monthName) => {
+      const templateMonth = templateBreakdown.find(
+        (m: any) => m.month === monthName
+      );
+
+      // 1. Tuition
+      let tuition = 0;
+      if (templateMonth) {
+        if (templateMonth.total) tuition = Number(templateMonth.total);
+        else if (templateMonth.breakdown)
+          tuition = templateMonth.breakdown.reduce(
+            (sum: number, c: any) => sum + (Number(c.amount) || 0),
+            0
+          );
+      } else if (s.class?.feeTemplate?.amount) {
+        tuition = Math.ceil(s.class.feeTemplate.amount / 12);
+      }
+
+      // 2. Monthly Total (Tuition + Hostel + Transport)
+      const monthTotal = tuition + monthlyHostelFee + monthlyTransportFee;
+      calculatedTotalFee += monthTotal;
+
+      return {
+        month: monthName,
+        total: monthTotal,
+        breakdown: [
+          { component: "Tuition", amount: tuition },
+          ...(monthlyHostelFee > 0
+            ? [
+                {
+                  component: `Hostel (${s.room?.roomNumber})`,
+                  amount: monthlyHostelFee,
+                },
+              ]
+            : []),
+          ...(monthlyTransportFee > 0
+            ? [
+                {
+                  component: `Transport (${s.busStop?.name})`,
+                  amount: monthlyTransportFee,
+                },
+              ]
+            : []),
+        ],
+      };
+    });
+
+    // C. Ledger Logic (Total Due)
     const feeRecord = feeRecords[0];
-    const templateAmount = student.class?.feeTemplate?.amount || 0;
 
-    // Adjustments
-    const adjustments = student.FeeAdjustment || [];
-    const totalAdjustments = adjustments.reduce((acc, adj) => {
+    // Adjustments (Fines/Discounts)
+    const adjustments = s.FeeAdjustment || [];
+    const totalAdjustments = adjustments.reduce((acc: number, adj: any) => {
       return adj.type === "charge" ? acc + adj.amount : acc - adj.amount;
     }, 0);
 
@@ -3143,12 +3214,17 @@ export const getStudentProfileDetails = async (
     let paidAmount = 0;
 
     if (feeRecord) {
-      // Scenario A: Record exists (Source of Truth)
+      // Scenario A: Record Exists (Source of Truth)
+      // Note: Since we implemented Write-Through logic in assignStudentToRoom,
+      // feeRecord.totalAmount ALREADY includes the pro-rated hostel/transport fees.
       netTotal = feeRecord.totalAmount;
       paidAmount = feeRecord.paidAmount;
     } else {
-      // Scenario B: No record (Fallback to Template + Adjustments)
-      netTotal = templateAmount + totalAdjustments;
+      // Scenario B: No Record (New Student)
+      // Fallback: Template Amount + Annual Hostel + Annual Transport + Adjustments
+      const templateAmount = s.class?.feeTemplate?.amount || 0;
+      const annualExtras = monthlyHostelFee * 12 + monthlyTransportFee * 12;
+      netTotal = templateAmount + annualExtras + totalAdjustments;
       paidAmount = 0;
     }
 
@@ -3159,17 +3235,17 @@ export const getStudentProfileDetails = async (
       paid: paidAmount,
       pending: pending,
     };
-    // -------------------------------------
 
-    // History
+    // --- 6. History Sorting ---
     type PaymentItem = FeePayment & { itemType: "payment" };
     type AdjustmentItem = FeeAdjustment & { itemType: "adjustment" };
 
-    const paymentHistory = (feeRecord?.payments || []).map((p) => ({
+    const paymentHistory = (feeRecord?.payments || []).map((p: any) => ({
       ...p,
       itemType: "payment" as const,
     }));
-    const adjustmentHistory = (student.FeeAdjustment || []).map((adj) => ({
+
+    const adjustmentHistory = (s.FeeAdjustment || []).map((adj: any) => ({
       ...adj,
       itemType: "adjustment" as const,
     }));
@@ -3182,7 +3258,17 @@ export const getStudentProfileDetails = async (
       }
     );
 
-    // Skills & Activity
+    // --- 7. Stats & Activity ---
+    const present = attendanceRecords.filter(
+      (a: any) => a.status === "Present"
+    ).length;
+    const totalDays = attendanceRecords.length;
+
+    const formattedGrades = s.grades.map((g: any) => ({
+      ...g,
+      courseName: g.course.name,
+    }));
+
     let formattedSkills: { skill: string; value: number }[] = [];
     if (skillAssessments.length > 0 && skillAssessments[0].skills) {
       const skillObj = skillAssessments[0].skills as Record<string, number>;
@@ -3193,50 +3279,65 @@ export const getStudentProfileDetails = async (
     }
 
     const recentActivity = [
-      ...attendanceRecords.slice(0, 3).map((a) => ({
+      ...attendanceRecords.slice(0, 3).map((a: any) => ({
         date: a.date.toISOString().split("T")[0],
         activity: `Marked ${a.status}`,
       })),
-      ...submissions.map((s) => ({
-        date: s.submittedAt.toISOString().split("T")[0],
-        activity: `Submitted "${s.assignment.title}"`,
+      ...submissions.map((sub: any) => ({
+        date: sub.submittedAt.toISOString().split("T")[0],
+        activity: `Submitted "${sub.assignment.title}"`,
       })),
-    ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    ].sort(
+      (a: any, b: any) =>
+        new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
 
-    // --- 6. Final Profile ---
+    // --- 8. Construct Final Profile ---
     const profile = {
       student: {
         ...studentData,
+        // Overwrite internal UUID with readable VRTX ID
         userId: studentUser?.userId || "N/A",
+
+        // WE KEEP THE RAW DATA NOW (As per your request)
+        feeRecords,
+        attendanceRecords,
+        suspensionRecords: s.suspensionRecords,
+        examMarks: s.examMarks,
+        FeeAdjustment,
+
+        // We also keep these relations for frontend logic
+        room: s.room,
+        busStop: s.busStop,
+
+        // Clean up only sensitive things
         passwordHash: undefined,
-        feeRecords: undefined,
-        attendanceRecords: undefined,
-        suspensionRecords: undefined,
-        examMarks: undefined,
-        FeeAdjustment: undefined,
       },
+      // Top-level convenience fields
       userId: studentUser?.userId || "N/A",
-      studentUser: studentUser,
+      studentUser,
       parent: student.parent
         ? { ...student.parent, passwordHash: undefined }
         : null,
-      classInfo: student.class
-        ? `Grade ${student.class.gradeLevel}-${student.class.section}`
+
+      classInfo: s.class
+        ? `Grade ${s.class.gradeLevel}-${s.class.section}`
         : "Unassigned",
-      attendance: {
-        present,
-        absent: totalDays - present,
-        total: totalDays,
-      },
+
+      attendance: { present, absent: totalDays - present, total: totalDays },
       attendanceHistory: attendanceRecords,
-      feeStatus, // New logic
+
+      feeStatus,
       feeHistory,
-      grades: grades.map((g) => ({ ...g, courseName: g.course.name })),
+
+      grades: formattedGrades,
       skills: formattedSkills,
       recentActivity,
-      rank: rankStats, // Principal gets the ranks!
-      activeSuspension: student.suspensionRecords[0] || null,
-      feeBreakdown: student.class?.feeTemplate?.monthlyBreakdown || [],
+      rank: rankStats,
+      activeSuspension: s.suspensionRecords[0] || null,
+
+      // The dynamic breakdown for the Fee Modal
+      feeBreakdown: dynamicBreakdown,
     };
 
     res.status(200).json(profile);
