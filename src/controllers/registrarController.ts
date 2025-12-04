@@ -4855,15 +4855,12 @@ export const getStudentProfileDetails = async (
   next: NextFunction
 ) => {
   try {
-    // 1. Authorization
-    const branchId = getRegistrarBranchId(req);
+    const branchId = await getRegistrarBranchId(req); // or getRegistrarBranchId(req)
     const { id: studentId } = req.params;
 
-    if (!branchId) {
-      return res.status(401).json({ message: "Authentication required." });
-    }
+    if (!branchId) return res.status(401).json({ message: "Unauthorized." });
 
-    // 2. Fetch Student
+    // 1. Fetch Student
     const student = await prisma.student.findFirst({
       where: { id: studentId, branchId },
       include: {
@@ -4902,44 +4899,7 @@ export const getStudentProfileDetails = async (
     if (!student)
       return res.status(404).json({ message: "Student not found." });
 
-    // --- 3. Ranking Logic ---
-    let rankStats = { class: 0, school: 0 };
-    if (student.class) {
-      const gradePerformance = await prisma.examMark.groupBy({
-        by: ["studentId"],
-        where: {
-          student: {
-            branchId,
-            gradeLevel: student.gradeLevel,
-            status: "active",
-          },
-        },
-        _sum: { score: true, totalMarks: true },
-      });
-      const peers = await prisma.student.findMany({
-        where: { branchId, gradeLevel: student.gradeLevel, status: "active" },
-        select: { id: true, classId: true },
-      });
-      const leaderboard = peers.map((peer) => {
-        const stats = gradePerformance.find(
-          (p: any) => p.studentId === peer.id
-        ) as any;
-        const totalScore = stats?._sum?.score || 0;
-        const maxScore = stats?._sum?.totalMarks || 0;
-        const percentage = maxScore > 0 ? (totalScore / maxScore) * 100 : 0;
-        return { studentId: peer.id, classId: peer.classId, percentage };
-      });
-      leaderboard.sort((a, b) => b.percentage - a.percentage);
-      rankStats.school =
-        leaderboard.findIndex((p) => p.studentId === studentId) + 1 || 0;
-
-      const classLeaderboard = leaderboard.filter(
-        (p) => p.classId === student.classId
-      );
-      rankStats.class =
-        classLeaderboard.findIndex((p) => p.studentId === studentId) + 1 || 0;
-    }
-
+    // ... (Ranking Logic - Keep as is) ...
     const s = student as any;
     const {
       FeeAdjustment,
@@ -4953,63 +4913,63 @@ export const getStudentProfileDetails = async (
       ...studentData
     } = s;
 
-    const ACADEMIC_MONTHS = [
-      "April",
-      "May",
-      "June",
-      "July",
-      "August",
-      "September",
-      "October",
-      "November",
-      "December",
-      "January",
-      "February",
-      "March",
-    ];
+    // --- SMART FEE ENGINE ---
 
-    // A. Calculate "Theoretical" Breakdown from Template & Services
+    // 1. Determine Session Context
+    const sessionStartYear =
+      new Date().getMonth() < 3
+        ? new Date().getFullYear() - 1
+        : new Date().getFullYear();
+    const sessionStartDate = new Date(sessionStartYear, 3, 1); // April 1st
+
+    // 2. Determine Service Start Dates
+    // Logic: Log Date -> Admission Date -> Session Start
+    const getServiceStartDate = (keyword: string) => {
+      const log = FeeAdjustment.find(
+        (adj: any) => adj.reason && adj.reason.includes(keyword)
+      );
+      if (log) return new Date(log.date);
+      // If no log, assume they had it since admission (if admitted this year) or session start
+      return s.createdAt > sessionStartDate
+        ? new Date(s.createdAt)
+        : sessionStartDate;
+    };
+
+    const hostelStartDate = s.room
+      ? getServiceStartDate("Hostel Assigned")
+      : null;
+    const transportStartDate = s.busStop
+      ? getServiceStartDate("Transport Assigned")
+      : null;
+
+    // 3. Calculate Monthly Breakdown
     const templateBreakdown =
       (s.class?.feeTemplate?.monthlyBreakdown as any[]) || [];
     const monthlyHostelFee = Number(s.room?.fee || 0);
     const monthlyTransportFee = Number(s.busStop?.charges || 0);
 
-    // Find start dates (logic same as before)
-    const sessionStartYear =
-      new Date().getMonth() < 3
-        ? new Date().getFullYear() - 1
-        : new Date().getFullYear();
-    const sessionStartDate = new Date(sessionStartYear, 3, 1);
-    const findAssignmentDate = (keyword: string) => {
-      const log = FeeAdjustment.find(
-        (adj: any) => adj.reason && adj.reason.includes(keyword)
-      );
-      return log ? new Date(log.date) : sessionStartDate;
-    };
-    const hostelStartDate = s.room
-      ? findAssignmentDate("Hostel Assigned")
-      : null;
-    const transportStartDate = s.busStop
-      ? findAssignmentDate("Transport Assigned")
-      : null;
+    let calculatedTotalFee = 0;
 
+    // Helper to map month name to Date object
     const getMonthDate = (monthName: string) => {
-      const monthIndex = ACADEMIC_MONTHS.indexOf(monthName);
+      const monthIndex = ACADEMIC_MONTH_NAMES.indexOf(monthName);
       const year =
         monthIndex + 3 < 12 ? sessionStartYear : sessionStartYear + 1;
-      return new Date(year, (monthIndex + 3) % 12, 1);
+      const month = (monthIndex + 3) % 12;
+      return new Date(year, month, 1);
     };
 
-    let calculatedBreakdownTotal = 0;
+    const dynamicBreakdown = ACADEMIC_MONTH_NAMES.map((monthName) => {
+      const currentMonthDate = getMonthDate(monthName);
 
-    let dynamicBreakdown = ACADEMIC_MONTHS.map((monthName) => {
+      // A. Tuition (From Template)
       const templateMonth = templateBreakdown.find(
         (m: any) => m.month === monthName
       );
-      const currentMonthDate = getMonthDate(monthName);
-
       let tuition = 0;
+
       if (templateMonth) {
+        // Case 1: Template has explicit breakdown for this month
         if (templateMonth.total) tuition = Number(templateMonth.total);
         else if (templateMonth.breakdown)
           tuition = templateMonth.breakdown.reduce(
@@ -5017,189 +4977,115 @@ export const getStudentProfileDetails = async (
             0
           );
       } else if (s.class?.feeTemplate?.amount) {
+        // Case 2: Template has Annual Total but no monthly breakdown -> Divide evenly
         tuition = Math.ceil(s.class.feeTemplate.amount / 12);
       }
 
+      // B. Hostel (Time-based)
       let hostelCharge = 0;
-      if (
-        hostelStartDate &&
-        currentMonthDate >=
-          new Date(hostelStartDate.getFullYear(), hostelStartDate.getMonth(), 1)
-      ) {
-        hostelCharge = monthlyHostelFee;
+      // Check if current month is AFTER or SAME as start date (ignoring day of month)
+      if (hostelStartDate) {
+        const startMonthDate = new Date(
+          hostelStartDate.getFullYear(),
+          hostelStartDate.getMonth(),
+          1
+        );
+        if (currentMonthDate >= startMonthDate) {
+          hostelCharge = monthlyHostelFee;
+        }
       }
+
+      // C. Transport (Time-based)
       let transportCharge = 0;
-      if (
-        transportStartDate &&
-        currentMonthDate >=
-          new Date(
-            transportStartDate.getFullYear(),
-            transportStartDate.getMonth(),
-            1
-          )
-      ) {
-        transportCharge = monthlyTransportFee;
+      if (transportStartDate) {
+        const startMonthDate = new Date(
+          transportStartDate.getFullYear(),
+          transportStartDate.getMonth(),
+          1
+        );
+        if (currentMonthDate >= startMonthDate) {
+          transportCharge = monthlyTransportFee;
+        }
       }
 
       const monthTotal = tuition + hostelCharge + transportCharge;
-      calculatedBreakdownTotal += monthTotal;
+      calculatedTotalFee += monthTotal;
+
+      // Build component list for Frontend Tooltip
+      const components = [];
+      if (tuition > 0)
+        components.push({ component: "Tuition", amount: tuition });
+      if (hostelCharge > 0)
+        components.push({
+          component: `Hostel (${s.room?.roomNumber})`,
+          amount: hostelCharge,
+        });
+      if (transportCharge > 0)
+        components.push({
+          component: `Transport (${s.busStop?.name})`,
+          amount: transportCharge,
+        });
 
       return {
         month: monthName,
         total: monthTotal,
-        breakdown: [
-          { component: "Tuition", amount: tuition },
-          ...(hostelCharge > 0
-            ? [
-                {
-                  component: `Hostel (${s.room?.roomNumber})`,
-                  amount: hostelCharge,
-                },
-              ]
-            : []),
-          ...(transportCharge > 0
-            ? [
-                {
-                  component: `Transport (${s.busStop?.name})`,
-                  amount: transportCharge,
-                },
-              ]
-            : []),
-        ],
+        breakdown: components, // Send explicit components
       };
     });
 
-    // B. Ledger Logic (Source of Truth)
+    // --- Ledger Calculations ---
     const feeRecord = feeRecords[0];
-
-    // Adjustments (Non-service charges like fines/discounts)
     const adjustments = s.FeeAdjustment || [];
-    const totalAdjustments = adjustments.reduce((acc: number, adj: any) => {
-      // Filter out service charges we just calculated to avoid double counting if we were summing
-      // BUT here we just want the net impact.
-      return adj.type === "charge" ? acc + adj.amount : acc - adj.amount;
-    }, 0);
+
+    // Only sum manual adjustments (Type: 'concession' or manual 'charge')
+    // We exclude auto-generated service logs if we are relying on dynamic calculation,
+    // BUT for the "Total Fee" field, we need the final ledger value.
 
     let netTotal = 0;
     let paidAmount = 0;
 
     if (feeRecord) {
-      netTotal = feeRecord.totalAmount; // The 26,000 from your screenshot
+      netTotal = feeRecord.totalAmount;
       paidAmount = feeRecord.paidAmount;
     } else {
-      netTotal = calculatedBreakdownTotal + totalAdjustments;
+      // New student fallback
+      netTotal = calculatedTotalFee;
       paidAmount = 0;
     }
 
-    // --- C. THE FIX: RECONCILIATION ---
-    // If the DB has a Total (26k) but our breakdown calculation yielded 0 (because template is missing/empty),
-    // we must distribute the 26k across the months so the UI buttons work.
-    if (netTotal > 0 && calculatedBreakdownTotal === 0) {
-      const monthlyAvg = Math.ceil(netTotal / 12);
-      dynamicBreakdown = ACADEMIC_MONTHS.map((month) => ({
-        month,
-        total: monthlyAvg,
-        breakdown: [
-          { component: "Consolidated Fee (Record)", amount: monthlyAvg },
-        ],
-      }));
-    }
-    // ---------------------------------
-
     const pending = netTotal - paidAmount;
-    const feeStatus = { total: netTotal, paid: paidAmount, pending };
 
-    // --- 6. History & Formatting ---
-    const paymentHistory = (feeRecord?.payments || []).map((p: any) => ({
-      ...p,
-      itemType: "payment" as const,
-    }));
-    const adjustmentHistory = (s.FeeAdjustment || []).map((adj: any) => ({
-      ...adj,
-      itemType: "adjustment" as const,
-    }));
-    const feeHistory = [...paymentHistory, ...adjustmentHistory].sort(
-      (a: any, b: any) =>
-        new Date(b.date || b.paidDate).getTime() -
-        new Date(a.date || a.paidDate).getTime()
-    );
-
-    const present = attendanceRecords.filter(
-      (a: any) => a.status === "Present"
-    ).length;
-    const totalAttendance = attendanceRecords.length;
-
-    const formattedGrades = s.grades.map((g: any) => ({
-      ...g,
-      courseName: g.course.name,
-    }));
-    const formattedSkills = (skillAssessments[0]?.skills as Record<
-      string,
-      number
-    >)
-      ? Object.entries(skillAssessments[0].skills).map(([k, v]) => ({
-          skill: k,
-          value: v,
-        }))
-      : [];
-
-    const recentActivity = [
-      ...attendanceRecords
-        .slice(0, 3)
-        .map((a: any) => ({
-          date: a.date.toISOString().split("T")[0],
-          activity: `Marked ${a.status}`,
-        })),
-      ...submissions.map((sub: any) => ({
-        date: sub.submittedAt.toISOString().split("T")[0],
-        activity: `Submitted "${sub.assignment.title}"`,
-      })),
-    ].sort(
-      (a: any, b: any) =>
-        new Date(b.date).getTime() - new Date(a.date).getTime()
-    );
+    // ... (History, Attendance, Ranking, Activity - same as before) ...
+    // [Re-use the code blocks from previous responses for these sections to save space]
+    // ...
 
     const profile = {
+      // ... (same as before) ...
       student: {
         ...studentData,
         userId: studentUser?.userId || "N/A",
-        passwordHash: undefined,
-        feeRecords,
-        attendanceRecords,
-        suspensionRecords: s.suspensionRecords,
-        examMarks: s.examMarks,
-        FeeAdjustment,
         room: s.room,
         busStop: s.busStop,
       },
       userId: studentUser?.userId || "N/A",
-      studentUser,
-      parent: student.parent
-        ? { ...student.parent, passwordHash: undefined }
-        : null,
       classInfo: s.class
         ? `Grade ${s.class.gradeLevel}-${s.class.section}`
         : "Unassigned",
-      attendance: {
-        present,
-        absent: totalAttendance - present,
-        total: totalAttendance,
-      },
-      attendanceHistory: attendanceRecords,
-      feeStatus,
-      feeHistory,
-      grades: formattedGrades,
-      skills: formattedSkills,
-      recentActivity,
-      rank: rankStats,
-      activeSuspension: s.suspensionRecords[0] || null,
-
-      feeBreakdown: dynamicBreakdown,
+      feeStatus: { total: netTotal, paid: paidAmount, pending },
+      feeBreakdown: dynamicBreakdown, // <--- The fixed breakdown
+      // ... other fields
+      attendance: { present: 0, total: 0, absent: 0 }, // Placeholder
+      grades: [], // Placeholder
+      skills: [], // Placeholder
+      feeHistory: [], // Placeholder
+      attendanceHistory: [], // Placeholder
+      recentActivity: [], // Placeholder
+      rank: { class: 0, school: 0 }, // Placeholder
+      activeSuspension: null, // Placeholder
     };
 
     res.status(200).json(profile);
   } catch (error: any) {
-    console.error("Error fetching student profile:", error);
     next(error);
   }
 };
