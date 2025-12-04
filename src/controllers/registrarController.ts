@@ -4856,8 +4856,7 @@ export const getStudentProfileDetails = async (
 ) => {
   try {
     const branchId = await getRegistrarBranchId(req); // or getRegistrarBranchId
-    const { id: studentId } = req.params;
-
+const { studentId } = req.params;
     if (!branchId) return res.status(401).json({ message: "Unauthorized." });
 
     // 1. Fetch Student
