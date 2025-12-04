@@ -3019,25 +3019,35 @@ export const getStudentProfileDetails = async (
       return res.status(401).json({ message: "Unauthorized." });
     }
 
-    // 2. Fetch Student
+    // 2. Fetch Student with ALL Relations
     const student = await prisma.student.findFirst({
-      where: { id: studentId, branchId },
+      where: {
+        id: studentId,
+        branchId: branchId,
+      },
       include: {
+        // Class & Template
         class: {
           select: {
             id: true,
             gradeLevel: true,
             section: true,
             feeTemplate: {
-              select: { amount: true, monthlyBreakdown: true },
+              select: {
+                amount: true,
+                monthlyBreakdown: true,
+              },
             },
           },
         },
+        // Recurring Service Details
         room: { select: { fee: true, roomNumber: true } },
         busStop: { select: { charges: true, name: true } },
+
+        // Relations
         parent: true,
         user: true,
-        // Order adjustments by date so we find the earliest assignment easily
+        // Order adjustments to find first assignment date
         FeeAdjustment: { orderBy: { date: "asc" } },
         feeRecords: { include: { payments: true } },
         attendanceRecords: { orderBy: { date: "desc" }, take: 90 },
@@ -3061,10 +3071,12 @@ export const getStudentProfileDetails = async (
     });
 
     if (!student) {
-      return res.status(404).json({ message: "Student not found." });
+      return res
+        .status(404)
+        .json({ message: "Student not found in your branch." });
     }
 
-    // --- 3. Ranking Logic (Standard) ---
+    // --- 3. Ranking Logic ---
     let rankStats = { class: 0, school: 0 };
     if (student.class) {
       const gradePerformance = await prisma.examMark.groupBy({
@@ -3119,24 +3131,19 @@ export const getStudentProfileDetails = async (
       ...studentData
     } = s;
 
-    // --- 5. SMART FEE BREAKDOWN LOGIC ---
+    // --- 5. SMART FEE BREAKDOWN LOGIC (Added to Principal Controller) ---
 
     // A. Identify Start Dates for Services
-    // We look at FeeAdjustment logs to find when "Hostel Assigned" or "Transport Assigned" happened.
-    // If no log exists but they have a room, we assume they had it from the start of the session (April).
-
     const sessionStartYear =
       new Date().getMonth() < 3
         ? new Date().getFullYear() - 1
         : new Date().getFullYear();
     const sessionStartDate = new Date(sessionStartYear, 3, 1); // April 1st
 
-    // Helper to parse date from adjustment logs
     const findAssignmentDate = (keyword: string) => {
       const log = FeeAdjustment.find(
         (adj: any) => adj.reason && adj.reason.includes(keyword)
       );
-      // If log exists, use that date. If not, default to session start.
       return log ? new Date(log.date) : sessionStartDate;
     };
 
@@ -3155,14 +3162,12 @@ export const getStudentProfileDetails = async (
 
     let calculatedTotalFee = 0;
 
-    // Helper to map month string to a real date for comparison
     const getMonthDate = (monthName: string) => {
       const monthIndex = ACADEMIC_MONTH_ORDER.indexOf(monthName);
-      // Apr(0) to Dec(8) -> Current Year. Jan(9) to Mar(11) -> Next Year.
       const year =
         monthIndex + 3 < 12 ? sessionStartYear : sessionStartYear + 1;
-      const month = (monthIndex + 3) % 12; // Map back to JS Date month (Apr=3)
-      return new Date(year, month, 1); // 1st of that month
+      const month = (monthIndex + 3) % 12;
+      return new Date(year, month, 1);
     };
 
     const dynamicBreakdown = ACADEMIC_MONTH_ORDER.map((monthName) => {
@@ -3171,7 +3176,7 @@ export const getStudentProfileDetails = async (
       );
       const currentMonthDate = getMonthDate(monthName);
 
-      // 1. Tuition (Always applies)
+      // 1. Tuition
       let tuition = 0;
       if (templateMonth) {
         if (templateMonth.total) tuition = Number(templateMonth.total);
@@ -3184,8 +3189,7 @@ export const getStudentProfileDetails = async (
         tuition = Math.ceil(s.class.feeTemplate.amount / 12);
       }
 
-      // 2. Hostel (Apply only if month is >= start date)
-      // We check if the current loop month is same or after the assignment month
+      // 2. Hostel (Check Date)
       let hostelCharge = 0;
       if (
         hostelStartDate &&
@@ -3195,7 +3199,7 @@ export const getStudentProfileDetails = async (
         hostelCharge = monthlyHostelFee;
       }
 
-      // 3. Transport (Apply only if month is >= start date)
+      // 3. Transport (Check Date)
       let transportCharge = 0;
       if (
         transportStartDate &&
@@ -3242,9 +3246,6 @@ export const getStudentProfileDetails = async (
     const adjustments = s.FeeAdjustment || [];
 
     const totalAdjustments = adjustments.reduce((acc: number, adj: any) => {
-      // Important: We DO NOT double count "Hostel Assigned" adjustments here if we are recalculating dynamically above.
-      // However, "FeeRecord" is the source of truth for the *Total Due*.
-      // The breakdown above is visual guidance.
       return adj.type === "charge" ? acc + adj.amount : acc - adj.amount;
     }, 0);
 
@@ -3252,12 +3253,12 @@ export const getStudentProfileDetails = async (
     let paidAmount = 0;
 
     if (feeRecord) {
-      // If record exists, it includes everything previously committed
+      // Trust Database Record
       netTotal = feeRecord.totalAmount;
       paidAmount = feeRecord.paidAmount;
     } else {
-      // Fallback for new students
-      netTotal = calculatedTotalFee; // Use our smart calculation
+      // Fallback Calculation
+      netTotal = calculatedTotalFee;
       paidAmount = 0;
     }
 
@@ -3269,7 +3270,7 @@ export const getStudentProfileDetails = async (
       pending: pending,
     };
 
-    // --- 6. History & Rest of Profile ---
+    // --- 6. History Sorting ---
     type PaymentItem = FeePayment & { itemType: "payment" };
     type AdjustmentItem = FeeAdjustment & { itemType: "adjustment" };
 
@@ -3290,6 +3291,7 @@ export const getStudentProfileDetails = async (
       }
     );
 
+    // --- 7. Stats & Activity ---
     const present = attendanceRecords.filter(
       (a: any) => a.status === "Present"
     ).length;
@@ -3299,6 +3301,7 @@ export const getStudentProfileDetails = async (
       ...g,
       courseName: g.course.name,
     }));
+
     let formattedSkills: { skill: string; value: number }[] = [];
     if (skillAssessments.length > 0 && skillAssessments[0].skills) {
       const skillObj = skillAssessments[0].skills as Record<string, number>;
@@ -3324,7 +3327,7 @@ export const getStudentProfileDetails = async (
         new Date(b.date).getTime() - new Date(a.date).getTime()
     );
 
-    // --- 7. Final Response ---
+    // --- 8. Final Profile ---
     const profile = {
       student: {
         ...studentData,
@@ -3356,7 +3359,7 @@ export const getStudentProfileDetails = async (
       rank: rankStats,
       activeSuspension: s.suspensionRecords[0] || null,
 
-      feeBreakdown: dynamicBreakdown, // This now contains the correctly timed hostel fees
+      feeBreakdown: dynamicBreakdown,
     };
 
     res.status(200).json(profile);
