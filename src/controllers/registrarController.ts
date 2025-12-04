@@ -3856,14 +3856,13 @@ export const getRooms = async (
   next: NextFunction
 ) => {
   const branchId = getRegistrarBranchId(req);
-  const { id: hostelId } = req.params; // Renamed to hostelId for clarity
+  const { id: hostelId } = req.params;
 
   if (!branchId) {
     return res.status(401).json({ message: "Authentication required." });
   }
 
   try {
-    // 1. Security Check: Ensure the parent hostel belongs to the registrar's branch.
     const hostel = await prisma.hostel.findFirst({
       where: { id: hostelId, branchId },
     });
@@ -3873,33 +3872,41 @@ export const getRooms = async (
         .json({ message: "Hostel not found in your branch." });
     }
 
-    // 2. Get all rooms for this specific hostel
+    // 2. Get all rooms
     const rooms = await prisma.room.findMany({
       where: { hostelId: hostelId },
+      orderBy: { roomNumber: "asc" },
     });
 
-    // 3. Get all students who are assigned to *any* of these rooms
+    // 3. Get students in these rooms with their Name and VRTX ID
     const studentsInHostel = await prisma.student.findMany({
       where: {
         roomId: { in: rooms.map((r) => r.id) },
-        branchId: branchId, // Security check
+        branchId: branchId,
       },
       select: {
         id: true,
         roomId: true,
+        name: true,
+        user: { select: { userId: true } }, // Fetch VRTX ID
       },
     });
 
-    // 4. Map the students back to their rooms to create the 'occupantIds' array
-    //    that your 'ManageHostelOccupantsModal.tsx' component expects.
+    // 4. Map students to rooms
     const roomsWithOccupants = rooms.map((room) => {
-      const occupantIds = studentsInHostel
+      const occupants = studentsInHostel
         .filter((s) => s.roomId === room.id)
-        .map((s) => s.id);
+        .map((s) => ({
+          id: s.id,
+          name: s.name,
+          userId: s.user?.userId || "N/A",
+        }));
 
       return {
         ...room,
-        occupantIds: occupantIds, // This now matches your frontend's type
+        occupants: occupants, // Send full objects, not just IDs
+        // Keep occupantIds for backward compatibility if needed, but occupants is better
+        occupantIds: occupants.map((o) => o.id),
       };
     });
 
