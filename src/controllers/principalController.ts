@@ -3116,76 +3116,78 @@ export const getStudentProfileDetails = async (
     };
 
     const dynamicBreakdown = ACADEMIC_MONTH_ORDER.map((monthName) => {
-      const currentMonthDate = getMonthDate(monthName);
-
-      // A. Tuition (From Template)
       const templateMonth = templateBreakdown.find(
         (m: any) => m.month === monthName
       );
-      let tuition = 0;
+      const currentMonthDate = getMonthDate(monthName);
 
+      // 1. Prepare Components List
+      const components: { component: string; amount: number }[] = [];
+
+      // A. Tuition
+      let tuition = 0;
       if (templateMonth) {
-        // Case 1: Template has explicit breakdown for this month
-        if (templateMonth.total) tuition = Number(templateMonth.total);
-        else if (templateMonth.breakdown)
-          tuition = templateMonth.breakdown.reduce(
-            (sum: number, c: any) => sum + (Number(c.amount) || 0),
-            0
-          );
+        if (templateMonth.breakdown && Array.isArray(templateMonth.breakdown)) {
+          // Use breakdown if available
+          templateMonth.breakdown.forEach((c: any) => {
+            const amt = Number(c.amount || 0);
+            if (amt > 0)
+              components.push({ component: c.component, amount: amt });
+            tuition += amt;
+          });
+        } else if (templateMonth.total) {
+          // Use total if no breakdown
+          tuition = Number(templateMonth.total);
+          if (tuition > 0)
+            components.push({ component: "Tuition", amount: tuition });
+        }
       } else if (s.class?.feeTemplate?.amount) {
-        // Case 2: Template has Annual Total but no monthly breakdown -> Divide evenly
+        // Fallback
         tuition = Math.ceil(s.class.feeTemplate.amount / 12);
+        if (tuition > 0)
+          components.push({ component: "Tuition", amount: tuition });
       }
 
       // B. Hostel (Time-based)
-      let hostelCharge = 0;
-      // Check if current month is AFTER or SAME as start date (ignoring day of month)
-      if (hostelStartDate) {
+      // Only apply if AFTER start date
+      if (hostelStartDate && s.room) {
         const startMonthDate = new Date(
           hostelStartDate.getFullYear(),
           hostelStartDate.getMonth(),
           1
         );
-        if (currentMonthDate >= startMonthDate) {
-          hostelCharge = monthlyHostelFee;
+        // Fix: Ensure robust comparison
+        if (currentMonthDate.getTime() >= startMonthDate.getTime()) {
+          components.push({
+            component: `Hostel (${s.room.roomNumber})`,
+            amount: monthlyHostelFee,
+          });
         }
       }
 
       // C. Transport (Time-based)
-      let transportCharge = 0;
-      if (transportStartDate) {
+      if (transportStartDate && s.busStop) {
         const startMonthDate = new Date(
           transportStartDate.getFullYear(),
           transportStartDate.getMonth(),
           1
         );
-        if (currentMonthDate >= startMonthDate) {
-          transportCharge = monthlyTransportFee;
+        if (currentMonthDate.getTime() >= startMonthDate.getTime()) {
+          components.push({
+            component: `Transport (${s.busStop.name})`,
+            amount: monthlyTransportFee,
+          });
         }
       }
 
-      const monthTotal = tuition + hostelCharge + transportCharge;
+      // 2. Calculate Total from Components (Single Source of Truth)
+      const monthTotal = components.reduce((sum, c) => sum + c.amount, 0);
       calculatedTotalFee += monthTotal;
-
-      // Build component list for Frontend Tooltip
-      const components = [];
-      if (tuition > 0)
-        components.push({ component: "Tuition", amount: tuition });
-      if (hostelCharge > 0)
-        components.push({
-          component: `Hostel (${s.room?.roomNumber})`,
-          amount: hostelCharge,
-        });
-      if (transportCharge > 0)
-        components.push({
-          component: `Transport (${s.busStop?.name})`,
-          amount: transportCharge,
-        });
 
       return {
         month: monthName,
-        total: monthTotal,
-        breakdown: components, // Send explicit components
+        total: monthTotal, // This MUST now match the sum of breakdown
+        breakdown: components,
       };
     });
 
