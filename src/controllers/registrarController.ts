@@ -4013,26 +4013,80 @@ export const assignStudentToRoom = async (
   }
 };
 
-export const removeStudentFromRoom = async (req: Request, res: Response, next: NextFunction) => {
-    const branchId = getRegistrarBranchId(req);
-    const { studentId } = req.params;
+export const removeStudentFromRoom = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  const { studentId } = req.params;
 
-    if (!branchId) return res.status(401).json({ message: "Authentication required." });
-    
-    try {
-        // Security: Use updateMany scoped by branchId to unassign the student.
-        const result = await prisma.student.updateMany({
-            where: { id: studentId, branchId },
-            data: { roomId: null }
+  if (!branchId)
+    return res.status(401).json({ message: "Authentication required." });
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      // 1. Fetch Student with Room Details BEFORE removing
+      const student = await tx.student.findFirst({
+        where: { id: studentId, branchId },
+        include: {
+          room: true,
+          feeRecords: { orderBy: { createdAt: "desc" }, take: 1 },
+        },
+      });
+
+      if (!student) throw new Error("Student not found.");
+      if (!student.roomId || !student.room) {
+        // Already unassigned, just return success
+        return;
+      }
+
+      // 2. Calculate Refund Amount (For Next Month Onwards)
+      const monthlyFee = student.room.fee;
+      // We subtract 1 because the current month is considered "consumed"
+      const monthsToRefund = Math.max(0, getRemainingMonthsCount() - 1);
+      const refundAmount = monthlyFee * monthsToRefund;
+
+      // 3. Update Fee Record (Reduce Debt)
+      if (refundAmount > 0 && student.feeRecords.length > 0) {
+        const recordId = student.feeRecords[0].id;
+
+        // A. Decrease Total
+        await tx.feeRecord.update({
+          where: { id: recordId },
+          data: { totalAmount: { decrement: refundAmount } },
         });
 
-        if (result.count === 0) {
-            return res.status(404).json({ message: "Student not found in your branch." });
-        }
-        res.status(200).json({ message: "Student removed from room." });
-    } catch (error) {
-        next(error);
-    }
+        // B. Log the Adjustment
+        const nextMonthName = new Date(
+          new Date().setMonth(new Date().getMonth() + 1)
+        ).toLocaleString("default", { month: "short" });
+
+        await tx.feeAdjustment.create({
+          data: {
+            studentId,
+            type: "concession", // It acts as a credit/concession
+            amount: refundAmount,
+            reason: `Hostel Removed (Room ${student.room.roomNumber}): Refund for ${monthsToRefund} months (${nextMonthName}-Mar)`,
+            adjustedBy: req.user?.name || "Registrar",
+            date: new Date(),
+          },
+        });
+      }
+
+      // 4. Perform Unassignment
+      await tx.student.update({
+        where: { id: studentId },
+        data: { roomId: null },
+      });
+    });
+
+    res
+      .status(200)
+      .json({ message: "Student removed from room and fees adjusted." });
+  } catch (error: any) {
+    next(error);
+  }
 };
 
 
@@ -4371,29 +4425,82 @@ export const assignMemberToRoute = async (
 };
 
 
-export const removeMemberFromRoute = async (req: Request, res: Response, next: NextFunction) => {
-    const branchId = getRegistrarBranchId(req);
-    const { memberId, memberType } = req.body; // memberType is optional but good for clarity
+export const removeMemberFromRoute = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  const { memberId, memberType } = req.body;
 
-    if (!branchId) return res.status(401).json({ message: "Authentication required." });
-    if (!memberId) return res.status(400).json({ message: "memberId is required." });
+  if (!branchId)
+    return res.status(401).json({ message: "Authentication required." });
+  if (!memberId)
+    return res.status(400).json({ message: "memberId is required." });
 
-    try {
-        // Atomically unassign from any route they might be on, scoped by branch
-        await prisma.$transaction([
-            prisma.student.updateMany({
-                where: { id: memberId, branchId },
-                data: { transportRouteId: null, busStopId: null }
-            }),
-            prisma.teacher.updateMany({
-                where: { id: memberId, branchId },
-                data: { transportRouteId: null, busStopId: null }
-            })
-        ]);
-        res.status(200).json({ message: "Member removed from route successfully." });
-    } catch (error) {
-        next(error);
-    }
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Only calculate refunds for Students
+      if (memberType === "Student" || !memberType) {
+        // Default to student check if type undefined
+        const student = await tx.student.findFirst({
+          where: { id: memberId, branchId },
+          include: {
+            busStop: true,
+            feeRecords: { orderBy: { createdAt: "desc" }, take: 1 },
+          },
+        });
+
+        if (student && student.busStop) {
+          const monthlyFee = student.busStop.charges || 0;
+          // Calculate Refund for Future Months
+          const monthsToRefund = Math.max(0, getRemainingMonthsCount() - 1);
+          const refundAmount = monthlyFee * monthsToRefund;
+
+          if (refundAmount > 0 && student.feeRecords.length > 0) {
+            const recordId = student.feeRecords[0].id;
+
+            await tx.feeRecord.update({
+              where: { id: recordId },
+              data: { totalAmount: { decrement: refundAmount } },
+            });
+
+            const nextMonthName = new Date(
+              new Date().setMonth(new Date().getMonth() + 1)
+            ).toLocaleString("default", { month: "short" });
+
+            await tx.feeAdjustment.create({
+              data: {
+                studentId: memberId,
+                type: "concession",
+                amount: refundAmount,
+                reason: `Transport Removed (${student.busStop.name}): Refund for ${monthsToRefund} months (${nextMonthName}-Mar)`,
+                adjustedBy: req.user?.name || "Registrar",
+                date: new Date(),
+              },
+            });
+          }
+        }
+      }
+
+      // Perform Unassignment for both Students and Teachers
+      await tx.student.updateMany({
+        where: { id: memberId, branchId },
+        data: { transportRouteId: null, busStopId: null },
+      });
+
+      await tx.teacher.updateMany({
+        where: { id: memberId, branchId },
+        data: { transportRouteId: null, busStopId: null },
+      });
+    });
+
+    res
+      .status(200)
+      .json({ message: "Member removed from route and fees adjusted." });
+  } catch (error) {
+    next(error);
+  }
 };
 
 // --- Inventory Management ---
