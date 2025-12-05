@@ -4509,14 +4509,14 @@ export const getTransportRouteDetails = async (
       ...route.students.map((s) => ({
         memberId: s.id,
         name: s.name,
-        userId: s.user?.userId || "N/A", // Swap UUID for VRTX ID
+        userId: s.user?.userId || "N/A", 
         type: "Student",
         stopId: s.busStopId,
       })),
       ...route.teachers.map((t) => ({
         memberId: t.id,
         name: t.name,
-        userId: t.user?.userId || "N/A", // Swap UUID for VRTX ID
+        userId: t.user?.userId || "N/A", 
         type: "Teacher",
         stopId: t.busStopId,
       })),
