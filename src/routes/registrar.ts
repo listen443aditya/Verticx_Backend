@@ -294,6 +294,6 @@ router.post(
   registrarController.sendAnnouncement
 );
 router.get("/communication/sms-history", registrarController.getSmsHistory);
-
+router.get("/students/grade/:grade", registrarController.getStudentsByGrade);
 router.post("/reports/generate", registrarController.generateReport);
 export default router;

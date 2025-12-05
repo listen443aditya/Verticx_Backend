@@ -1006,7 +1006,45 @@ export const demoteStudents = async (
     next(error);
   }
 };
+export const getStudentsByGrade = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  const { grade } = req.params; // We will pass grade in the URL
 
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
+  try {
+    const students = await prisma.student.findMany({
+      where: {
+        branchId: branchId,
+        gradeLevel: parseInt(grade, 10), // Filter by Grade
+        status: "active", // Only active students
+      },
+      include: {
+        user: { select: { userId: true } }, // Get Readable ID
+      },
+      orderBy: { name: "asc" },
+    });
+
+    // Format to match frontend expectations
+    const formattedStudents = students.map((s) => ({
+      id: s.id,
+      name: s.name,
+      userId: s.user?.userId || "N/A",
+      classId: s.classId,
+      gradeLevel: s.gradeLevel,
+    }));
+
+    res.status(200).json(formattedStudents);
+  } catch (error) {
+    next(error);
+  }
+};
 
 export const deleteStudent = async (
   req: Request,
