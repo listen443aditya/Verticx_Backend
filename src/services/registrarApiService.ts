@@ -384,7 +384,7 @@ export class RegistrarApiService extends BaseApiService {
       ...template,
     });
     saveDb();
-  } // ✨ FIX: Added missing getFeeTemplates method
+  } 
 
   async getFeeTemplates(branchId: string): Promise<FeeTemplate[]> {
     return (db.feeTemplates as FeeTemplate[]).filter(
@@ -1139,7 +1139,7 @@ export class RegistrarApiService extends BaseApiService {
       if (student) student.classId = undefined;
       saveDb();
     }
-  } // FIX: Added missing assignClassMentor method
+  } 
 
   async assignClassMentor(classId: string, teacherId: string): Promise<void> {
     const sClass = this.getClassById(classId);
@@ -1147,7 +1147,7 @@ export class RegistrarApiService extends BaseApiService {
       sClass.classMentorId = teacherId;
       saveDb();
     }
-  } // FIX: Added missing assignFeeTemplateToClass method
+  } 
 
   async assignFeeTemplateToClass(
     classId: string,
@@ -1427,7 +1427,6 @@ export class RegistrarApiService extends BaseApiService {
   }
 
   async createTransportRoute(data: Omit<TransportRoute, "id">): Promise<void> {
-    // ✨ FIX: Changed signature and object creation to prevent overwriting the ID
     const newRoute: TransportRoute = {
       ...data,
       id: this.generateId("route"),
