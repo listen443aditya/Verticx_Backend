@@ -4412,7 +4412,7 @@ export const assignMemberToRoute = async (
             const newRecord = await tx.feeRecord.create({
               data: {
                 studentId: memberId,
-                totalAmount: templateAmount, // Start with base
+                totalAmount: templateAmount, 
                 paidAmount: 0,
                 dueDate: new Date(new Date().getFullYear(), 3, 1),
               },
