@@ -3017,7 +3017,7 @@ export const getStudentProfileDetails = async (
   next: NextFunction
 ) => {
   try {
-    const branchId = await getPrincipalAuth(req); // or getRegistrarBranchId
+    const branchId = await getPrincipalBranchId(req); // or getRegistrarBranchId
     const { studentId } = req.params;
     if (!branchId) return res.status(401).json({ message: "Unauthorized." });
 
