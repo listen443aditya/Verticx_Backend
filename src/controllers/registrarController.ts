@@ -108,12 +108,9 @@ export const getRegistrarDashboardData = async (
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
 
-    // 1. Fetch Branch Details
     const branchDetails = await prisma.branch.findUnique({
       where: { id: branchId },
       select: {
-        id: true,
-        name: true,
         email: true,
         helplineNumber: true,
         location: true,
@@ -121,7 +118,6 @@ export const getRegistrarDashboardData = async (
       },
     });
 
-    // 2. Run Aggregations in Parallel
     const [
       pendingAdmissions,
       pendingAcademicRequests,
@@ -132,33 +128,49 @@ export const getRegistrarDashboardData = async (
       classFeeSummaries,
       teacherAttendanceStatus,
     ] = await prisma.$transaction([
-      // A. Counts
+      // A. Counts (Case Insensitive Status)
       prisma.admissionApplication.count({
-        where: { branchId, status: "Pending" },
+        where: { branchId, status: { equals: "Pending", mode: "insensitive" } },
       }),
       prisma.rectificationRequest.count({
-        where: { branchId, status: "Pending" },
+        where: { branchId, status: { equals: "Pending", mode: "insensitive" } },
       }),
 
-      // B. Fee Aggregation (Safe Sums)
+      // B. Fee Aggregation
       prisma.feeRecord.aggregate({
         _sum: { totalAmount: true, paidAmount: true },
-        where: { student: { branchId, status: "active" } },
+        where: {
+          student: {
+            branchId,
+            status: { equals: "active", mode: "insensitive" },
+          },
+        },
       }),
 
-      // C. Unassigned Teachers (Empty subject list)
+      // C. Unassigned Faculty (FIXED LOGIC)
+      // Count teachers who have NO Subjects AND are NOT Mentors
       prisma.teacher.count({
-        where: { branchId, subjectIds: { isEmpty: true }, status: "active" },
+        where: {
+          branchId,
+          status: { equals: "active" }, // Handle "Active" vs "active"
+          subjectIds: { isEmpty: true }, // No subjects
+          schoolClasses: { none: {} }, // No mentorships
+        },
       }),
 
-      // D. Recent Data
+      // D. Pending Events (Case Insensitive)
       prisma.schoolEvent.findMany({
-        where: { branchId, status: "Pending" },
+        where: {
+          branchId,
+          status: { equals: "Pending" },
+        },
         take: 5,
         orderBy: { date: "asc" },
       }),
+
+      // E. Admission Requests List
       prisma.admissionApplication.findMany({
-        where: { branchId, status: "Pending" },
+        where: { branchId, status: { equals: "Pending" } },
         take: 5,
         orderBy: { createdAt: "desc" },
         select: {
@@ -169,7 +181,7 @@ export const getRegistrarDashboardData = async (
         },
       }),
 
-      // E. Class Summaries
+      // F. Class Summaries
       prisma.schoolClass.findMany({
         where: { branchId },
         select: {
@@ -184,7 +196,7 @@ export const getRegistrarDashboardData = async (
         },
       }),
 
-      // F. Today's Absent Teachers
+      // G. Today's Absent Teachers
       prisma.teacherAttendanceRecord.findMany({
         where: {
           branchId,
@@ -198,12 +210,12 @@ export const getRegistrarDashboardData = async (
       }),
     ]);
 
-    // --- 3. Fee Overview Chart Data ---
+    // --- Fee Overview Logic ---
     const feeOverviewPromises = Array.from({ length: 6 }).map(async (_, i) => {
       const month = (currentMonth - i + 12) % 12;
       const year = currentMonth - i < 0 ? currentYear - 1 : currentYear;
       const monthStart = new Date(year, month, 1);
-      const monthEnd = new Date(year, month + 1, 0); // Last day of month
+      const monthEnd = new Date(year, month + 1, 0);
 
       const payments = await prisma.feePayment.aggregate({
         _sum: { amount: true },
@@ -213,7 +225,6 @@ export const getRegistrarDashboardData = async (
         },
       });
 
-      // For "Pending", we estimate based on Due Dates falling in this month
       const dueRecords = await prisma.feeRecord.aggregate({
         _sum: { totalAmount: true, paidAmount: true },
         where: {
@@ -223,7 +234,6 @@ export const getRegistrarDashboardData = async (
       });
 
       const collected = payments._sum.amount || 0;
-      // Pending for this specific month's due records
       const pending =
         (dueRecords._sum.totalAmount || 0) - (dueRecords._sum.paidAmount || 0);
 
@@ -235,17 +245,14 @@ export const getRegistrarDashboardData = async (
     });
     const feeOverview = (await Promise.all(feeOverviewPromises)).reverse();
 
-    // --- 4. Calculate Total Fees Pending (Safe Math) ---
-    // Use explicit casting and null checks
+    // --- Final Calculations ---
     const totalBilled = (feesAggregate as any)._sum?.totalAmount || 0;
     const totalCollected = (feesAggregate as any)._sum?.paidAmount || 0;
     const totalPending = Math.max(0, totalBilled - totalCollected);
 
-    // --- 5. Format Class Summaries ---
     const formattedClassSummaries = classFeeSummaries.map((c) => {
       let classPending = 0;
       let defaulterCount = 0;
-
       c.students.forEach((s) => {
         const rec = s.feeRecords[0];
         if (rec) {
@@ -256,7 +263,6 @@ export const getRegistrarDashboardData = async (
           }
         }
       });
-
       return {
         classId: c.id,
         className: `Grade ${c.gradeLevel}-${c.section}`,
@@ -265,24 +271,23 @@ export const getRegistrarDashboardData = async (
       };
     });
 
-    // --- 6. Construct Response ---
     const dashboardData = {
       branch: branchDetails,
       summary: {
         pendingAdmissions,
         pendingAcademicRequests,
         feesPending: totalPending,
-        unassignedFaculty,
+        unassignedFaculty, // Uses the new robust count
       },
       admissionRequests: admissionRequests.map((app) => ({
         id: app.id,
         applicantName: app.applicantName,
         grade: app.gradeLevel,
         type: "Student",
-        subject: "N/A", // Faculty apps are separate, this list is students
+        subject: "N/A",
       })),
       feeOverview,
-      pendingEvents,
+      pendingEvents, // Uses the case-insensitive list
       classFeeSummaries: formattedClassSummaries,
       teacherAttendanceStatus: teacherAttendanceStatus.map((att: any) => ({
         teacherId: att.teacherId,
