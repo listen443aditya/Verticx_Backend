@@ -259,7 +259,7 @@ router.post(
 );
 
 router.delete(
-  "/transport/routes/:routeId/remove-member/:memberId",
+  "/transport/routes/:memberId/remove-member/:memberType",
   registrarController.removeMemberFromRoute
 );
 

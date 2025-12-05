@@ -4504,14 +4504,25 @@ export const removeMemberFromRoute = async (
   next: NextFunction
 ) => {
   const branchId = getRegistrarBranchId(req);
-  const { memberId, memberType } = req.body;
 
-  if (!branchId)
+
+  const memberId = req.params.memberId || req.body.memberId;
+  const memberType = req.params.memberType || req.body.memberType;
+
+  if (!branchId) {
     return res.status(401).json({ message: "Authentication required." });
+  }
+  if (!memberId || !memberType) {
+    return res
+      .status(400)
+      .json({ message: "Member ID and Type are required." });
+  }
 
   try {
     await prisma.$transaction(async (tx) => {
-      // 1. Financial Refund Logic (Students)
+      let currentRouteId: string | null = null;
+
+      // 1. Handle Student Logic (Refunds + ID Lookup)
       if (memberType === "Student") {
         const student = await tx.student.findFirst({
           where: { id: memberId, branchId },
@@ -4521,14 +4532,21 @@ export const removeMemberFromRoute = async (
           },
         });
 
-        if (student && student.busStop) {
+        if (!student) throw new Error("Student not found.");
+
+        currentRouteId = student.transportRouteId;
+
+        // Financial Refund Logic
+        if (student.busStop) {
           const monthlyFee = student.busStop.charges || 0;
           const monthsToRefund = Math.max(0, getRemainingMonthsCount() - 1);
           const refundAmount = monthlyFee * monthsToRefund;
 
           if (refundAmount > 0 && student.feeRecords.length > 0) {
+            const recordId = student.feeRecords[0].id;
+
             await tx.feeRecord.update({
-              where: { id: student.feeRecords[0].id },
+              where: { id: recordId },
               data: { totalAmount: { decrement: refundAmount } },
             });
 
@@ -4537,52 +4555,47 @@ export const removeMemberFromRoute = async (
                 studentId: memberId,
                 type: "concession",
                 amount: refundAmount,
-                reason: `Transport Removed: Refund`,
+                reason: `Transport Removed: Refund for remaining ${monthsToRefund} months`,
                 adjustedBy: req.user?.name || "Registrar",
                 date: new Date(),
               },
             });
           }
         }
-      }
 
-      // 2. Identify the Route ID before unassigning
-      // We need to know which route to update the JSON for
-      let currentRouteId = null;
-      if (memberType === "Student") {
-        const s = await tx.student.findUnique({
-          where: { id: memberId },
-          select: { transportRouteId: true },
-        });
-        currentRouteId = s?.transportRouteId;
-      } else {
-        const t = await tx.teacher.findUnique({
-          where: { id: memberId },
-          select: { transportRouteId: true },
-        });
-        currentRouteId = t?.transportRouteId;
-      }
-
-      // 3. Unassign Member (FK)
-      if (memberType === "Student") {
+        // Unassign Student
         await tx.student.update({
           where: { id: memberId },
           data: { transportRouteId: null, busStopId: null },
         });
-      } else {
+      }
+
+      // 2. Handle Teacher Logic
+      else if (memberType === "Teacher") {
+        const teacher = await tx.teacher.findFirst({
+          where: { id: memberId, branchId },
+          select: { transportRouteId: true },
+        });
+
+        if (!teacher) throw new Error("Teacher not found.");
+        currentRouteId = teacher.transportRouteId;
+
+        // Unassign Teacher
         await tx.teacher.update({
           where: { id: memberId },
           data: { transportRouteId: null, busStopId: null },
         });
       }
 
-      // 4. CRITICAL FIX: Remove from TransportRoute JSON
+      // 3. Update TransportRoute JSON List
       if (currentRouteId) {
         const route = await tx.transportRoute.findUnique({
           where: { id: currentRouteId },
         });
+
         if (route && route.assignedMembers) {
           const currentMembers = route.assignedMembers as any[];
+          // Remove the member from the JSON list
           const updatedMembers = currentMembers.filter(
             (m: any) => m.memberId !== memberId
           );
@@ -4598,7 +4611,10 @@ export const removeMemberFromRoute = async (
     res
       .status(200)
       .json({ message: "Member removed from route successfully." });
-  } catch (error) {
+  } catch (error: any) {
+    if (error.message.includes("not found")) {
+      return res.status(404).json({ message: error.message });
+    }
     next(error);
   }
 };
