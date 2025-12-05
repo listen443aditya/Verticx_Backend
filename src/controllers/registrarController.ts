@@ -4372,13 +4372,17 @@ export const assignMemberToRoute = async (
   const branchId = getRegistrarBranchId(req);
   const { routeId, memberId, memberType, stopId } = req.body;
 
-  if (!branchId) {
+  if (!branchId)
     return res.status(401).json({ message: "Authentication required." });
-  }
 
   try {
     await prisma.$transaction(async (tx) => {
-      // 1. Verify Stop
+      // 1. Fetch Route & Stop
+      const route = await tx.transportRoute.findFirst({
+        where: { id: routeId, branchId },
+      });
+      if (!route) throw new Error("Transport route not found.");
+
       const stop = await tx.busStop.findFirst({
         where: { id: stopId, routeId },
       });
@@ -4390,25 +4394,21 @@ export const assignMemberToRoute = async (
         const totalCharge =
           monthsLeft > 0 ? (stop.charges || 0) * monthsLeft : 0;
 
-        // Verify Student Exists in Branch FIRST
-        const student = await tx.student.findFirst({
-          where: { id: memberId, branchId },
-        });
-        if (!student) throw new Error("Student not found in your branch.");
-
         if (totalCharge > 0) {
-          const sWithFees = await tx.student.findUnique({
-            where: { id: memberId }, // Already verified branch above
+          const student = await tx.student.findFirst({
+            where: { id: memberId, branchId },
             include: {
               feeRecords: true,
               class: { include: { feeTemplate: true } },
             },
           });
 
-          let feeRecordId = sWithFees?.feeRecords[0]?.id;
+          if (!student) throw new Error("Student not found.");
+
+          let feeRecordId = student.feeRecords[0]?.id;
 
           if (!feeRecordId) {
-            const templateAmount = sWithFees?.class?.feeTemplate?.amount || 0;
+            const templateAmount = student.class?.feeTemplate?.amount || 0;
             const newRecord = await tx.feeRecord.create({
               data: {
                 studentId: memberId,
@@ -4437,30 +4437,45 @@ export const assignMemberToRoute = async (
           });
         }
 
-        // 3. ASSIGN STUDENT (Direct ID update)
-        // We use the unique ID here. Branch check was done in step 2.
+        // Update Student Link
         await tx.student.update({
           where: { id: memberId },
-          data: {
-            transportRouteId: routeId,
-            busStopId: stopId,
-          },
+          data: { transportRouteId: routeId, busStopId: stopId },
         });
       } else {
-        // 4. ASSIGN TEACHER
-        const teacher = await tx.teacher.findFirst({
-          where: { id: memberId, branchId },
-        });
-        if (!teacher) throw new Error("Teacher not found.");
-
+        // Update Teacher Link
         await tx.teacher.update({
           where: { id: memberId },
-          data: {
-            transportRouteId: routeId,
-            busStopId: stopId,
-          },
+          data: { transportRouteId: routeId, busStopId: stopId },
         });
       }
+
+      // 3. CRITICAL FIX: Update TransportRoute 'assignedMembers' JSON
+      // Get current members array (handle null case)
+      const currentMembers = (route.assignedMembers as any[]) || [];
+
+      // Remove if already exists (to prevent duplicates)
+      const filteredMembers = currentMembers.filter(
+        (m: any) => m.memberId !== memberId
+      );
+
+      // Add new member entry
+      // We need the name for the JSON, so let's fetch it quickly if not passed
+      // Ideally passed from frontend, but for robustness we fetch if needed.
+      // Assuming frontend passes correct ID, we update the link. The JSON primarily stores IDs.
+      // We will store basic info:
+      const newMemberEntry = {
+        memberId,
+        memberType,
+        stopId,
+      };
+
+      await tx.transportRoute.update({
+        where: { id: routeId },
+        data: {
+          assignedMembers: [...filteredMembers, newMemberEntry],
+        },
+      });
     });
 
     res.status(200).json({ message: "Member assigned to route successfully." });
@@ -4468,6 +4483,111 @@ export const assignMemberToRoute = async (
     if (error.message.includes("not found")) {
       return res.status(404).json({ message: error.message });
     }
+    next(error);
+  }
+};
+
+export const removeMemberFromRoute = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  const { memberId, memberType } = req.body;
+
+  if (!branchId)
+    return res.status(401).json({ message: "Authentication required." });
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      // 1. Financial Refund Logic (Students)
+      if (memberType === "Student") {
+        const student = await tx.student.findFirst({
+          where: { id: memberId, branchId },
+          include: {
+            busStop: true,
+            feeRecords: { orderBy: { createdAt: "desc" }, take: 1 },
+          },
+        });
+
+        if (student && student.busStop) {
+          const monthlyFee = student.busStop.charges || 0;
+          const monthsToRefund = Math.max(0, getRemainingMonthsCount() - 1);
+          const refundAmount = monthlyFee * monthsToRefund;
+
+          if (refundAmount > 0 && student.feeRecords.length > 0) {
+            await tx.feeRecord.update({
+              where: { id: student.feeRecords[0].id },
+              data: { totalAmount: { decrement: refundAmount } },
+            });
+
+            await tx.feeAdjustment.create({
+              data: {
+                studentId: memberId,
+                type: "concession",
+                amount: refundAmount,
+                reason: `Transport Removed: Refund`,
+                adjustedBy: req.user?.name || "Registrar",
+                date: new Date(),
+              },
+            });
+          }
+        }
+      }
+
+      // 2. Identify the Route ID before unassigning
+      // We need to know which route to update the JSON for
+      let currentRouteId = null;
+      if (memberType === "Student") {
+        const s = await tx.student.findUnique({
+          where: { id: memberId },
+          select: { transportRouteId: true },
+        });
+        currentRouteId = s?.transportRouteId;
+      } else {
+        const t = await tx.teacher.findUnique({
+          where: { id: memberId },
+          select: { transportRouteId: true },
+        });
+        currentRouteId = t?.transportRouteId;
+      }
+
+      // 3. Unassign Member (FK)
+      if (memberType === "Student") {
+        await tx.student.update({
+          where: { id: memberId },
+          data: { transportRouteId: null, busStopId: null },
+        });
+      } else {
+        await tx.teacher.update({
+          where: { id: memberId },
+          data: { transportRouteId: null, busStopId: null },
+        });
+      }
+
+      // 4. CRITICAL FIX: Remove from TransportRoute JSON
+      if (currentRouteId) {
+        const route = await tx.transportRoute.findUnique({
+          where: { id: currentRouteId },
+        });
+        if (route && route.assignedMembers) {
+          const currentMembers = route.assignedMembers as any[];
+          const updatedMembers = currentMembers.filter(
+            (m: any) => m.memberId !== memberId
+          );
+
+          await tx.transportRoute.update({
+            where: { id: currentRouteId },
+            data: { assignedMembers: updatedMembers },
+          });
+        }
+      }
+    });
+
+    res
+      .status(200)
+      .json({ message: "Member removed from route successfully." });
+  } catch (error) {
     next(error);
   }
 };
@@ -4492,7 +4612,7 @@ export const getTransportRouteDetails = async (
             id: true,
             name: true,
             busStopId: true,
-            user: { select: { userId: true } }, 
+            user: { select: { userId: true } },
           },
         },
         teachers: {
@@ -4500,7 +4620,7 @@ export const getTransportRouteDetails = async (
             id: true,
             name: true,
             busStopId: true,
-            user: { select: { userId: true } }, 
+            user: { select: { userId: true } },
           },
         },
       },
@@ -4513,14 +4633,14 @@ export const getTransportRouteDetails = async (
       ...route.students.map((s) => ({
         memberId: s.id,
         name: s.name,
-        userId: s.user?.userId || "N/A", 
+        userId: s.user?.userId || "N/A",
         type: "Student",
         stopId: s.busStopId,
       })),
       ...route.teachers.map((t) => ({
         memberId: t.id,
         name: t.name,
-        userId: t.user?.userId || "N/A", 
+        userId: t.user?.userId || "N/A",
         type: "Teacher",
         stopId: t.busStopId,
       })),
@@ -4530,84 +4650,6 @@ export const getTransportRouteDetails = async (
     const { students, teachers, ...cleanRoute } = route;
 
     res.status(200).json({ ...cleanRoute, assignedMembers });
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const removeMemberFromRoute = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  const branchId = getRegistrarBranchId(req);
-  const { memberId, memberType } = req.body;
-
-  if (!branchId)
-    return res.status(401).json({ message: "Authentication required." });
-  if (!memberId)
-    return res.status(400).json({ message: "memberId is required." });
-
-  try {
-    await prisma.$transaction(async (tx) => {
-      // Only calculate refunds for Students
-      if (memberType === "Student" || !memberType) {
-        // Default to student check if type undefined
-        const student = await tx.student.findFirst({
-          where: { id: memberId, branchId },
-          include: {
-            busStop: true,
-            feeRecords: { orderBy: { createdAt: "desc" }, take: 1 },
-          },
-        });
-
-        if (student && student.busStop) {
-          const monthlyFee = student.busStop.charges || 0;
-          // Calculate Refund for Future Months
-          const monthsToRefund = Math.max(0, getRemainingMonthsCount() - 1);
-          const refundAmount = monthlyFee * monthsToRefund;
-
-          if (refundAmount > 0 && student.feeRecords.length > 0) {
-            const recordId = student.feeRecords[0].id;
-
-            await tx.feeRecord.update({
-              where: { id: recordId },
-              data: { totalAmount: { decrement: refundAmount } },
-            });
-
-            const nextMonthName = new Date(
-              new Date().setMonth(new Date().getMonth() + 1)
-            ).toLocaleString("default", { month: "short" });
-
-            await tx.feeAdjustment.create({
-              data: {
-                studentId: memberId,
-                type: "concession",
-                amount: refundAmount,
-                reason: `Transport Removed (${student.busStop.name}): Refund for ${monthsToRefund} months (${nextMonthName}-Mar)`,
-                adjustedBy: req.user?.name || "Registrar",
-                date: new Date(),
-              },
-            });
-          }
-        }
-      }
-
-      // Perform Unassignment for both Students and Teachers
-      await tx.student.updateMany({
-        where: { id: memberId, branchId },
-        data: { transportRouteId: null, busStopId: null },
-      });
-
-      await tx.teacher.updateMany({
-        where: { id: memberId, branchId },
-        data: { transportRouteId: null, busStopId: null },
-      });
-    });
-
-    res
-      .status(200)
-      .json({ message: "Member removed from route and fees adjusted." });
   } catch (error) {
     next(error);
   }
