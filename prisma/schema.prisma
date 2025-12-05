@@ -260,7 +260,9 @@ model Teacher {
   leaveBalances    Json?
   createdAt        DateTime  @default(now())
   transportRouteId String?
+  transportRoute   TransportRoute? @relation(fields: [transportRouteId], references: [id])
   busStopId        String?
+  busStop          BusStop?        @relation(fields: [busStopId], references: [id])
 
   bloodGroup          String?
   alternatePhone      String?
@@ -769,6 +771,7 @@ model TransportRoute {
   branch          Branch    @relation(fields: [branchId], references: [id])
   busStops        BusStop[]
   students        Student[]
+  teachers Teacher[]
 }
 
 model BusStop {
@@ -779,6 +782,7 @@ model BusStop {
   charges    Float
   routeId    String
   students    Student[]
+  teachers Teacher[]
 
   route TransportRoute @relation(fields: [routeId], references: [id])
 }

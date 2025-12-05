@@ -4372,13 +4372,12 @@ export const assignMemberToRoute = async (
   const branchId = getRegistrarBranchId(req);
   const { routeId, memberId, memberType, stopId } = req.body;
 
-  if (!branchId) {
+  if (!branchId)
     return res.status(401).json({ message: "Authentication required." });
-  }
 
   try {
     await prisma.$transaction(async (tx) => {
-      // 1. Verify Stop & Route
+      // 1. Verify Stop
       const stop = await tx.busStop.findFirst({
         where: { id: stopId, routeId },
       });
@@ -4388,9 +4387,10 @@ export const assignMemberToRoute = async (
       // 2. Financial Logic (Students Only)
       if (memberType === "Student") {
         const monthsLeft = getRemainingMonthsCount();
-        const totalCharge = (stop.charges || 0) * monthsLeft;
+        // Ensure we don't charge if monthsLeft is 0 or negative
+        const totalCharge =
+          monthsLeft > 0 ? (stop.charges || 0) * monthsLeft : 0;
 
-        // Only apply charge if there is a cost and time remaining
         if (totalCharge > 0) {
           const student = await tx.student.findFirst({
             where: { id: memberId, branchId },
@@ -4404,15 +4404,13 @@ export const assignMemberToRoute = async (
 
           let feeRecordId = student.feeRecords[0]?.id;
 
-          // Case: No Fee Record exists (New student)
+          // Create Fee Record if missing
           if (!feeRecordId) {
             const templateAmount = student.class?.feeTemplate?.amount || 0;
-
-            // Create the record
             const newRecord = await tx.feeRecord.create({
               data: {
                 studentId: memberId,
-                totalAmount: templateAmount, 
+                totalAmount: templateAmount,
                 paidAmount: 0,
                 dueDate: new Date(new Date().getFullYear(), 3, 1),
               },
@@ -4420,13 +4418,12 @@ export const assignMemberToRoute = async (
             feeRecordId = newRecord.id;
           }
 
-          // Apply Charge
           await tx.feeRecord.update({
             where: { id: feeRecordId },
             data: { totalAmount: { increment: totalCharge } },
           });
 
-          // Audit Log
+          // Create Audit Log
           const currentMonthName = new Date().toLocaleString("default", {
             month: "short",
           });
@@ -4442,29 +4439,35 @@ export const assignMemberToRoute = async (
           });
         }
 
-        // 3. Perform Assignment (Student)
+        // 3. ASSIGN THE STUDENT (The missing link fixed)
         await tx.student.update({
           where: { id: memberId },
-          data: { transportRouteId: routeId, busStopId: stopId },
+          data: {
+            transportRouteId: routeId,
+            busStopId: stopId,
+          },
         });
       } else {
-        // 4. Perform Assignment (Teacher)
+        // 4. ASSIGN THE TEACHER
         await tx.teacher.update({
           where: { id: memberId },
-          data: { transportRouteId: routeId, busStopId: stopId },
+          data: {
+            transportRouteId: routeId,
+            busStopId: stopId,
+          },
         });
       }
     });
 
     res.status(200).json({ message: "Member assigned to route successfully." });
   } catch (error: any) {
-    // Better error handling for frontend feedback
     if (error.message.includes("not found")) {
       return res.status(404).json({ message: error.message });
     }
     next(error);
   }
 };
+
 export const getTransportRouteDetails = async (
   req: Request,
   res: Response,
@@ -4479,32 +4482,54 @@ export const getTransportRouteDetails = async (
     const route = await prisma.transportRoute.findFirst({
       where: { id, branchId },
       include: {
-        busStops: true,
-        students: { select: { id: true, name: true, busStopId: true } },
-        // If you have teachers relation in schema:
-        // teachers: { select: { id: true, name: true, busStopId: true } }
+        busStops: { orderBy: { name: "asc" } },
+        students: {
+          select: {
+            id: true,
+            name: true,
+            busStopId: true,
+            user: { select: { userId: true } }, 
+          },
+        },
+        teachers: {
+          select: {
+            id: true,
+            name: true,
+            busStopId: true,
+            user: { select: { userId: true } }, 
+          },
+        },
       },
     });
 
     if (!route) return res.status(404).json({ message: "Route not found." });
 
-    // Format for frontend
+    // Combine and Format
     const assignedMembers = [
       ...route.students.map((s) => ({
         memberId: s.id,
         name: s.name,
+        userId: s.user?.userId || "N/A", // Swap UUID for VRTX ID
         type: "Student",
         stopId: s.busStopId,
       })),
-      // ... (map teachers similarly if applicable)
-    ];
+      ...route.teachers.map((t) => ({
+        memberId: t.id,
+        name: t.name,
+        userId: t.user?.userId || "N/A", // Swap UUID for VRTX ID
+        type: "Teacher",
+        stopId: t.busStopId,
+      })),
+    ].sort((a, b) => a.name.localeCompare(b.name));
 
-    res.status(200).json({ ...route, assignedMembers });
+    // Remove raw arrays from response to keep it clean
+    const { students, teachers, ...cleanRoute } = route;
+
+    res.status(200).json({ ...cleanRoute, assignedMembers });
   } catch (error) {
     next(error);
   }
 };
-
 
 export const removeMemberFromRoute = async (
   req: Request,
