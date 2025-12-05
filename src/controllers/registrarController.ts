@@ -4318,36 +4318,27 @@ export const getUnassignedMembers = async (
   next: NextFunction
 ) => {
   const branchId = getRegistrarBranchId(req);
-  if (!branchId) {
+  if (!branchId)
     return res.status(401).json({ message: "Authentication required." });
-  }
 
   try {
     const [students, teachers] = await prisma.$transaction([
-      // FIX 1: Include 'user' relation to fetch the readable VRTX ID
+      // 1. Get Students
       prisma.student.findMany({
         where: { branchId, transportRouteId: null, status: "active" },
-        select: {
-          id: true,
-          name: true,
-          user: { select: { userId: true } },
-        },
+        select: { id: true, name: true, user: { select: { userId: true } } },
       }),
       prisma.teacher.findMany({
-        where: { branchId, transportRouteId: null, status: "Active" },
-        select: {
-          id: true,
-          name: true,
-          user: { select: { userId: true } },
-        },
+        where: { branchId, transportRouteId: null, status: "active" },
+        select: { id: true, name: true, user: { select: { userId: true } } },
       }),
     ]);
 
     const members = [
       ...students.map((s) => ({
-        id: s.id, // Internal UUID (needed for assignment logic)
+        id: s.id,
         name: s.name,
-        userId: s.user?.userId || "N/A", // Readable VRTX ID (for Display)
+        userId: s.user?.userId || "N/A",
         type: "Student",
       })),
       ...teachers.map((t) => ({
