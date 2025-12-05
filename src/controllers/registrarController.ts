@@ -4372,8 +4372,9 @@ export const assignMemberToRoute = async (
   const branchId = getRegistrarBranchId(req);
   const { routeId, memberId, memberType, stopId } = req.body;
 
-  if (!branchId)
+  if (!branchId) {
     return res.status(401).json({ message: "Authentication required." });
+  }
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -4381,32 +4382,33 @@ export const assignMemberToRoute = async (
       const stop = await tx.busStop.findFirst({
         where: { id: stopId, routeId },
       });
-      if (!stop)
-        throw new Error("Bus stop not found or does not belong to this route.");
+      if (!stop) throw new Error("Bus stop not found.");
 
       // 2. Financial Logic (Students Only)
       if (memberType === "Student") {
         const monthsLeft = getRemainingMonthsCount();
-        // Ensure we don't charge if monthsLeft is 0 or negative
         const totalCharge =
           monthsLeft > 0 ? (stop.charges || 0) * monthsLeft : 0;
 
+        // Verify Student Exists in Branch FIRST
+        const student = await tx.student.findFirst({
+          where: { id: memberId, branchId },
+        });
+        if (!student) throw new Error("Student not found in your branch.");
+
         if (totalCharge > 0) {
-          const student = await tx.student.findFirst({
-            where: { id: memberId, branchId },
+          const sWithFees = await tx.student.findUnique({
+            where: { id: memberId }, // Already verified branch above
             include: {
               feeRecords: true,
               class: { include: { feeTemplate: true } },
             },
           });
 
-          if (!student) throw new Error("Student not found.");
+          let feeRecordId = sWithFees?.feeRecords[0]?.id;
 
-          let feeRecordId = student.feeRecords[0]?.id;
-
-          // Create Fee Record if missing
           if (!feeRecordId) {
-            const templateAmount = student.class?.feeTemplate?.amount || 0;
+            const templateAmount = sWithFees?.class?.feeTemplate?.amount || 0;
             const newRecord = await tx.feeRecord.create({
               data: {
                 studentId: memberId,
@@ -4423,23 +4425,20 @@ export const assignMemberToRoute = async (
             data: { totalAmount: { increment: totalCharge } },
           });
 
-          // Create Audit Log
-          const currentMonthName = new Date().toLocaleString("default", {
-            month: "short",
-          });
           await tx.feeAdjustment.create({
             data: {
               studentId: memberId,
               type: "charge",
               amount: totalCharge,
-              reason: `Transport Assigned: ${stop.name} (${currentMonthName}-Mar, ${monthsLeft} months @ ${stop.charges})`,
+              reason: `Transport Assigned: ${stop.name}`,
               adjustedBy: req.user?.name || "Registrar",
               date: new Date(),
             },
           });
         }
 
-        // 3. ASSIGN THE STUDENT (The missing link fixed)
+        // 3. ASSIGN STUDENT (Direct ID update)
+        // We use the unique ID here. Branch check was done in step 2.
         await tx.student.update({
           where: { id: memberId },
           data: {
@@ -4448,7 +4447,12 @@ export const assignMemberToRoute = async (
           },
         });
       } else {
-        // 4. ASSIGN THE TEACHER
+        // 4. ASSIGN TEACHER
+        const teacher = await tx.teacher.findFirst({
+          where: { id: memberId, branchId },
+        });
+        if (!teacher) throw new Error("Teacher not found.");
+
         await tx.teacher.update({
           where: { id: memberId },
           data: {
