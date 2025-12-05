@@ -4312,33 +4312,57 @@ export const deleteTransportRoute = async (req: Request, res: Response, next: Ne
     }
 };
 
-export const getUnassignedMembers = async (req: Request, res: Response, next: NextFunction) => {
-    const branchId = getRegistrarBranchId(req);
-    if (!branchId) return res.status(401).json({ message: "Authentication required." });
+export const getUnassignedMembers = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
 
-    try {
-        const [students, teachers] = await prisma.$transaction([
-            prisma.student.findMany({
-                where: { branchId, transportRouteId: null },
-                select: { id: true, name: true }
-            }),
-            prisma.teacher.findMany({
-                where: { branchId, transportRouteId: null },
-                select: { id: true, name: true }
-            })
-        ]);
+  try {
+    const [students, teachers] = await prisma.$transaction([
+      // FIX 1: Include 'user' relation to fetch the readable VRTX ID
+      prisma.student.findMany({
+        where: { branchId, transportRouteId: null, status: "active" },
+        select: {
+          id: true,
+          name: true,
+          user: { select: { userId: true } },
+        },
+      }),
+      prisma.teacher.findMany({
+        where: { branchId, transportRouteId: null, status: "Active" },
+        select: {
+          id: true,
+          name: true,
+          user: { select: { userId: true } },
+        },
+      }),
+    ]);
 
-        const members = [
-            ...students.map(s => ({ ...s, type: 'Student' })),
-            ...teachers.map(t => ({ ...t, type: 'Teacher' }))
-        ].sort((a, b) => a.name.localeCompare(b.name));
+    const members = [
+      ...students.map((s) => ({
+        id: s.id, // Internal UUID (needed for assignment logic)
+        name: s.name,
+        userId: s.user?.userId || "N/A", // Readable VRTX ID (for Display)
+        type: "Student",
+      })),
+      ...teachers.map((t) => ({
+        id: t.id,
+        name: t.name,
+        userId: t.user?.userId || "N/A",
+        type: "Teacher",
+      })),
+    ].sort((a, b) => a.name.localeCompare(b.name));
 
-        res.status(200).json(members);
-    } catch (error) {
-        next(error);
-    }
+    res.status(200).json(members);
+  } catch (error) {
+    next(error);
+  }
 };
-
 
 export const assignMemberToRoute = async (
   req: Request,
@@ -4348,21 +4372,25 @@ export const assignMemberToRoute = async (
   const branchId = getRegistrarBranchId(req);
   const { routeId, memberId, memberType, stopId } = req.body;
 
-  if (!branchId)
+  if (!branchId) {
     return res.status(401).json({ message: "Authentication required." });
+  }
 
   try {
     await prisma.$transaction(async (tx) => {
+      // 1. Verify Stop & Route
       const stop = await tx.busStop.findFirst({
         where: { id: stopId, routeId },
       });
-      if (!stop) throw new Error("Stop not found.");
+      if (!stop)
+        throw new Error("Bus stop not found or does not belong to this route.");
 
-      // Financial Logic only for Students
+      // 2. Financial Logic (Students Only)
       if (memberType === "Student") {
         const monthsLeft = getRemainingMonthsCount();
         const totalCharge = (stop.charges || 0) * monthsLeft;
 
+        // Only apply charge if there is a cost and time remaining
         if (totalCharge > 0) {
           const student = await tx.student.findFirst({
             where: { id: memberId, branchId },
@@ -4371,16 +4399,20 @@ export const assignMemberToRoute = async (
               class: { include: { feeTemplate: true } },
             },
           });
+
           if (!student) throw new Error("Student not found.");
 
           let feeRecordId = student.feeRecords[0]?.id;
 
+          // Case: No Fee Record exists (New student)
           if (!feeRecordId) {
             const templateAmount = student.class?.feeTemplate?.amount || 0;
+
+            // Create the record
             const newRecord = await tx.feeRecord.create({
               data: {
                 studentId: memberId,
-                totalAmount: templateAmount,
+                totalAmount: templateAmount, // Start with base
                 paidAmount: 0,
                 dueDate: new Date(new Date().getFullYear(), 3, 1),
               },
@@ -4388,42 +4420,51 @@ export const assignMemberToRoute = async (
             feeRecordId = newRecord.id;
           }
 
-          // Update Balance & Log
+          // Apply Charge
           await tx.feeRecord.update({
             where: { id: feeRecordId },
             data: { totalAmount: { increment: totalCharge } },
           });
 
+          // Audit Log
+          const currentMonthName = new Date().toLocaleString("default", {
+            month: "short",
+          });
           await tx.feeAdjustment.create({
             data: {
               studentId: memberId,
               type: "charge",
               amount: totalCharge,
-              reason: `Transport Assigned: ${stop.name} (${monthsLeft} months @ ${stop.charges})`,
+              reason: `Transport Assigned: ${stop.name} (${currentMonthName}-Mar, ${monthsLeft} months @ ${stop.charges})`,
               adjustedBy: req.user?.name || "Registrar",
               date: new Date(),
             },
           });
         }
 
+        // 3. Perform Assignment (Student)
         await tx.student.update({
           where: { id: memberId },
           data: { transportRouteId: routeId, busStopId: stopId },
         });
       } else {
-        // Teacher logic (usually no fee impact)
+        // 4. Perform Assignment (Teacher)
         await tx.teacher.update({
           where: { id: memberId },
           data: { transportRouteId: routeId, busStopId: stopId },
         });
       }
     });
-    res.status(200).json({ message: "Transport assigned and fees updated." });
+
+    res.status(200).json({ message: "Member assigned to route successfully." });
   } catch (error: any) {
+    // Better error handling for frontend feedback
+    if (error.message.includes("not found")) {
+      return res.status(404).json({ message: error.message });
+    }
     next(error);
   }
 };
-
 export const getTransportRouteDetails = async (
   req: Request,
   res: Response,
