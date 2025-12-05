@@ -262,6 +262,11 @@ router.delete(
   registrarController.removeMemberFromRoute
 );
 
+router.get(
+  "/transport/routes/:id",
+  registrarController.getTransportRouteDetails
+);
+
 // --- Inventory ---
 router.get("/inventory/items", registrarController.getInventory);
 router.get("/inventory/logs", registrarController.getInventoryLogs);

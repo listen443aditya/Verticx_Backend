@@ -4424,6 +4424,46 @@ export const assignMemberToRoute = async (
   }
 };
 
+export const getTransportRouteDetails = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  const { id } = req.params;
+
+  if (!branchId) return res.status(401).json({ message: "Unauthorized." });
+
+  try {
+    const route = await prisma.transportRoute.findFirst({
+      where: { id, branchId },
+      include: {
+        busStops: true,
+        students: { select: { id: true, name: true, busStopId: true } },
+        // If you have teachers relation in schema:
+        // teachers: { select: { id: true, name: true, busStopId: true } }
+      },
+    });
+
+    if (!route) return res.status(404).json({ message: "Route not found." });
+
+    // Format for frontend
+    const assignedMembers = [
+      ...route.students.map((s) => ({
+        memberId: s.id,
+        name: s.name,
+        type: "Student",
+        stopId: s.busStopId,
+      })),
+      // ... (map teachers similarly if applicable)
+    ];
+
+    res.status(200).json({ ...route, assignedMembers });
+  } catch (error) {
+    next(error);
+  }
+};
+
 
 export const removeMemberFromRoute = async (
   req: Request,
