@@ -5774,163 +5774,13 @@ export const sendSmsToStudents = async (req: Request, res: Response, next: NextF
 };
 
 
-// export const generateReport = async (
-//   req: Request,
-//   res: Response,
-//   next: NextFunction
-// ) => {
-//   const branchId = getRegistrarBranchId(req);
-//   const { type } = req.query;
-
-//   if (!branchId) return res.status(401).json({ message: "Unauthorized" });
-
-//   try {
-//     let data: any[] = [];
-//     let fileName = "report.csv";
-
-//     // --- 1. ENROLLMENT STATISTICS ---
-//     if (type === "enrollment") {
-//       const stats = await prisma.student.groupBy({
-//         by: ["gradeLevel"],
-//         where: { branchId, status: "active" },
-//         _count: { id: true },
-//         orderBy: { gradeLevel: "asc" },
-//       });
-
-//       // FIX: Cast 's' to any to access '_count'
-//       data = stats.map((s: any) => ({
-//         Grade: `Grade ${s.gradeLevel}`,
-//         Count: s._count.id,
-//       }));
-//       fileName = `Enrollment_Stats_${Date.now()}.csv`;
-//     }
-
-//     // --- 2. CLASS ROSTERS ---
-//     else if (type === "class_rosters") {
-//       const students = await prisma.student.findMany({
-//         where: { branchId, status: "active" },
-//         include: { class: true, parent: true, user: true },
-//         orderBy: [{ gradeLevel: "asc" }, { name: "asc" }],
-//       });
-
-//       // FIX: Cast 's' to any to access relations (user, class, parent)
-//       data = students.map((s: any) => ({
-//         ID: s.user?.userId || "N/A",
-//         Name: s.name,
-//         Class: s.class
-//           ? `Grade ${s.class.gradeLevel}-${s.class.section}`
-//           : "Unassigned",
-//         RollNo: s.classRollNumber || "N/A",
-//         Gender: s.gender || "N/A",
-//         Parent: s.parent?.name || "N/A",
-//         Contact: s.parent?.phone || "N/A",
-//       }));
-//       fileName = `Class_Rosters_${Date.now()}.csv`;
-//     }
-
-//     // --- 3. FACULTY LIST ---
-//     else if (type === "faculty_list") {
-//       const staff = await prisma.user.findMany({
-//         where: {
-//           branchId,
-//           role: { in: ["Teacher", "SupportStaff", "Librarian", "Registrar"] },
-//           status: "active",
-//         },
-//         include: { teacher: true },
-//         orderBy: { name: "asc" },
-//       });
-
-//       // FIX: Cast 's' to any to access 'teacher' relation
-//       data = staff.map((s: any) => ({
-//         Name: s.name,
-//         ID: s.userId,
-//         Role: s.role,
-//         Designation: s.designation || s.teacher?.qualification || "N/A",
-//         Email: s.email,
-//         Phone: s.phone || "N/A",
-//       }));
-//       fileName = `Faculty_Staff_List_${Date.now()}.csv`;
-//     }
-
-//     // --- 4. FEE DEFAULTERS (Robust Logic) ---
-//     else if (type === "fee_defaulters") {
-//       const students = await prisma.student.findMany({
-//         where: { branchId },
-//         include: {
-//           user: { select: { userId: true } },
-//           class: { include: { feeTemplate: true } },
-//           room: true,
-//           busStop: true,
-//           feeRecords: { include: { payments: true } },
-//           FeeAdjustment: true,
-//         },
-//       });
-
-//       // FIX: Cast 's' to any to access all included relations
-//       const defaulters = students
-//         .map((sRaw) => {
-//           const s = sRaw as any;
-
-//           // Fee Calculation Logic
-//           const record = s.feeRecords?.[0];
-//           const templateAmt = s.class?.feeTemplate?.amount || 0;
-//           const monthlyHostel = (s.room?.fee || 0) * 12;
-//           const monthlyTransport = (s.busStop?.charges || 0) * 12;
-
-//           const adjustments = s.FeeAdjustment || [];
-//           const totalAdj = adjustments.reduce(
-//             (acc: number, adj: any) =>
-//               adj.type === "charge" ? acc + adj.amount : acc - adj.amount,
-//             0
-//           );
-
-//           let netTotal = 0;
-//           if (record) {
-//             netTotal = record.totalAmount; // Trust DB if initialized
-//           } else {
-//             netTotal =
-//               templateAmt + monthlyHostel + monthlyTransport + totalAdj;
-//           }
-
-//           const paid = record ? record.paidAmount : 0;
-//           const pending = netTotal - paid;
-
-//           if (pending <= 0) return null; // Skip non-defaulters
-
-//           return {
-//             ID: s.user?.userId || "N/A",
-//             Name: s.name,
-//             Class: s.class
-//               ? `Grade ${s.class.gradeLevel}-${s.class.section}`
-//               : "N/A",
-//             TotalFee: netTotal,
-//             Paid: paid,
-//             Due: pending,
-//             ParentPhone: (s.guardianInfo as any)?.phone || "N/A",
-//           };
-//         })
-//         .filter(Boolean); // Remove nulls
-
-//       data = defaulters;
-//       fileName = `Fee_Defaulters_${Date.now()}.csv`;
-//     } else {
-//       return res.status(400).json({ message: "Invalid report type" });
-//     }
-
-//     res.status(200).json({ fileName, data });
-//   } catch (error) {
-//     next(error);
-//   }
-// };
-
-
 export const generateReport = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
   const branchId = getRegistrarBranchId(req);
-  // Destructure payload from body (since we switched to POST)
+  // Destructure payload from body
   const { type, filters, fields } = req.body;
 
   if (!branchId) return res.status(401).json({ message: "Unauthorized" });
@@ -5939,45 +5789,39 @@ export const generateReport = async (
     let data: any[] = [];
     let fileName = "report.csv";
 
-    if (type === "enrollment") {
-      const stats = await prisma.student.groupBy({
-        by: ["gradeLevel"],
-        where: { branchId, status: "active" },
-        _count: { id: true },
-        orderBy: { gradeLevel: "asc" },
-      });
-
-      data = stats.map((s: any) => ({
-        Grade: `Grade ${s.gradeLevel}`,
-        Count: s._count.id,
-      }));
-      fileName = `Enrollment_Stats_${Date.now()}.csv`;
-    }
-
     // --- 1. CLASS ROSTERS (Dynamic Student Report) ---
     if (type === "class_rosters") {
       const classFilter =
         filters?.classId === "all" ? {} : { classId: filters.classId };
 
-      // 1. Determine what relations to fetch based on requested fields
+      // 1. Build Include Object dynamically
+      // We use a base object and add properties to avoid "boolean" errors
       const include: any = {
-        user: true, // Always get VRTX ID
-        class: true, // Always get Class info
+        user: true, // VRTX ID
       };
 
-      if (fields.includes("personal")) {
-        include.parent = true; // For Guardian info
+      // Handle Class Relation
+      if (fields.includes("fees") || fields.includes("concessions")) {
+        include.class = { include: { feeTemplate: true } };
+      } else {
+        include.class = true;
       }
+
+      if (fields.includes("personal")) {
+        include.parent = true;
+      }
+
       if (fields.includes("fees") || fields.includes("concessions")) {
         include.feeRecords = { include: { payments: true } };
         include.FeeAdjustment = true;
-        include.class.include = { feeTemplate: true }; // Need template for calculation
-        include.room = true; // Hostel fee logic
-        include.busStop = true; // Transport fee logic
+        include.room = true;
+        include.busStop = true;
       }
+
       if (fields.includes("attendance")) {
         include.attendanceRecords = true;
       }
+
       if (fields.includes("marks")) {
         include.examMarks = {
           include: {
@@ -5995,26 +5839,42 @@ export const generateReport = async (
 
       // 3. Process & Flatten Data
       data = students.map((sRaw: any) => {
-        // Cast to any to access included relations safely
         const s = sRaw as any;
         let row: any = {};
 
-        // --- Basic Info (Always Included) ---
+        // --- Basic Info ---
         row["Student ID"] = s.user?.userId || "N/A";
+        row["Admission No"] = s.admissionNumber || "N/A";
         row["Name"] = s.name;
         row["Class"] = s.class
           ? `Grade ${s.class.gradeLevel}-${s.class.section}`
           : "Unassigned";
+        row["Roll No"] = s.classRollNumber || "N/A";
 
-        // --- Personal Info ---
+        // --- Comprehensive Personal Info ---
         if (fields.includes("personal")) {
-          row["Roll No"] = s.classRollNumber || "N/A";
+          row["Date of Admission"] = s.dateOfAdmission
+            ? new Date(s.dateOfAdmission).toLocaleDateString()
+            : "N/A";
           row["DOB"] = s.dob ? new Date(s.dob).toLocaleDateString() : "N/A";
           row["Gender"] = s.gender || "N/A";
-          row["Father"] = s.fatherName || "N/A";
-          row["Mother"] = s.motherName || "N/A";
-          row["Guardian"] = s.parent?.name || "N/A";
-          row["Phone"] = s.parent?.phone || "N/A";
+          row["Blood Group"] = s.bloodGroup || "N/A";
+          row["Religion"] = s.religion || "N/A";
+          row["Category"] = s.category || "General";
+          row["Disability"] = s.isDisabled ? "Yes" : "No";
+          row["Govt ID"] = s.governmentDocNumber || "N/A";
+
+          // Family Details
+          row["Father Name"] = s.fatherName || "N/A";
+          row["Mother Name"] = s.motherName || "N/A";
+
+          // Guardian Details (Prioritize Relation -> JSON)
+          const gInfo = s.guardianInfo || {};
+          row["Guardian Name"] = s.parent?.name || gInfo.name || "N/A";
+          row["Guardian Relation"] = s.guardianRelation || "N/A";
+          row["Guardian Phone"] = s.parent?.phone || gInfo.phone || "N/A";
+          row["Guardian Email"] = s.parent?.email || gInfo.email || "N/A";
+
           row["Address"] = s.address || "N/A";
         }
 
@@ -6030,14 +5890,14 @@ export const generateReport = async (
               : "0.0";
           row["Attendance %"] = `${percentage}%`;
           row["Days Present"] = presentDays;
+          row["Total Working Days"] = totalDays;
         }
 
-        // --- Financials (Using our Robust Logic) ---
+        // --- Financials ---
         if (fields.includes("fees") || fields.includes("concessions")) {
           const record = s.feeRecords?.[0];
           const adjustments = s.FeeAdjustment || [];
 
-          // Calculate Adjustments Sum
           const totalConcessions = adjustments
             .filter((a: any) => a.type === "concession")
             .reduce((sum: number, a: any) => sum + a.amount, 0);
@@ -6046,16 +5906,12 @@ export const generateReport = async (
             .filter((a: any) => a.type === "charge")
             .reduce((sum: number, a: any) => sum + a.amount, 0);
 
-          // Net Total Logic
           let netTotal = 0;
           if (record) netTotal = record.totalAmount;
           else {
-            // Simple Fallback if no record
             const templateAmt = s.class?.feeTemplate?.amount || 0;
-            // Fallback for extras (simplified for report)
             const monthlyHostel = (s.room?.fee || 0) * 12;
             const monthlyTransport = (s.busStop?.charges || 0) * 12;
-
             netTotal =
               templateAmt +
               monthlyHostel +
@@ -6068,24 +5924,23 @@ export const generateReport = async (
           const due = netTotal - paid;
 
           if (fields.includes("fees")) {
-            row["Total Fee"] = netTotal;
-            row["Paid"] = paid;
-            row["Due"] = due;
-            row["Fee Status"] = due <= 0 ? "Paid" : "Pending";
+            row["Total Annual Fee"] = netTotal;
+            row["Paid Amount"] = paid;
+            row["Due Amount"] = due;
+            row["Status"] = due <= 0 ? "Paid" : "Pending";
           }
           if (fields.includes("concessions")) {
             row["Total Concessions"] = totalConcessions;
-            row["Total Extra Charges"] = totalFines;
+            row["Total Fines"] = totalFines;
           }
         }
 
-        // --- Marks (Dynamic Columns) ---
+        // --- Marks ---
         if (fields.includes("marks") && s.examMarks) {
           const subjectMap = new Map<
             string,
             { total: number; count: number }
           >();
-
           s.examMarks.forEach((m: any) => {
             const subName = m.examSchedule?.subject?.name || "Unknown";
             const current = subjectMap.get(subName) || { total: 0, count: 0 };
@@ -6094,8 +5949,6 @@ export const generateReport = async (
               count: current.count + 1,
             });
           });
-
-          // Flatten into row
           subjectMap.forEach((val, key) => {
             row[`${key} (Avg)`] = (val.total / val.count).toFixed(1);
           });
@@ -6107,7 +5960,7 @@ export const generateReport = async (
       fileName = `Student_Report_${Date.now()}.csv`;
     }
 
-    // --- 2. FACULTY DIRECTORY (Dynamic Staff Report) ---
+    // --- 2. FACULTY & STAFF DIRECTORY ---
     else if (type === "faculty_list") {
       const staff = await prisma.user.findMany({
         where: {
@@ -6120,28 +5973,35 @@ export const generateReport = async (
       });
 
       data = staff.map((sRaw) => {
-        // FIX: Cast to any to access 'teacher' relation safely
         const s = sRaw as any;
         let row: any = {};
-        row["ID"] = s.userId;
+
+        // Basic
+        row["Staff ID"] = s.userId;
         row["Name"] = s.name;
         row["Role"] = s.role;
+        row["Designation"] = s.designation || "N/A";
 
         if (fields.includes("contact")) {
           row["Email"] = s.email;
           row["Phone"] = s.phone || "N/A";
+          row["Alternate Phone"] = s.teacher?.alternatePhone || "N/A";
+          row["Address"] = s.teacher?.address || "N/A";
         }
 
         if (fields.includes("details")) {
-          row["Designation/Qual."] =
-            s.designation || s.teacher?.qualification || "N/A";
-          row["Join Date"] = s.teacher?.doj
+          row["Qualification"] = s.teacher?.qualification || "N/A";
+          row["Date of Joining"] = s.teacher?.doj
             ? new Date(s.teacher.doj).toLocaleDateString()
             : "N/A";
+          row["Gender"] = s.teacher?.gender || "N/A";
+          row["Blood Group"] = s.teacher?.bloodGroup || "N/A";
+          row["Father Name"] = s.teacher?.fatherName || "N/A";
+          row["Mother Name"] = s.teacher?.motherName || "N/A";
+          row["Govt ID"] = s.teacher?.governmentDocNumber || "N/A";
         }
 
         if (fields.includes("salary")) {
-          // Check teacher salary first, then user salary
           row["Salary"] = s.teacher?.salary || s.salary || 0;
         }
 
@@ -6157,228 +6017,3 @@ export const generateReport = async (
     next(error);
   }
 };
-
-// export const generateReport = async (
-//   req: Request,
-//   res: Response,
-//   next: NextFunction
-// ) => {
-//   const branchId = getRegistrarBranchId(req);
-//   // Destructure payload from body (since we switched to POST)
-//   const { type, filters, fields } = req.body;
-
-//   if (!branchId) return res.status(401).json({ message: "Unauthorized" });
-
-//   try {
-//     let data: any[] = [];
-//     let fileName = "report.csv";
-
-//     if (type === "enrollment") {
-//       const stats = await prisma.student.groupBy({
-//         by: ["gradeLevel"],
-//         where: { branchId, status: "active" },
-//         _count: { id: true },
-//         orderBy: { gradeLevel: "asc" },
-//       });
-
-//       data = stats.map((s: any) => ({
-//         Grade: `Grade ${s.gradeLevel}`,
-//         Count: s._count.id,
-//       }));
-//       fileName = `Enrollment_Stats_${Date.now()}.csv`;
-//     }
-
-//     // --- 1. CLASS ROSTERS (Dynamic Student Report) ---
-//     if (type === "class_rosters") {
-//       const classFilter =
-//         filters?.classId === "all" ? {} : { classId: filters.classId };
-
-//       // 1. Determine what relations to fetch based on requested fields
-//       const include: any = {
-//         user: true, // Always get VRTX ID
-//         class: true, // Always get Class info
-//       };
-
-//       if (fields.includes("personal")) {
-//         include.parent = true; // For Guardian info
-//       }
-//       if (fields.includes("fees") || fields.includes("concessions")) {
-//         include.feeRecords = { include: { payments: true } };
-//         include.FeeAdjustment = true;
-//         include.class.include = { feeTemplate: true }; // Need template for calculation
-//         include.room = true; // Hostel fee logic
-//         include.busStop = true; // Transport fee logic
-//       }
-//       if (fields.includes("attendance")) {
-//         include.attendanceRecords = true;
-//       }
-//       if (fields.includes("marks")) {
-//         include.examMarks = {
-//           include: {
-//             examSchedule: { include: { subject: true, examination: true } },
-//           },
-//         };
-//       }
-
-//       // 2. Fetch Data
-//       const students = await prisma.student.findMany({
-//         where: { branchId, status: "active", ...classFilter },
-//         include,
-//         orderBy: [{ gradeLevel: "asc" }, { name: "asc" }],
-//       });
-
-//       // 3. Process & Flatten Data
-//       data = students.map((s: any) => {
-//         let row: any = {};
-
-//         // --- Basic Info (Always Included) ---
-//         row["Student ID"] = s.user?.userId || "N/A";
-//         row["Name"] = s.name;
-//         row["Class"] = s.class
-//           ? `Grade ${s.class.gradeLevel}-${s.class.section}`
-//           : "Unassigned";
-
-//         // --- Personal Info ---
-//         if (fields.includes("personal")) {
-//           row["Roll No"] = s.classRollNumber || "N/A";
-//           row["DOB"] = s.dob ? new Date(s.dob).toLocaleDateString() : "N/A";
-//           row["Gender"] = s.gender || "N/A";
-//           row["Father"] = s.fatherName || "N/A";
-//           row["Mother"] = s.motherName || "N/A";
-//           row["Guardian"] = s.parent?.name || "N/A";
-//           row["Phone"] = s.parent?.phone || "N/A";
-//           row["Address"] = s.address || "N/A";
-//         }
-
-//         // --- Attendance ---
-//         if (fields.includes("attendance")) {
-//           const totalDays = s.attendanceRecords.length;
-//           const presentDays = s.attendanceRecords.filter(
-//             (a: any) => a.status === "Present"
-//           ).length;
-//           const percentage =
-//             totalDays > 0
-//               ? ((presentDays / totalDays) * 100).toFixed(1)
-//               : "0.0";
-//           row["Attendance %"] = `${percentage}%`;
-//           row["Days Present"] = presentDays;
-//         }
-
-//         // --- Financials (Using our Robust Logic) ---
-//         if (fields.includes("fees") || fields.includes("concessions")) {
-//           // Recalculate totals to ensure accuracy (same logic as Profile)
-//           const record = s.feeRecords[0];
-//           const adjustments = s.FeeAdjustment || [];
-
-//           // Calculate Adjustments Sum
-//           const totalConcessions = adjustments
-//             .filter((a: any) => a.type === "concession")
-//             .reduce((sum: number, a: any) => sum + a.amount, 0);
-
-//           const totalFines = adjustments
-//             .filter((a: any) => a.type === "charge")
-//             .reduce((sum: number, a: any) => sum + a.amount, 0);
-
-//           // Net Total Logic
-//           let netTotal = 0;
-//           if (record) netTotal = record.totalAmount;
-//           else {
-//             // Simple Fallback if no record
-//             const templateAmt = s.class?.feeTemplate?.amount || 0;
-//             netTotal = templateAmt + totalFines - totalConcessions;
-//           }
-
-//           const paid = record ? record.paidAmount : 0;
-//           const due = netTotal - paid;
-
-//           if (fields.includes("fees")) {
-//             row["Total Fee"] = netTotal;
-//             row["Paid"] = paid;
-//             row["Due"] = due;
-//             row["Fee Status"] = due <= 0 ? "Paid" : "Pending";
-//           }
-//           if (fields.includes("concessions")) {
-//             row["Total Concessions"] = totalConcessions;
-//             row["Total Extra Charges"] = totalFines;
-//           }
-//         }
-
-//         // --- Marks (Dynamic Columns) ---
-//         if (fields.includes("marks")) {
-//           // We group by Subject Name.
-//           // Note: This simplifies multiple exams into an average or comma-separated string.
-//           // For a robust CSV, let's average the score per subject.
-//           const subjectMap = new Map<
-//             string,
-//             { total: number; count: number }
-//           >();
-
-//           s.examMarks.forEach((m: any) => {
-//             const subName = m.examSchedule?.subject?.name || "Unknown";
-//             const current = subjectMap.get(subName) || { total: 0, count: 0 };
-//             subjectMap.set(subName, {
-//               total: current.total + m.score,
-//               count: current.count + 1,
-//             });
-//           });
-
-//           // Flatten into row
-//           subjectMap.forEach((val, key) => {
-//             row[`${key} (Avg)`] = (val.total / val.count).toFixed(1);
-//           });
-//         }
-
-//         return row;
-//       });
-
-//       fileName = `Student_Report_${new Date().toISOString().split("T")[0]}.csv`;
-//     }
-
-//     // --- 2. FACULTY DIRECTORY (Dynamic Staff Report) ---
-//     else if (type === "faculty_list") {
-//       const staff = await prisma.user.findMany({
-//         where: {
-//           branchId,
-//           role: { in: ["Teacher", "SupportStaff", "Librarian", "Registrar"] },
-//           status: "active",
-//         },
-//         include: { teacher: true },
-//         orderBy: { name: "asc" },
-//       });
-
-//       data = staff.map((s) => {
-//         let row: any = {};
-//         row["ID"] = s.userId;
-//         row["Name"] = s.name;
-//         row["Role"] = s.role;
-
-//         if (fields.includes("contact")) {
-//           row["Email"] = s.email;
-//           row["Phone"] = s.phone || "N/A";
-//         }
-//         if (fields.includes("details")) {
-//           row["Designation/Qual."] =
-//             s.designation || s.teacher?.qualification || "N/A";
-//           row["Join Date"] = s.teacher?.doj
-//             ? new Date(s.teacher.doj).toLocaleDateString()
-//             : "N/A";
-//         }
-//         if (fields.includes("salary")) {
-//           row["Salary"] = s.teacher?.salary || s.salary || 0;
-//         }
-
-//         return row;
-//       });
-//       fileName = `Staff_Directory_${
-//         new Date().toISOString().split("T")[0]
-//       }.csv`;
-//     }
-//     else {
-//       return res.status(400).json({ message: "Invalid report type" });
-//     }
-
-//     res.status(200).json({ fileName, data });
-//   } catch (error) {
-//     next(error);
-//   }
-// };
