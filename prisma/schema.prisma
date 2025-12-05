@@ -1399,6 +1399,7 @@ model ArchivedStudentRecord {
   name            String
   admissionNumber String?
   branchId        String
+  gradeLevel      Int
   academicSession String // e.g., "2023-2024"
   grades          Json // Store array of Grade/ExamMark objects
   attendance      Json // Store array of AttendanceRecord objects

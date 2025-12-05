@@ -870,45 +870,90 @@ export const getFacultyApplicationsByBranch = async (req: Request, res: Response
   }
 };
 
-
-export const promoteStudents = async (req: Request, res: Response, next: NextFunction) => {
+// Bulk-Movment of Students (Promotion/Demotion)
+export const promoteStudents = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   const branchId = getRegistrarBranchId(req);
-  if (!branchId) {
+  if (!branchId)
     return res.status(401).json({ message: "Authentication required." });
-  }
 
-  const { studentIds, targetClassId } = req.body;
+  const { studentIds, targetClassId, academicSession } = req.body;
+
   if (!Array.isArray(studentIds) || !targetClassId) {
-    return res.status(400).json({ message: "studentIds array and targetClassId are required." });
+    return res
+      .status(400)
+      .json({ message: "studentIds array and targetClassId are required." });
   }
 
   try {
-    // Security Check: Verify the target class belongs to the registrar's branch.
-    const targetClass = await prisma.schoolClass.findFirst({
-        where: { id: targetClassId, branchId }
+    await prisma.$transaction(async (tx) => {
+      // 1. Verify Target Class
+      const targetClass = await tx.schoolClass.findFirst({
+        where: { id: targetClassId, branchId },
+      });
+
+      if (!targetClass) throw new Error("Target class not found.");
+
+      // 2. Process Students
+      for (const studentId of studentIds) {
+        // A. Fetch Student Data for Archiving
+        const student = await tx.student.findFirst({
+          where: { id: studentId, branchId },
+          include: {
+            class: true,
+            attendanceRecords: true,
+            examMarks: {
+              include: { examSchedule: { include: { subject: true } } },
+            },
+          },
+        });
+
+        if (!student) continue;
+
+        // B. Archive Logic
+        if (academicSession) {
+          await tx.archivedStudentRecord.create({
+            data: {
+              branchId: branchId,
+              studentId: student.id, // Original Student ID (Reference)
+              name: student.name, // Required by your schema
+              admissionNumber: student.admissionNumber, // Required by your schema
+              gradeLevel: student.gradeLevel,
+              academicSession: academicSession,
+              finalClass: student.class
+                ? `Grade ${student.class.gradeLevel} - ${student.class.section}`
+                : "Unassigned",
+              grades: student.examMarks as any,
+              attendance: student.attendanceRecords as any,
+            },
+          });
+        }
+
+        // C. Move Student
+        await tx.student.update({
+          where: { id: student.id },
+          data: {
+            classId: targetClassId,
+            gradeLevel: targetClass.gradeLevel,
+            classRollNumber: null, // Reset roll number for new class
+          },
+        });
+      }
     });
 
-    if (!targetClass) {
-        return res.status(404).json({ message: "Target class not found in your branch." });
-    }
-
-    // Perform the update, but ONLY for students who are in the registrar's branch.
-    const updateResult = await prisma.student.updateMany({
-      where: {
-        id: { in: studentIds },
-        branchId: branchId, // Critical multi-tenant security check
-      },
-      data: {
-        classId: targetClassId,
-        gradeLevel: targetClass.gradeLevel, // Update grade level upon promotion
-      },
-    });
-
-    res.status(200).json({ message: `${updateResult.count} students were promoted successfully.` });
-  } catch (error) {
+    res
+      .status(200)
+      .json({
+        message: `${studentIds.length} students were promoted successfully.`,
+      });
+  } catch (error: any) {
     next(error);
   }
 };
+
 
 export const demoteStudents = async (req: Request, res: Response, next: NextFunction) => {
     const branchId = getRegistrarBranchId(req);
