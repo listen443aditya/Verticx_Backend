@@ -16,7 +16,7 @@ import {
 } from "@prisma/client"; 
 import { generatePassword } from "../utils/helpers"; 
 import bcrypt from "bcryptjs";
-
+// import { Parser } from "json2csv";
 import { getBranchId } from "../utils/authUtils";
 interface TeacherUpdatePayload {
   name?: string;
@@ -5768,6 +5768,156 @@ export const sendSmsToStudents = async (req: Request, res: Response, next: NextF
       count: studentIds.length,
       log: newSmsLog,
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+
+export const generateReport = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  const { type } = req.query;
+
+  if (!branchId) return res.status(401).json({ message: "Unauthorized" });
+
+  try {
+    let data: any[] = [];
+    let fileName = "report.csv";
+
+    // --- 1. ENROLLMENT STATISTICS ---
+    if (type === "enrollment") {
+      const stats = await prisma.student.groupBy({
+        by: ["gradeLevel"],
+        where: { branchId, status: "active" },
+        _count: { id: true },
+        orderBy: { gradeLevel: "asc" },
+      });
+
+      // FIX: Cast 's' to any to access '_count'
+      data = stats.map((s: any) => ({
+        Grade: `Grade ${s.gradeLevel}`,
+        Count: s._count.id,
+      }));
+      fileName = `Enrollment_Stats_${Date.now()}.csv`;
+    }
+
+    // --- 2. CLASS ROSTERS ---
+    else if (type === "class_rosters") {
+      const students = await prisma.student.findMany({
+        where: { branchId, status: "active" },
+        include: { class: true, parent: true, user: true },
+        orderBy: [{ gradeLevel: "asc" }, { name: "asc" }],
+      });
+
+      // FIX: Cast 's' to any to access relations (user, class, parent)
+      data = students.map((s: any) => ({
+        ID: s.user?.userId || "N/A",
+        Name: s.name,
+        Class: s.class
+          ? `Grade ${s.class.gradeLevel}-${s.class.section}`
+          : "Unassigned",
+        RollNo: s.classRollNumber || "N/A",
+        Gender: s.gender || "N/A",
+        Parent: s.parent?.name || "N/A",
+        Contact: s.parent?.phone || "N/A",
+      }));
+      fileName = `Class_Rosters_${Date.now()}.csv`;
+    }
+
+    // --- 3. FACULTY LIST ---
+    else if (type === "faculty_list") {
+      const staff = await prisma.user.findMany({
+        where: {
+          branchId,
+          role: { in: ["Teacher", "SupportStaff", "Librarian", "Registrar"] },
+          status: "active",
+        },
+        include: { teacher: true },
+        orderBy: { name: "asc" },
+      });
+
+      // FIX: Cast 's' to any to access 'teacher' relation
+      data = staff.map((s: any) => ({
+        Name: s.name,
+        ID: s.userId,
+        Role: s.role,
+        Designation: s.designation || s.teacher?.qualification || "N/A",
+        Email: s.email,
+        Phone: s.phone || "N/A",
+      }));
+      fileName = `Faculty_Staff_List_${Date.now()}.csv`;
+    }
+
+    // --- 4. FEE DEFAULTERS (Robust Logic) ---
+    else if (type === "fee_defaulters") {
+      const students = await prisma.student.findMany({
+        where: { branchId },
+        include: {
+          user: { select: { userId: true } },
+          class: { include: { feeTemplate: true } },
+          room: true,
+          busStop: true,
+          feeRecords: { include: { payments: true } },
+          FeeAdjustment: true,
+        },
+      });
+
+      // FIX: Cast 's' to any to access all included relations
+      const defaulters = students
+        .map((sRaw) => {
+          const s = sRaw as any;
+
+          // Fee Calculation Logic
+          const record = s.feeRecords?.[0];
+          const templateAmt = s.class?.feeTemplate?.amount || 0;
+          const monthlyHostel = (s.room?.fee || 0) * 12;
+          const monthlyTransport = (s.busStop?.charges || 0) * 12;
+
+          const adjustments = s.FeeAdjustment || [];
+          const totalAdj = adjustments.reduce(
+            (acc: number, adj: any) =>
+              adj.type === "charge" ? acc + adj.amount : acc - adj.amount,
+            0
+          );
+
+          let netTotal = 0;
+          if (record) {
+            netTotal = record.totalAmount; // Trust DB if initialized
+          } else {
+            netTotal =
+              templateAmt + monthlyHostel + monthlyTransport + totalAdj;
+          }
+
+          const paid = record ? record.paidAmount : 0;
+          const pending = netTotal - paid;
+
+          if (pending <= 0) return null; // Skip non-defaulters
+
+          return {
+            ID: s.user?.userId || "N/A",
+            Name: s.name,
+            Class: s.class
+              ? `Grade ${s.class.gradeLevel}-${s.class.section}`
+              : "N/A",
+            TotalFee: netTotal,
+            Paid: paid,
+            Due: pending,
+            ParentPhone: (s.guardianInfo as any)?.phone || "N/A",
+          };
+        })
+        .filter(Boolean); // Remove nulls
+
+      data = defaulters;
+      fileName = `Fee_Defaulters_${Date.now()}.csv`;
+    } else {
+      return res.status(400).json({ message: "Invalid report type" });
+    }
+
+    res.status(200).json({ fileName, data });
   } catch (error) {
     next(error);
   }

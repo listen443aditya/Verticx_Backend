@@ -295,4 +295,6 @@ router.post(
 );
 router.get("/communication/sms-history", registrarController.getSmsHistory);
 
+router.get("/reports/generate", registrarController.generateReport);
+
 export default router;
