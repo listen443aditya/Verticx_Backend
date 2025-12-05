@@ -3017,10 +3017,14 @@ export const getStudentProfileDetails = async (
   next: NextFunction
 ) => {
   try {
-    const branchId = await getPrincipalBranchId(req); // or getRegistrarBranchId
-    const { studentId } = req.params;
+    const branchId = await getPrincipalAuth(req); // or getRegistrarBranchId
+const studentId = req.params.studentId || req.params.id;
     if (!branchId) return res.status(401).json({ message: "Unauthorized." });
-
+if (!studentId) {
+  return res
+    .status(400)
+    .json({ message: "Student ID is missing from request." });
+}
     // 1. Fetch Student
     const student = await prisma.student.findFirst({
       where: { id: studentId, branchId },
@@ -3058,8 +3062,9 @@ export const getStudentProfileDetails = async (
     });
 
     if (!student)
-      return res.status(404).json({ message: "Student not found." });
-
+return res
+  .status(404)
+  .json({ message: `Student not found (ID: ${studentId})` });
     // --- Ranking & Basic Stats ---
     // (Assuming you keep your existing ranking logic here...)
     let rankStats = { class: 0, school: 0 };
