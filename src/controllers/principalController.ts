@@ -20,8 +20,8 @@ import {
 import { generatePassword } from "../utils/helpers";
 import bcrypt from "bcryptjs";
 type GraphDataPoint = {
-  name: string; 
-  value: number; 
+  name: string;
+  value: number;
 };
 const principalApiService = new PrincipalApiService();
 
@@ -91,7 +91,7 @@ export const getClassDetails = async (
     const performance = courses.map((c) => ({
       subjectId: c.subjectId,
       subjectName: c.subject.name,
-      averageScore: 70 + Math.random() * 25, 
+      averageScore: 70 + Math.random() * 25,
     }));
 
     // 4. Calculate Fees
@@ -140,22 +140,26 @@ export const getClassDetails = async (
   }
 };
 
-export const assignClassMentor = async (req: Request, res: Response, next: NextFunction) => {
-    const branchId = getPrincipalBranchId(req);
-    const { classId } = req.params;
-    const { teacherId } = req.body; // teacherId can be string or null
+export const assignClassMentor = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getPrincipalBranchId(req);
+  const { classId } = req.params;
+  const { teacherId } = req.body; // teacherId can be string or null
 
-    if (!branchId) return res.status(401).json({ message: "Unauthorized." });
+  if (!branchId) return res.status(401).json({ message: "Unauthorized." });
 
-    try {
-        await prisma.schoolClass.updateMany({
-            where: { id: classId, branchId }, // Security check
-            data: { mentorId: teacherId },
-        });
-        res.status(200).json({ message: "Mentor updated successfully." });
-    } catch (error) {
-        next(error);
-    }
+  try {
+    await prisma.schoolClass.updateMany({
+      where: { id: classId, branchId }, // Security check
+      data: { mentorId: teacherId },
+    });
+    res.status(200).json({ message: "Mentor updated successfully." });
+  } catch (error) {
+    next(error);
+  }
 };
 
 export const assignFeeTemplateToClass = async (
@@ -187,7 +191,9 @@ async function resolveBranchByIdOrRegistration(identifier: string | undefined) {
   let branch = await prisma.branch.findUnique({ where: { id: identifier } });
   if (branch) return branch;
   // fallback to registrationId
-  branch = await prisma.branch.findUnique({ where: { registrationId: identifier } });
+  branch = await prisma.branch.findUnique({
+    where: { registrationId: identifier },
+  });
   return branch;
 }
 
@@ -295,9 +301,9 @@ export const getPrincipalDashboardData = async (
         },
       }),
       prisma.erpPayment.findFirst({
-  where: { branchId: branchId },
-  orderBy: { paymentDate: "desc" },
-}),
+        where: { branchId: branchId },
+        orderBy: { paymentDate: "desc" },
+      }),
     ]);
 
     const transformedClassPerformance = classPerformance.map(
@@ -374,17 +380,16 @@ export const getPrincipalDashboardData = async (
       }));
 
     const allScores = allBranches
-    .map((b) => {
-      const stats = (b.stats as any) || {};
-      const healthScore =
-        typeof stats.healthScore === "number" ? stats.healthScore : 70;
-      return {
-        id: b.id,
-        score: healthScore,
-      };
-    })
-    .sort((a, b) => b.score - a.score);
-
+      .map((b) => {
+        const stats = (b.stats as any) || {};
+        const healthScore =
+          typeof stats.healthScore === "number" ? stats.healthScore : 70;
+        return {
+          id: b.id,
+          score: healthScore,
+        };
+      })
+      .sort((a, b) => b.score - a.score);
 
     const myRank =
       allScores.findIndex((s: { id: string }) => s.id === branchId) + 1;
@@ -744,7 +749,7 @@ export const getFaculty = async (req: Request, res: Response) => {
       },
       select: {
         id: true,
-        userId: true, 
+        userId: true,
         name: true,
         email: true,
         phone: true,
@@ -752,7 +757,7 @@ export const getFaculty = async (req: Request, res: Response) => {
         status: true,
         createdAt: true,
         teacher: true,
-        salary: true, 
+        salary: true,
       },
       orderBy: { createdAt: "desc" },
     });
@@ -788,9 +793,9 @@ export const createStaffMember = async (req: Request, res: Response) => {
       Teacher: "TCH",
       Accountant: "ACC",
       Clerk: "CLK",
-      Student:"STU",
+      Student: "STU",
       SupportStaff: "STF",
-      Parent: "PRT"
+      Parent: "PRT",
     };
     const prefix = rolePrefixMap[role] || "STF";
 
@@ -835,7 +840,11 @@ export const createStaffMember = async (req: Request, res: Response) => {
     // Respond with credentials expected by frontend (email + generated password + userId)
     res.status(201).json({
       message: "Staff member created.",
-      credentials: { email: newUser.email, password: tempPassword, userId: newUser.userId },
+      credentials: {
+        email: newUser.email,
+        password: tempPassword,
+        userId: newUser.userId,
+      },
     });
   } catch (error: any) {
     // handle unique constraint error (email/userId collision)
@@ -910,7 +919,7 @@ export const deleteStaff = async (
 // ) => {
 //   try {
 //     const branchId = await getPrincipalAuth(req);
-//     const { id: idParam } = req.params; 
+//     const { id: idParam } = req.params;
 
 //     if (!branchId) return res.status(401).json({ message: "Unauthorized" });
 
@@ -918,12 +927,12 @@ export const deleteStaff = async (
 //       where: {
 //         branchId,
 //         OR: [
-//           { userId: idParam }, 
+//           { userId: idParam },
 //           { id: idParam },
 //         ],
 //       },
 //       include: {
-//         user: { select: { userId: true, salary: true } }, 
+//         user: { select: { userId: true, salary: true } },
 //         schoolClasses: true,
 //         subjects: true,
 //         attendanceRecords: {
@@ -1014,7 +1023,6 @@ export const deleteStaff = async (
 //       })
 //       .filter((item) => item.className !== "Unknown Class");
 
-
 //     const payrollRecords = await prisma.payrollRecord.findMany({
 //       where: { staffId: teacher.userId },
 //       orderBy: { id: "desc" },
@@ -1039,8 +1047,8 @@ export const deleteStaff = async (
 //     const profile = {
 //       teacher: {
 //         ...teacherData,
-//         salary: displaySalary, 
-//         userId: user.userId, 
+//         salary: displaySalary,
+//         userId: user.userId,
 //       },
 //       assignedClasses:
 //         teacher.schoolClasses.map((c) => ({
@@ -1148,7 +1156,7 @@ export const getStudentsForPrincipal = async (
     });
     const formattedStudents = students.map((s) => ({
       ...s,
-      userId: s.user?.userId || "N/A", 
+      userId: s.user?.userId || "N/A",
       user: undefined,
     }));
 
@@ -1249,7 +1257,7 @@ export const updateTeacher = async (
 ) => {
   try {
     const branchId = await getPrincipalAuth(req);
-    const { id } = req.params; 
+    const { id } = req.params;
     const updates = req.body;
     if (!branchId) {
       return res.status(401).json({ message: "Unauthorized" });
@@ -1551,12 +1559,11 @@ export const getExaminationsWithResultStatus = async (
   }
 
   try {
-    const now = new Date(); 
+    const now = new Date();
 
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
     await prisma.$transaction([
-
       prisma.examination.updateMany({
         where: {
           branchId,
@@ -1655,127 +1662,162 @@ export const sendResultsSms = async (req: Request, res: Response) => {
   }
 };
 
-export const getFinancialsOverview = async (req: Request, res: Response, next: NextFunction) => {
+export const getFinancialsOverview = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   const branchId = getPrincipalBranchId(req);
   if (!branchId) {
-    return res.status(401).json({ message: "Unauthorized: Principal must be associated with a branch." });
+    return res
+      .status(401)
+      .json({
+        message: "Unauthorized: Principal must be associated with a branch.",
+      });
   }
 
   try {
     const today = new Date();
-    const currentMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    const currentMonthStart = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      1
+    );
 
     // --- 1. Fetch Core Data, Scoped by Branch ---
-    const [branch, feePaymentsThisMonth, allPayroll, manualExpenses, erpPayments] = await prisma.$transaction([
+    const [
+      branch,
+      feePaymentsThisMonth,
+      allPayroll,
+      manualExpenses,
+      erpPayments,
+    ] = await prisma.$transaction([
       prisma.branch.findUnique({ where: { id: branchId } }),
       prisma.feePayment.findMany({
         where: {
           student: { branchId: branchId },
-          paidDate: { gte: currentMonthStart }
-        }
+          paidDate: { gte: currentMonthStart },
+        },
       }),
-      prisma.payrollRecord.findMany({ where: { branchId: branchId, status: 'Paid' } }),
+      prisma.payrollRecord.findMany({
+        where: { branchId: branchId, status: "Paid" },
+      }),
       prisma.manualExpense.findMany({ where: { branchId: branchId } }),
-      prisma.erpPayment.findMany({ where: { branchId: branchId } })
+      prisma.erpPayment.findMany({ where: { branchId: branchId } }),
     ]);
 
     if (!branch) {
-        return res.status(404).json({ message: "Branch not found." });
+      return res.status(404).json({ message: "Branch not found." });
     }
 
-    const sessionStart = new Date(branch.academicSessionStartDate || `${today.getFullYear()}-04-01`);
+    const sessionStart = new Date(
+      branch.academicSessionStartDate || `${today.getFullYear()}-04-01`
+    );
 
     // --- 2. Calculate Monthly & Session Figures ---
-    const monthlyTuitionRevenue = feePaymentsThisMonth.reduce((sum, p) => sum + p.amount, 0);
+    const monthlyTuitionRevenue = feePaymentsThisMonth.reduce(
+      (sum, p) => sum + p.amount,
+      0
+    );
 
     const monthlyPayroll = allPayroll
-      .filter(p => p.paidAt && new Date(p.paidAt) >= currentMonthStart)
+      .filter((p) => p.paidAt && new Date(p.paidAt) >= currentMonthStart)
       .reduce((sum, p) => sum + (p.netPayable || 0), 0);
 
     const monthlyManualExpenses = manualExpenses
-      .filter(e => new Date(e.date) >= currentMonthStart)
+      .filter((e) => new Date(e.date) >= currentMonthStart)
       .reduce((sum, e) => sum + e.amount, 0);
 
     const sessionPayroll = allPayroll
-        .filter(p => p.paidAt && new Date(p.paidAt) >= sessionStart)
-        .reduce((sum, p) => sum + (p.netPayable || 0), 0);
+      .filter((p) => p.paidAt && new Date(p.paidAt) >= sessionStart)
+      .reduce((sum, p) => sum + (p.netPayable || 0), 0);
 
     const sessionManualExpenses = manualExpenses
-        .filter(e => new Date(e.date) >= sessionStart)
-        .reduce((sum, e) => sum + e.amount, 0);
+      .filter((e) => new Date(e.date) >= sessionStart)
+      .reduce((sum, e) => sum + e.amount, 0);
 
     const sessionErpPayments = erpPayments
-        .filter(p => new Date(p.paymentDate) >= sessionStart)
-        .reduce((sum, p) => sum + p.amount, 0);
-        
+      .filter((p) => new Date(p.paymentDate) >= sessionStart)
+      .reduce((sum, p) => sum + p.amount, 0);
+
     const monthlyExpenditure = monthlyPayroll + monthlyManualExpenses;
-    const sessionExpenditure = sessionPayroll + sessionManualExpenses + sessionErpPayments;
+    const sessionExpenditure =
+      sessionPayroll + sessionManualExpenses + sessionErpPayments;
 
     // --- 3. Calculate Total Pending Fees ---
     const feeRecordAggregates = await prisma.feeRecord.aggregate({
-        _sum: { totalAmount: true, paidAmount: true },
-        where: { student: { branchId: branchId } },
+      _sum: { totalAmount: true, paidAmount: true },
+      where: { student: { branchId: branchId } },
     });
-    const totalPending = (feeRecordAggregates._sum.totalAmount || 0) - (feeRecordAggregates._sum.paidAmount || 0);
-
+    const totalPending =
+      (feeRecordAggregates._sum.totalAmount || 0) -
+      (feeRecordAggregates._sum.paidAmount || 0);
 
     // --- 4. Get Class-wise Fee Summaries ---
     const classes = await prisma.schoolClass.findMany({
-        where: { branchId },
-        include: { _count: { select: { students: true } } }
+      where: { branchId },
+      include: { _count: { select: { students: true } } },
     });
 
     const classFeeSummaries = await Promise.all(
-        classes.map(async (c) => {
-            const defaulterAggregate = await prisma.feeRecord.aggregate({
-                _sum: { totalAmount: true, paidAmount: true },
-                _count: { studentId: true},
-                where: { 
-                    student: { classId: c.id },
-                    paidAmount: { lt: prisma.feeRecord.fields.totalAmount }
-                },
-            });
-            return {
-                classId: c.id,
-                className: `Grade ${c.gradeLevel} - ${c.section}`,
-                studentCount: c._count.students,
-                defaulterCount: defaulterAggregate._count.studentId,
-                pendingAmount: (defaulterAggregate._sum.totalAmount || 0) - (defaulterAggregate._sum.paidAmount || 0),
-            };
-        })
+      classes.map(async (c) => {
+        const defaulterAggregate = await prisma.feeRecord.aggregate({
+          _sum: { totalAmount: true, paidAmount: true },
+          _count: { studentId: true },
+          where: {
+            student: { classId: c.id },
+            paidAmount: { lt: prisma.feeRecord.fields.totalAmount },
+          },
+        });
+        return {
+          classId: c.id,
+          className: `Grade ${c.gradeLevel} - ${c.section}`,
+          studentCount: c._count.students,
+          defaulterCount: defaulterAggregate._count.studentId,
+          pendingAmount:
+            (defaulterAggregate._sum.totalAmount || 0) -
+            (defaulterAggregate._sum.paidAmount || 0),
+        };
+      })
     );
-    
+
     // --- 5. Assemble the Overview Object ---
     const overview = {
       monthly: {
         revenue: monthlyTuitionRevenue,
         expenditure: monthlyExpenditure,
         net: monthlyTuitionRevenue - monthlyExpenditure,
-        revenueBreakdown: [{ name: "Tuition Fees", value: monthlyTuitionRevenue }],
+        revenueBreakdown: [
+          { name: "Tuition Fees", value: monthlyTuitionRevenue },
+        ],
         expenditureBreakdown: [
           { name: "Staff Payroll", value: monthlyPayroll },
           { name: "Other Expenses", value: monthlyManualExpenses },
         ].filter((item) => item.value > 0),
       },
       session: {
-        revenue: (feeRecordAggregates._sum.paidAmount || 0),
+        revenue: feeRecordAggregates._sum.paidAmount || 0,
         expenditure: sessionExpenditure,
         net: (feeRecordAggregates._sum.paidAmount || 0) - sessionExpenditure,
       },
       summary: {
         totalPending,
         // FIX APPLIED HERE: Use the nullish coalescing operator '??' to provide a default value of 0.
-        erpBillAmountForCycle: (branch.erpPricePerStudent ?? 0) * (await prisma.student.count({ where: { branchId } })),
+        erpBillAmountForCycle:
+          (branch.erpPricePerStudent ?? 0) *
+          (await prisma.student.count({ where: { branchId } })),
         erpNextDueDate: branch.nextDueDate,
         erpBillingCycle: branch.billingCycle,
-        isErpBillPaid: branch.nextDueDate ? new Date(branch.nextDueDate) > today : false,
+        isErpBillPaid: branch.nextDueDate
+          ? new Date(branch.nextDueDate) > today
+          : false,
       },
       classFeeSummaries,
     };
 
     res.status(200).json(overview);
   } catch (error) {
-    next(error); 
+    next(error);
   }
 };
 
@@ -1947,11 +1989,9 @@ export const processPayroll = async (
 
     await prisma.$transaction(transactions);
 
-    res
-      .status(200)
-      .json({
-        message: `Payroll processed for ${staffList.length} staff members.`,
-      });
+    res.status(200).json({
+      message: `Payroll processed for ${staffList.length} staff members.`,
+    });
   } catch (error: any) {
     next(error);
   }
@@ -2016,14 +2056,11 @@ export const getErpFinancialsForBranch = async (
     );
     res.status(200).json(financials);
   } catch (error: any) {
- 
     if (error.message.includes("Branch not found")) {
-      return res
-        .status(404)
-        .json({
-          message:
-            "The branch associated with your account could not be found. Please contact support.",
-        });
+      return res.status(404).json({
+        message:
+          "The branch associated with your account could not be found. Please contact support.",
+      });
     }
     next(error);
   }
@@ -2129,7 +2166,7 @@ export const addManualExpense = async (req: Request, res: Response) => {
         description,
         category,
         amount: Number(amount),
-        date: new Date(date), 
+        date: new Date(date),
         enteredBy: user.name,
       },
     });
@@ -2399,7 +2436,11 @@ export const getLeaveApplicationsForPrincipal = async (
   }
 };
 
-export const processLeaveApplication = async (req: Request, res: Response, next: NextFunction) => {
+export const processLeaveApplication = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   const branchId = getPrincipalBranchId(req);
   const { id: applicationId } = req.params;
   const { status } = req.body; // "Approved" or "Rejected"
@@ -2407,35 +2448,37 @@ export const processLeaveApplication = async (req: Request, res: Response, next:
   if (!branchId || !req.user) {
     return res.status(401).json({ message: "Authentication required." });
   }
-  if (status !== 'Approved' && status !== 'Rejected') {
+  if (status !== "Approved" && status !== "Rejected") {
     return res.status(400).json({ message: "Invalid status." });
   }
 
   try {
     // 1. Find the application to ensure it belongs to the principal's branch
     const application = await prisma.leaveApplication.findFirst({
-        where: {
-            id: applicationId,
-            applicant: { branchId: branchId } // Security check
-        }
+      where: {
+        id: applicationId,
+        applicant: { branchId: branchId }, // Security check
+      },
     });
 
     if (!application) {
-        return res.status(404).json({ message: "Leave application not found in your branch." });
+      return res
+        .status(404)
+        .json({ message: "Leave application not found in your branch." });
     }
 
     // 2. Update the application
     const updatedApplication = await prisma.leaveApplication.update({
       where: {
-        id: applicationId
+        id: applicationId,
       },
-      data: { 
+      data: {
         status: status,
         // You MUST add 'reviewedBy' to your 'LeaveApplication' schema for this to work
-        // reviewedBy: req.user.name 
-      }
+        // reviewedBy: req.user.name
+      },
     });
-    
+
     res.status(200).json(updatedApplication);
   } catch (error) {
     next(error);
@@ -2486,7 +2529,7 @@ export const getComplaintsAboutStudentsByBranch = async (
     const complaints = await prisma.complaint.findMany({
       where: {
         branchId: req.user.branchId,
-        studentId: { not: null }, 
+        studentId: { not: null },
       },
       include: {
         student: {
@@ -2666,7 +2709,10 @@ export const sendSmsToStudents = async (req: Request, res: Response) => {
     res.status(500).json({ message: error.message });
   }
 };
-export const clearAnnouncementsHistory = async (req: Request, res: Response) => {
+export const clearAnnouncementsHistory = async (
+  req: Request,
+  res: Response
+) => {
   try {
     const branchId = await getPrincipalAuth(req);
     if (!branchId) {
@@ -2701,7 +2747,7 @@ export const clearSmsHistory = async (req: Request, res: Response) => {
 export const createSchoolEvent = async (req: Request, res: Response) => {
   try {
     const branchId = await getPrincipalAuth(req);
-    
+
     if (!branchId) {
       return res
         .status(401)
@@ -2710,7 +2756,7 @@ export const createSchoolEvent = async (req: Request, res: Response) => {
 
     const user = await prisma.user.findUnique({
       where: { id: req.user?.id },
-      select: { name: true }
+      select: { name: true },
     });
 
     if (!user) {
@@ -2723,13 +2769,13 @@ export const createSchoolEvent = async (req: Request, res: Response) => {
       data: {
         branchId: branchId,
         name,
-        date: new Date(date), 
+        date: new Date(date),
         description,
         location,
         category,
-        audience: audience || ["All"], 
+        audience: audience || ["All"],
         createdBy: user.name,
-        status: "Approved", 
+        status: "Approved",
       },
     });
 
@@ -2751,13 +2797,15 @@ export const updateSchoolEvent = async (req: Request, res: Response) => {
     const result = await prisma.schoolEvent.updateMany({
       where: {
         id: id,
-        branchId: branchId, 
+        branchId: branchId,
       },
       data: req.body,
     });
 
     if (result.count === 0) {
-      return res.status(404).json({ message: "Event not found or access denied." });
+      return res
+        .status(404)
+        .json({ message: "Event not found or access denied." });
     }
 
     res.status(200).json({ message: "Event updated." });
@@ -2912,15 +2960,17 @@ export const getTeacherProfileDetails = async (
       where: { userId: userId, branchId },
       include: {
         user: { select: { userId: true, id: true } }, // Fetch Readable ID AND UUID
-        schoolClasses: true, 
-        subjects: true, 
+        schoolClasses: true,
+        subjects: true,
         attendanceRecords: { orderBy: { date: "desc" }, take: 30 },
         courses: {
           include: {
             subject: { select: { name: true } },
-            schoolClass: { select: { id: true, gradeLevel: true, section: true } }
-          }
-        }
+            schoolClass: {
+              select: { id: true, gradeLevel: true, section: true },
+            },
+          },
+        },
       },
     });
 
@@ -2935,11 +2985,13 @@ export const getTeacherProfileDetails = async (
 
     // ... (Syllabus, Class Performance, Payroll logic remains the same as previous step) ...
     // For brevity, I am reusing the variables. Ensure the logic from previous steps is here.
-    const syllabusProgress: any[] = []; 
+    const syllabusProgress: any[] = [];
     const classPerformance: any[] = [];
     const payrollHistory: any[] = [];
-    
-    const present = teacher.attendanceRecords.filter(r => r.status === "Present").length;
+
+    const present = teacher.attendanceRecords.filter(
+      (r) => r.status === "Present"
+    ).length;
     const total = teacher.attendanceRecords.length;
 
     // --- Final Assembly ---
@@ -2950,18 +3002,20 @@ export const getTeacherProfileDetails = async (
         ...teacherData,
         // FIX: Send BOTH IDs
         userId: user.userId, // Readable (VRTX-...) for Display
-        userUuid: user.id,   // UUID for Actions (Reset Password, Edit)
-        salary: teacher.salary || 0 
+        userUuid: user.id, // UUID for Actions (Reset Password, Edit)
+        salary: teacher.salary || 0,
       },
-      assignedClasses: teacher.schoolClasses.map((c) => ({
+      assignedClasses:
+        teacher.schoolClasses.map((c) => ({
           id: c.id,
           name: `Grade ${c.gradeLevel}-${c.section}`,
-      })) || [],
+        })) || [],
       assignedSubjects: teacher.subjects || [],
-      mentoredClasses: mentoredClasses.map((c) => ({
+      mentoredClasses:
+        mentoredClasses.map((c) => ({
           id: c.id,
           name: `Grade ${c.gradeLevel}-${c.section}`,
-      })) || [],
+        })) || [],
       syllabusProgress,
       classPerformance,
       payrollHistory,
@@ -3017,15 +3071,17 @@ export const getStudentProfileDetails = async (
   next: NextFunction
 ) => {
   try {
-    const branchId = await getPrincipalAuth(req); // or getRegistrarBranchId
-const studentId = req.params.studentId || req.params.id;
+    // 1. Authorization
+    const branchId = await getPrincipalAuth(req);
+
+    // Check for 'id' or 'studentId' depending on how route is defined
+    const studentId = req.params.id || req.params.studentId;
+
     if (!branchId) return res.status(401).json({ message: "Unauthorized." });
-if (!studentId) {
-  return res
-    .status(400)
-    .json({ message: "Student ID is missing from request." });
-}
-    // 1. Fetch Student
+    if (!studentId)
+      return res.status(400).json({ message: "Student ID required." });
+
+    // 2. Fetch Student with ALL Relations
     const student = await prisma.student.findFirst({
       where: { id: studentId, branchId },
       include: {
@@ -3034,7 +3090,9 @@ if (!studentId) {
             id: true,
             gradeLevel: true,
             section: true,
-            feeTemplate: { select: { amount: true, monthlyBreakdown: true } },
+            feeTemplate: {
+              select: { amount: true, monthlyBreakdown: true },
+            },
           },
         },
         room: { select: { fee: true, roomNumber: true } },
@@ -3061,20 +3119,87 @@ if (!studentId) {
       },
     });
 
-    if (!student)
-return res
-  .status(404)
-  .json({ message: `Student not found (ID: ${studentId})` });
-    // --- Ranking & Basic Stats ---
-    // (Assuming you keep your existing ranking logic here...)
-    let rankStats = { class: 0, school: 0 };
-    // ... [Paste your existing Ranking Logic block here] ...
+    if (!student) {
+      return res.status(404).json({ message: "Student not found." });
+    }
 
+    // --- 3. RANKING LOGIC (Implemented) ---
+    let rankStats = { class: 0, school: 0 };
+
+    if (student.class) {
+      // A. Aggregate scores for the entire grade level
+      // We group by studentId to get total score per student
+      const gradePerformance = await prisma.examMark.groupBy({
+        by: ["studentId"],
+        where: {
+          student: {
+            branchId: branchId,
+            gradeLevel: student.gradeLevel,
+            status: "active",
+          },
+        },
+        _sum: {
+          score: true,
+          totalMarks: true,
+        },
+      });
+
+      // B. Get all peers in this grade level (to map IDs to Class IDs)
+      const peers = await prisma.student.findMany({
+        where: {
+          branchId: branchId,
+          gradeLevel: student.gradeLevel,
+          status: "active",
+        },
+        select: { id: true, classId: true },
+      });
+
+      // C. Calculate percentages and build leaderboard
+      const leaderboard = peers.map((peer) => {
+        // Cast to 'any' to access _sum safely
+        const stats = gradePerformance.find(
+          (p: any) => p.studentId === peer.id
+        ) as any;
+
+        const totalScore = stats?._sum?.score || 0;
+        const maxScore = stats?._sum?.totalMarks || 0;
+
+        // Calculate percentage (handle division by zero)
+        const percentage = maxScore > 0 ? (totalScore / maxScore) * 100 : 0;
+
+        return {
+          studentId: peer.id,
+          classId: peer.classId,
+          percentage: percentage,
+        };
+      });
+
+      // D. Sort Descending (Highest Rank First)
+      leaderboard.sort((a, b) => b.percentage - a.percentage);
+
+      // E. Find School Rank (Position in entire Grade)
+      const schoolRankIndex = leaderboard.findIndex(
+        (p) => p.studentId === studentId
+      );
+      rankStats.school = schoolRankIndex !== -1 ? schoolRankIndex + 1 : 0;
+
+      // F. Find Class Rank (Position in specific Section)
+      const classLeaderboard = leaderboard.filter(
+        (p) => p.classId === student.classId
+      );
+      const classRankIndex = classLeaderboard.findIndex(
+        (p) => p.studentId === studentId
+      );
+      rankStats.class = classRankIndex !== -1 ? classRankIndex + 1 : 0;
+    }
+
+    // --- 4. Data Setup ---
     const s = student as any;
     const {
       FeeAdjustment,
       feeRecords,
       attendanceRecords,
+      grades,
       skillAssessments,
       user: studentUser,
       parent,
@@ -3082,14 +3207,14 @@ return res
       ...studentData
     } = s;
 
-    // --- SMART FEE ENGINE (FIXED) ---
+    // --- 5. SMART FEE ENGINE ---
 
     // A. Service Start Dates
     const sessionStartYear =
       new Date().getMonth() < 3
         ? new Date().getFullYear() - 1
         : new Date().getFullYear();
-    const sessionStartDate = new Date(sessionStartYear, 3, 1);
+    const sessionStartDate = new Date(sessionStartYear, 3, 1); // April 1st
 
     const getServiceStartIndex = (keyword: string) => {
       const log = FeeAdjustment.find(
@@ -3097,10 +3222,9 @@ return res
       );
       if (log) return getAcademicMonthIndex(new Date(log.date));
 
-      // Fallback: If admission was during this session, use admission month
       const admission = new Date(s.createdAt);
       if (admission > sessionStartDate) return getAcademicMonthIndex(admission);
-      return 0; // Default to start of session
+      return 0;
     };
 
     const hostelStartIndex = s.room
@@ -3119,33 +3243,23 @@ return res
     let calculatedTotalFee = 0;
 
     const dynamicBreakdown = ACADEMIC_MONTH_ORDER.map((monthName, index) => {
+      // 1. Tuition
       const templateMonth = templateBreakdown.find(
         (m: any) => m.month === monthName
       );
-
-      // --- FIX: Priority to Summing Breakdown ---
       let tuition = 0;
       if (templateMonth) {
-        if (
-          templateMonth.breakdown &&
-          Array.isArray(templateMonth.breakdown) &&
-          templateMonth.breakdown.length > 0
-        ) {
-          // Priority 1: Calculate fresh sum from components
+        if (templateMonth.total) tuition = Number(templateMonth.total);
+        else if (templateMonth.breakdown)
           tuition = templateMonth.breakdown.reduce(
             (sum: number, c: any) => sum + (Number(c.amount) || 0),
             0
           );
-        } else if (templateMonth.total) {
-          // Priority 2: Use total if breakdown is missing
-          tuition = Number(templateMonth.total);
-        }
       } else if (s.class?.feeTemplate?.amount) {
-        // Priority 3: Distribute annual fee
         tuition = Math.ceil(s.class.feeTemplate.amount / 12);
       }
 
-      // Service Charges
+      // 2. Service Charges
       const hostelCharge = index >= hostelStartIndex ? monthlyHostelFee : 0;
       const transportCharge =
         index >= transportStartIndex ? monthlyTransportFee : 0;
@@ -3153,7 +3267,7 @@ return res
       const monthTotal = tuition + hostelCharge + transportCharge;
       calculatedTotalFee += monthTotal;
 
-      // Components for Frontend
+      // Components
       const components = [];
       if (tuition > 0)
         components.push({ component: "Tuition", amount: tuition });
@@ -3189,18 +3303,14 @@ return res
       netTotal = feeRecord.totalAmount;
       paidAmount = feeRecord.paidAmount;
     } else {
-      netTotal = calculatedTotalFee; // Use our robust calculation
+      netTotal = calculatedTotalFee;
       paidAmount = 0;
     }
 
-    const feeStatus = {
-      total: netTotal,
-      paid: paidAmount,
-      pending: netTotal - paidAmount,
-    };
+    const pending = netTotal - paidAmount;
+    const feeStatus = { total: netTotal, paid: paidAmount, pending };
 
-    // --- Formatting (History, etc.) ---
-    // ... (Same formatting logic as previous steps) ...
+    // --- 6. Formatting ---
     const paymentHistory = (feeRecord?.payments || []).map((p: any) => ({
       ...p,
       itemType: "payment" as const,
@@ -3215,76 +3325,78 @@ return res
         new Date(a.date || a.paidDate).getTime()
     );
 
-    const grades = s.examMarks.map((mark: any) => ({
-      courseName: mark.examSchedule?.subject?.name || "Unknown Subject",
-      score: mark.score,
-      total: mark.totalMarks || 100, // Optional: Include total if your frontend needs it
+    const present = attendanceRecords.filter(
+      (a: any) => a.status === "Present"
+    ).length;
+    const totalDays = attendanceRecords.length;
+
+    const formattedGrades = s.grades.map((g: any) => ({
+      ...g,
+      courseName: g.course.name,
     }));
+    const formattedSkills = (skillAssessments[0]?.skills as Record<
+      string,
+      number
+    >)
+      ? Object.entries(skillAssessments[0].skills).map(([k, v]) => ({
+          skill: k,
+          value: v,
+        }))
+      : [];
 
-    // --- 2. Skills Logic ---
-    // Takes the most recent assessment and converts the JSON object to an array
-    let skills: { skill: string; value: number }[] = [];
-    if (skillAssessments.length > 0 && skillAssessments[0].skills) {
-      const skillObj = skillAssessments[0].skills as Record<string, number>;
-      skills = Object.entries(skillObj).map(([key, value]) => ({
-        skill: key,
-        value: value,
-      }));
-    } else {
-      // Optional: Default skills if none exist (prevents empty charts)
-      skills = [
-        { skill: "Communication", value: 0 },
-        { skill: "Discipline", value: 0 },
-        { skill: "Participation", value: 0 },
-      ];
-    }
-
-    // --- 3. Recent Activity Logic ---
-    // Combines Attendance (Top 3) and Assignment Submissions into one timeline
     const recentActivity = [
-      ...attendanceRecords.slice(0, 3).map((a: any) => ({
-        date: new Date(a.date).toISOString().split("T")[0],
-        activity: `Marked ${a.status}`,
-      })),
+      ...attendanceRecords
+        .slice(0, 3)
+        .map((a: any) => ({
+          date: a.date.toISOString().split("T")[0],
+          activity: `Marked ${a.status}`,
+        })),
       ...submissions.map((sub: any) => ({
-        date: new Date(sub.submittedAt).toISOString().split("T")[0],
+        date: sub.submittedAt.toISOString().split("T")[0],
         activity: `Submitted "${sub.assignment.title}"`,
       })),
-    ]
-      .sort(
-        (a: any, b: any) =>
-          new Date(b.date).getTime() - new Date(a.date).getTime()
-      )
-      .slice(0, 10); // Keep only the 10 most recent events
+    ].sort(
+      (a: any, b: any) =>
+        new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
 
-    // --- Final Response ---
+    // --- 7. Final Response ---
     const profile = {
       student: {
         ...studentData,
         userId: studentUser?.userId || "N/A",
+        passwordHash: undefined,
+        feeRecords,
+        attendanceRecords,
+        suspensionRecords: s.suspensionRecords,
+        examMarks: s.examMarks,
+        FeeAdjustment,
         room: s.room,
         busStop: s.busStop,
       },
       userId: studentUser?.userId || "N/A",
       studentUser,
-      parent,
+      parent: student.parent
+        ? { ...student.parent, passwordHash: undefined }
+        : null,
       classInfo: s.class
         ? `Grade ${s.class.gradeLevel}-${s.class.section}`
         : "Unassigned",
-      attendance: { present: 0, total: 0, absent: 0 }, // Add real logic back
+      attendance: { present, absent: totalDays - present, total: totalDays },
       attendanceHistory: attendanceRecords,
       feeStatus,
       feeHistory,
-      grades: grades,
-      skills: skills,
-      recentActivity: recentActivity,
+      grades: formattedGrades,
+      skills: formattedSkills,
+      recentActivity,
       rank: rankStats,
-      activeSuspension: null,
-      feeBreakdown: dynamicBreakdown, // <--- Now guaranteed to have values
+      activeSuspension: s.suspensionRecords[0] || null,
+      feeBreakdown: dynamicBreakdown,
     };
 
     res.status(200).json(profile);
   } catch (error: any) {
+    console.error("Error fetching student profile:", error);
     next(error);
   }
 };
@@ -3319,7 +3431,7 @@ export const getStaffMemberAttendance = async (
     return res.status(401).json({ message: "Unauthorized." });
   }
 
-  const { staffId, year, month } = req.params; 
+  const { staffId, year, month } = req.params;
   const yearNum = parseInt(year, 10);
   const monthNum = parseInt(month, 10); // 0-indexed (0=Jan, 11=Dec)
 
@@ -3386,7 +3498,7 @@ export const resetUserPassword = async (req: Request, res: Response) => {
         .status(404)
         .json({ message: "User not found in your branch." });
     }
-    const newPassword = Math.random().toString(36).slice(-8); 
+    const newPassword = Math.random().toString(36).slice(-8);
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     await prisma.user.update({
       where: { id },
@@ -3401,7 +3513,6 @@ export const resetUserPassword = async (req: Request, res: Response) => {
     res.status(500).json({ message: error.message });
   }
 };
-
 
 export const clearTeacherComplaints = async (req: Request, res: Response) => {
   try {
