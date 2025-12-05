@@ -4370,14 +4370,19 @@ export const assignMemberToRoute = async (
   next: NextFunction
 ) => {
   const branchId = getRegistrarBranchId(req);
-  const { routeId, memberId, memberType, stopId } = req.body;
+  const routeId = req.params.routeId || req.params.id;
+
+  const { memberId, memberType, stopId } = req.body;
 
   if (!branchId)
     return res.status(401).json({ message: "Authentication required." });
+  if (!routeId)
+    return res.status(400).json({ message: "Route ID is missing." });
 
   try {
     await prisma.$transaction(async (tx) => {
-      // 1. Fetch Route & Stop
+      // 1. Verify Route & Stop
+      // Fetch the route first to ensure it exists and get current members
       const route = await tx.transportRoute.findFirst({
         where: { id: routeId, branchId },
       });
@@ -4386,7 +4391,8 @@ export const assignMemberToRoute = async (
       const stop = await tx.busStop.findFirst({
         where: { id: stopId, routeId },
       });
-      if (!stop) throw new Error("Bus stop not found.");
+      if (!stop)
+        throw new Error("Bus stop not found or does not belong to this route.");
 
       // 2. Financial Logic (Students Only)
       if (memberType === "Student") {
@@ -4394,21 +4400,25 @@ export const assignMemberToRoute = async (
         const totalCharge =
           monthsLeft > 0 ? (stop.charges || 0) * monthsLeft : 0;
 
+        // Verify Student Exists in Branch
+        const student = await tx.student.findFirst({
+          where: { id: memberId, branchId },
+        });
+        if (!student) throw new Error("Student not found in your branch.");
+
         if (totalCharge > 0) {
-          const student = await tx.student.findFirst({
-            where: { id: memberId, branchId },
+          const sWithFees = await tx.student.findUnique({
+            where: { id: memberId },
             include: {
               feeRecords: true,
               class: { include: { feeTemplate: true } },
             },
           });
 
-          if (!student) throw new Error("Student not found.");
-
-          let feeRecordId = student.feeRecords[0]?.id;
+          let feeRecordId = sWithFees?.feeRecords[0]?.id;
 
           if (!feeRecordId) {
-            const templateAmount = student.class?.feeTemplate?.amount || 0;
+            const templateAmount = sWithFees?.class?.feeTemplate?.amount || 0;
             const newRecord = await tx.feeRecord.create({
               data: {
                 studentId: memberId,
@@ -4425,12 +4435,15 @@ export const assignMemberToRoute = async (
             data: { totalAmount: { increment: totalCharge } },
           });
 
+          const currentMonthName = new Date().toLocaleString("default", {
+            month: "short",
+          });
           await tx.feeAdjustment.create({
             data: {
               studentId: memberId,
               type: "charge",
               amount: totalCharge,
-              reason: `Transport Assigned: ${stop.name}`,
+              reason: `Transport Assigned: ${stop.name} (${currentMonthName}-Mar, ${monthsLeft} months @ ${stop.charges})`,
               adjustedBy: req.user?.name || "Registrar",
               date: new Date(),
             },
@@ -4444,26 +4457,24 @@ export const assignMemberToRoute = async (
         });
       } else {
         // Update Teacher Link
+        const teacher = await tx.teacher.findFirst({
+          where: { id: memberId, branchId },
+        });
+        if (!teacher) throw new Error("Teacher not found.");
+
         await tx.teacher.update({
           where: { id: memberId },
           data: { transportRouteId: routeId, busStopId: stopId },
         });
       }
 
-      // 3. CRITICAL FIX: Update TransportRoute 'assignedMembers' JSON
-      // Get current members array (handle null case)
+      // 3. UPDATE TransportRoute JSON List
       const currentMembers = (route.assignedMembers as any[]) || [];
-
-      // Remove if already exists (to prevent duplicates)
+      // Remove if already exists to prevent duplicates
       const filteredMembers = currentMembers.filter(
         (m: any) => m.memberId !== memberId
       );
 
-      // Add new member entry
-      // We need the name for the JSON, so let's fetch it quickly if not passed
-      // Ideally passed from frontend, but for robustness we fetch if needed.
-      // Assuming frontend passes correct ID, we update the link. The JSON primarily stores IDs.
-      // We will store basic info:
       const newMemberEntry = {
         memberId,
         memberType,

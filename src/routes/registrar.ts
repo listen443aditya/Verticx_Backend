@@ -257,6 +257,7 @@ router.post(
   "/transport/routes/:routeId/assign-member",
   registrarController.assignMemberToRoute
 );
+
 router.delete(
   "/transport/routes/:routeId/remove-member/:memberId",
   registrarController.removeMemberFromRoute
