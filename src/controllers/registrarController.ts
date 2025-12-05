@@ -955,45 +955,57 @@ export const promoteStudents = async (
 };
 
 
-export const demoteStudents = async (req: Request, res: Response, next: NextFunction) => {
-    const branchId = getRegistrarBranchId(req);
-    if (!branchId) {
-        return res.status(401).json({ message: "Authentication required." });
+export const demoteStudents = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const branchId = getRegistrarBranchId(req);
+  if (!branchId) {
+    return res.status(401).json({ message: "Authentication required." });
+  }
+
+  const { studentIds, targetClassId } = req.body;
+  if (!Array.isArray(studentIds) || !targetClassId) {
+    return res
+      .status(400)
+      .json({ message: "studentIds array and targetClassId are required." });
+  }
+
+  try {
+    // Security Check: Verify the target class belongs to the registrar's branch.
+    const targetClass = await prisma.schoolClass.findFirst({
+      where: { id: targetClassId, branchId },
+    });
+
+    if (!targetClass) {
+      return res
+        .status(404)
+        .json({ message: "Target class not found in your branch." });
     }
 
-    const { studentIds, targetClassId } = req.body;
-    if (!Array.isArray(studentIds) || !targetClassId) {
-        return res.status(400).json({ message: "studentIds array and targetClassId are required." });
-    }
+    // Perform the update
+    const updateResult = await prisma.student.updateMany({
+      where: {
+        id: { in: studentIds },
+        branchId: branchId, // Critical multi-tenant security check
+      },
+      data: {
+        classId: targetClassId,
+        gradeLevel: targetClass.gradeLevel,
+        classRollNumber: null, 
+      },
+    });
 
-    try {
-        // Security Check: Verify the target class belongs to the registrar's branch.
-        const targetClass = await prisma.schoolClass.findFirst({
-            where: { id: targetClassId, branchId }
-        });
-
-        if (!targetClass) {
-            return res.status(404).json({ message: "Target class not found in your branch." });
-        }
-
-        // Perform the update, only for students within the same branch.
-        const updateResult = await prisma.student.updateMany({
-            where: {
-                id: { in: studentIds },
-                branchId: branchId, // Critical multi-tenant security check
-            },
-            data: {
-                classId: targetClassId,
-                gradeLevel: targetClass.gradeLevel,
-            },
-        });
-
-        res.status(200).json({ message: `${updateResult.count} students were moved successfully.` });
-    } catch (error) {
-        next(error);
-    }
+    res
+      .status(200)
+      .json({
+        message: `${updateResult.count} students were moved successfully.`,
+      });
+  } catch (error) {
+    next(error);
+  }
 };
-
 
 
 export const deleteStudent = async (
