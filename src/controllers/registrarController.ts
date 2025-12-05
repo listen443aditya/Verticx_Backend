@@ -108,35 +108,50 @@ export const getRegistrarDashboardData = async (
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
 
+    // 1. Fetch Branch Details
     const branchDetails = await prisma.branch.findUnique({
       where: { id: branchId },
-      select: { email: true, helplineNumber: true, location: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        helplineNumber: true,
+        location: true,
+        principalId: true,
+      },
     });
 
-    // --- Comprehensive Data Fetching in a Single Transaction ---
+    // 2. Run Aggregations in Parallel
     const [
       pendingAdmissions,
       pendingAcademicRequests,
-      feesPendingAggregate,
+      feesAggregate,
       unassignedFaculty,
       pendingEvents,
       admissionRequests,
       classFeeSummaries,
       teacherAttendanceStatus,
     ] = await prisma.$transaction([
+      // A. Counts
       prisma.admissionApplication.count({
         where: { branchId, status: "Pending" },
       }),
       prisma.rectificationRequest.count({
         where: { branchId, status: "Pending" },
       }),
+
+      // B. Fee Aggregation (Safe Sums)
       prisma.feeRecord.aggregate({
         _sum: { totalAmount: true, paidAmount: true },
-        where: { student: { branchId } },
+        where: { student: { branchId, status: "active" } },
       }),
+
+      // C. Unassigned Teachers (Empty subject list)
       prisma.teacher.count({
-        where: { branchId, subjectIds: { isEmpty: true } },
+        where: { branchId, subjectIds: { isEmpty: true }, status: "active" },
       }),
+
+      // D. Recent Data
       prisma.schoolEvent.findMany({
         where: { branchId, status: "Pending" },
         take: 5,
@@ -145,8 +160,16 @@ export const getRegistrarDashboardData = async (
       prisma.admissionApplication.findMany({
         where: { branchId, status: "Pending" },
         take: 5,
-        select: { id: true, applicantName: true, gradeLevel: true },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          applicantName: true,
+          gradeLevel: true,
+          status: true,
+        },
       }),
+
+      // E. Class Summaries
       prisma.schoolClass.findMany({
         where: { branchId },
         select: {
@@ -155,16 +178,13 @@ export const getRegistrarDashboardData = async (
           section: true,
           students: {
             select: {
-              feeRecords: {
-                where: {
-                  paidAmount: { lt: prisma.feeRecord.fields.totalAmount },
-                },
-                select: { totalAmount: true, paidAmount: true },
-              },
+              feeRecords: { select: { totalAmount: true, paidAmount: true } },
             },
           },
         },
       }),
+
+      // F. Today's Absent Teachers
       prisma.teacherAttendanceRecord.findMany({
         where: {
           branchId,
@@ -178,12 +198,12 @@ export const getRegistrarDashboardData = async (
       }),
     ]);
 
-    // --- Complex Calculation for Monthly Fee Overview ---
+    // --- 3. Fee Overview Chart Data ---
     const feeOverviewPromises = Array.from({ length: 6 }).map(async (_, i) => {
       const month = (currentMonth - i + 12) % 12;
       const year = currentMonth - i < 0 ? currentYear - 1 : currentYear;
       const monthStart = new Date(year, month, 1);
-      const monthEnd = new Date(year, month + 1, 0);
+      const monthEnd = new Date(year, month + 1, 0); // Last day of month
 
       const payments = await prisma.feePayment.aggregate({
         _sum: { amount: true },
@@ -192,66 +212,81 @@ export const getRegistrarDashboardData = async (
           paidDate: { gte: monthStart, lte: monthEnd },
         },
       });
-      const records = await prisma.feeRecord.aggregate({
-        _sum: { totalAmount: true },
+
+      // For "Pending", we estimate based on Due Dates falling in this month
+      const dueRecords = await prisma.feeRecord.aggregate({
+        _sum: { totalAmount: true, paidAmount: true },
         where: {
           student: { branchId },
           dueDate: { gte: monthStart, lte: monthEnd },
         },
       });
 
-      const paid = payments._sum.amount || 0;
-      const totalDue = records._sum.totalAmount || 0;
+      const collected = payments._sum.amount || 0;
+      // Pending for this specific month's due records
+      const pending =
+        (dueRecords._sum.totalAmount || 0) - (dueRecords._sum.paidAmount || 0);
 
       return {
         month: monthStart.toLocaleString("default", { month: "short" }),
-        paid,
-        pending: Math.max(0, totalDue - paid),
+        paid: collected,
+        pending: Math.max(0, pending),
       };
     });
     const feeOverview = (await Promise.all(feeOverviewPromises)).reverse();
 
-    // --- Final Data Shaping to Match Frontend Contract ---
+    // --- 4. Calculate Total Fees Pending (Safe Math) ---
+    // Use explicit casting and null checks
+    const totalBilled = (feesAggregate as any)._sum?.totalAmount || 0;
+    const totalCollected = (feesAggregate as any)._sum?.paidAmount || 0;
+    const totalPending = Math.max(0, totalBilled - totalCollected);
+
+    // --- 5. Format Class Summaries ---
+    const formattedClassSummaries = classFeeSummaries.map((c) => {
+      let classPending = 0;
+      let defaulterCount = 0;
+
+      c.students.forEach((s) => {
+        const rec = s.feeRecords[0];
+        if (rec) {
+          const p = rec.totalAmount - rec.paidAmount;
+          if (p > 0) {
+            classPending += p;
+            defaulterCount++;
+          }
+        }
+      });
+
+      return {
+        classId: c.id,
+        className: `Grade ${c.gradeLevel}-${c.section}`,
+        defaulterCount,
+        pendingAmount: classPending,
+      };
+    });
+
+    // --- 6. Construct Response ---
     const dashboardData = {
       branch: branchDetails,
       summary: {
         pendingAdmissions,
         pendingAcademicRequests,
-        feesPending:
-          // Cast to any to avoid TS error on _sum in some environments
-          ((feesPendingAggregate as any)._sum.totalAmount || 0) -
-          ((feesPendingAggregate as any)._sum.paidAmount || 0),
+        feesPending: totalPending,
         unassignedFaculty,
       },
       admissionRequests: admissionRequests.map((app) => ({
-        ...app,
+        id: app.id,
+        applicantName: app.applicantName,
+        grade: app.gradeLevel,
         type: "Student",
-        subject: "",
+        subject: "N/A", // Faculty apps are separate, this list is students
       })),
       feeOverview,
       pendingEvents,
-      classFeeSummaries: classFeeSummaries.map((c) => {
-        const defaulters = c.students.filter((s) => s.feeRecords.length > 0);
-        const pendingAmount = defaulters.reduce(
-          (sum, s) =>
-            sum +
-            s.feeRecords.reduce(
-              (recSum, rec) => recSum + (rec.totalAmount - rec.paidAmount),
-              0
-            ),
-          0
-        );
-        return {
-          classId: c.id,
-          className: `Grade ${c.gradeLevel}-${c.section}`,
-          defaulterCount: defaulters.length,
-          pendingAmount,
-        };
-      }),
-      // FIX: Cast 'att' to 'any' to access the included 'teacher' property
+      classFeeSummaries: formattedClassSummaries,
       teacherAttendanceStatus: teacherAttendanceStatus.map((att: any) => ({
         teacherId: att.teacherId,
-        teacherName: att.teacher?.name || "Unknown", // Optional chaining for safety
+        teacherName: att.teacher?.name || "Unknown",
         status: att.status,
       })),
       academicRequests: {
