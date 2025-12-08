@@ -524,37 +524,52 @@ export const getTeacherCourses = async (
 ) => {
   try {
     const { teacherId } = await getTeacherAuth(req);
-    if (!teacherId) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
+    if (!teacherId) return res.status(401).json({ message: "Unauthorized" });
 
-    // 1. Fetch unique Class+Subject pairs from the Timetable
+    // Fetch from Timetable to get all assigned class/subjects
     const teachingSlots = await prisma.timetableSlot.findMany({
       where: { teacherId: teacherId },
       distinct: ["classId", "subjectId"],
       select: {
         classId: true,
         subjectId: true,
-        // We are fetching these relations, but TS needs a hint
-        class: {
-          select: { id: true, gradeLevel: true, section: true },
-        },
-        subject: {
-          select: { id: true, name: true },
-        },
+        class: { select: { id: true, gradeLevel: true, section: true } },
+        subject: { select: { id: true, name: true } },
       },
     });
 
-    // 2. Format the response
+    // NOW: We need the actual Course DB ID for the gradebook to work.
+    // We can fetch the Course records that match these slots.
+    const courses = await prisma.course.findMany({
+      where: {
+        teacherId: teacherId,
+        // Optimization: Only fetch active courses
+      },
+      select: { id: true, classId: true, subjectId: true },
+    });
+
     const formattedCourses = teachingSlots
       .filter((slot: any) => slot.class && slot.subject)
-      .map((slot: any) => ({
-        id: `${slot.class.id}|${slot.subject.id}`,
+      .map((slot: any) => {
+        // Find the matching Course DB ID
+        const match = courses.find(
+          (c) => c.classId === slot.classId && c.subjectId === slot.subjectId
+        );
 
-        classId: slot.class.id,
-        subjectId: slot.subject.id,
-        name: `${slot.subject.name} - Grade ${slot.class.gradeLevel}${slot.class.section}`,
-      }));
+        return {
+          // Dropdown ID (Composite)
+          id: `${slot.class.id}|${slot.subject.id}`,
+
+          // Real DB ID (Required for Gradebook Templates)
+          // If no Course record exists yet, we send null.
+          // The frontend should handle this (maybe disable button or auto-create).
+          realCourseId: match ? match.id : null,
+
+          classId: slot.class.id,
+          subjectId: slot.subject.id,
+          name: `${slot.subject.name} - Grade ${slot.class.gradeLevel}${slot.class.section}`,
+        };
+      });
 
     res.status(200).json(formattedCourses);
   } catch (error: any) {
