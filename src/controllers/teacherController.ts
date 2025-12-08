@@ -528,24 +528,32 @@ export const getTeacherCourses = async (
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    const courses = await prisma.course.findMany({
+    // 1. Fetch unique Class+Subject pairs from the Timetable
+    const teachingSlots = await prisma.timetableSlot.findMany({
       where: { teacherId: teacherId },
-      include: {
-        subject: { select: { name: true } },
-        schoolClass: { select: { id: true, gradeLevel: true, section: true } },
+      distinct: ["classId", "subjectId"],
+      select: {
+        classId: true,
+        subjectId: true,
+        // We are fetching these relations, but TS needs a hint
+        class: {
+          select: { id: true, gradeLevel: true, section: true },
+        },
+        subject: {
+          select: { id: true, name: true },
+        },
       },
     });
 
-    // FIX: Filter out null classes first, then map
-    const formattedCourses = courses
-      .filter((c) => c.schoolClass !== null) // Ensure class exists
-      .map((c) => ({
-        id: `${c.schoolClass!.id}|${c.subjectId}`, // Use '!' because we filtered above
-        classId: c.schoolClass!.id,
-        subjectId: c.subjectId,
-        name: `${c.subject.name} - Grade ${c.schoolClass!.gradeLevel}${
-          c.schoolClass!.section
-        }`,
+    // 2. Format the response
+    const formattedCourses = teachingSlots
+      .filter((slot: any) => slot.class && slot.subject)
+      .map((slot: any) => ({
+        id: `${slot.class.id}|${slot.subject.id}`,
+
+        classId: slot.class.id,
+        subjectId: slot.subject.id,
+        name: `${slot.subject.name} - Grade ${slot.class.gradeLevel}${slot.class.section}`,
       }));
 
     res.status(200).json(formattedCourses);
