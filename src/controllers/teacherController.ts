@@ -270,10 +270,12 @@ export const getStudentProfile = async (
   next: NextFunction
 ) => {
   try {
-    const teacherId = (req as any).user?.id; // Assuming auth middleware attaches user
+    const teacherId = (req as any).user?.id;
     const { studentId } = req.params;
 
     if (!teacherId) return res.status(401).json({ message: "Unauthorized." });
+
+    // 1. Fetch Student Data (ACADEMIC ONLY - No Financials)
     const student = await prisma.student.findUnique({
       where: { id: studentId },
       include: {
@@ -282,13 +284,14 @@ export const getStudentProfile = async (
             id: true,
             gradeLevel: true,
             section: true,
-            feeTemplate: { select: { amount: true, monthlyBreakdown: true } },
+            // Removed feeTemplate
           },
         },
-        room: { select: { fee: true, roomNumber: true } },
-        busStop: { select: { charges: true, name: true } },
+        room: { select: { roomNumber: true } }, // Removed fee
+        busStop: { select: { name: true } }, // Removed charges
         parent: true,
         user: true,
+        // Removed FeeAdjustment & feeRecords
         attendanceRecords: { orderBy: { date: "desc" }, take: 90 },
         grades: { include: { course: { select: { name: true } } } },
         skillAssessments: { orderBy: { assessedAt: "desc" }, take: 1 },
@@ -311,14 +314,14 @@ export const getStudentProfile = async (
       return res.status(404).json({ message: "Student not found." });
     }
 
-    // 2. Ranking Logic
+    // 2. Ranking Logic (Kept for Academic Context)
     let rankStats = { class: 0, school: 0 };
     if (student.class) {
       const gradePerformance = await prisma.examMark.groupBy({
         by: ["studentId"],
         where: {
           student: {
-            branchId: student.branchId, // Use student's branch
+            branchId: student.branchId,
             gradeLevel: student.gradeLevel,
             status: "active",
           },
@@ -361,46 +364,16 @@ export const getStudentProfile = async (
       rankStats.class = classRankIndex !== -1 ? classRankIndex + 1 : 0;
     }
 
-    // 3. Fee & Logic Setup
+    // 3. Formatting Data
     const s = student as any;
 
-    // Calculate Breakdown
-    const templateBreakdown =
-      (s.class?.feeTemplate?.monthlyBreakdown as any[]) || [];
-    const monthlyHostelFee = Number(s.room?.fee || 0);
-    const monthlyTransportFee = Number(s.busStop?.charges || 0);
-
-    // Determine Service Start Dates (simplified for teacher view)
-    const sessionStartYear =
-      new Date().getMonth() < 3
-        ? new Date().getFullYear() - 1
-        : new Date().getFullYear();
-    const sessionStartDate = new Date(sessionStartYear, 3, 1);
-
-    const getServiceStartIndex = (keyword: string) => {
-      const log = s.FeeAdjustment.find(
-        (adj: any) => adj.reason && adj.reason.includes(keyword)
-      );
-      if (log) return getAcademicMonthIndex(new Date(log.date));
-      const admission = new Date(s.createdAt);
-      if (admission > sessionStartDate) return getAcademicMonthIndex(admission);
-      return 0;
-    };
-
-    const hostelStartIndex = s.room
-      ? getServiceStartIndex("Hostel Assigned")
-      : 999;
-    const transportStartIndex = s.busStop
-      ? getServiceStartIndex("Transport Assigned")
-      : 999;
-
-    let calculatedTotalFee = 0;
-    
-    
-
+    // Attendance Stats
     const present = s.attendanceRecords.filter(
       (a: any) => a.status === "Present"
     ).length;
+    const totalAttendance = s.attendanceRecords.length;
+
+    // Academic Stats
     const formattedGrades = s.grades.map((g: any) => ({
       ...g,
       courseName: g.course.name,
@@ -415,13 +388,12 @@ export const getStudentProfile = async (
         }))
       : [];
 
+    // Recent Activity Feed
     const recentActivity = [
-      ...s.attendanceRecords
-        .slice(0, 3)
-        .map((a: any) => ({
-          date: a.date.toISOString().split("T")[0],
-          activity: `Marked ${a.status}`,
-        })),
+      ...s.attendanceRecords.slice(0, 3).map((a: any) => ({
+        date: a.date.toISOString().split("T")[0],
+        activity: `Marked ${a.status}`,
+      })),
       ...s.submissions.map((sub: any) => ({
         date: sub.submittedAt.toISOString().split("T")[0],
         activity: `Submitted "${sub.assignment.title}"`,
@@ -431,14 +403,16 @@ export const getStudentProfile = async (
         new Date(b.date).getTime() - new Date(a.date).getTime()
     );
 
-    // 5. Final Response
+    // 4. Construct Safe Response (No Fees)
     const profile = {
       student: {
         ...s,
         userId: s.user?.userId || "N/A",
+        passwordHash: undefined,
         attendanceRecords: s.attendanceRecords,
         suspensionRecords: s.suspensionRecords,
         examMarks: s.examMarks,
+        // Explicitly excluding feeRecords and FeeAdjustment here
         room: s.room,
         busStop: s.busStop,
       },
@@ -448,17 +422,21 @@ export const getStudentProfile = async (
       classInfo: s.class
         ? `Grade ${s.class.gradeLevel}-${s.class.section}`
         : "Unassigned",
+
       attendance: {
         present,
-        absent: s.attendanceRecords.length - present,
-        total: s.attendanceRecords.length,
+        absent: totalAttendance - present,
+        total: totalAttendance,
       },
       attendanceHistory: s.attendanceRecords,
+
       grades: formattedGrades,
       skills: formattedSkills,
       recentActivity,
       rank: rankStats,
       activeSuspension: s.suspensionRecords[0] || null,
+
+      // Removed: feeStatus, feeHistory, feeBreakdown
     };
 
     res.status(200).json(profile);
