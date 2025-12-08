@@ -311,13 +311,17 @@ export const updateBook = async (
     const { id: bookId } = req.params;
     const bookData = req.body;
 
-    // FIX: Cast req.file to tell TypeScript it exists
-const pdfFile = (req as any).file;
+    const branchId = (req as any).user?.branchId;
+    if (!branchId) return res.status(401).json({ message: "Unauthorized." });
+    const pdfFile = (req as any).file;
     let fileUrl: string | undefined = undefined;
 
     if (pdfFile) {
       const blob = await put(
-        `books/${bookData.title.replace(/\s+/g, "-")}-${Date.now()}.pdf`,
+        `books/${(bookData.title || "book").replace(
+          /\s+/g,
+          "-"
+        )}-${Date.now()}.pdf`,
         pdfFile.buffer,
         {
           access: "public",
@@ -327,39 +331,60 @@ const pdfFile = (req as any).file;
       fileUrl = blob.url;
     }
 
-    const totalCopies = parseInt(bookData.totalCopies, 10);
-    const price = parseFloat(bookData.price);
-
-    const existingBook = await prisma.libraryBook.findUnique({
-      where: { id: bookId },
+    // Check if book exists IN THIS BRANCH
+    const existingBook = await prisma.libraryBook.findFirst({
+      where: {
+        id: bookId,
+        branchId: branchId, // Strict check
+      },
       select: { totalCopies: true, availableCopies: true },
     });
 
     if (!existingBook) {
-      return res.status(44).json({ message: "Book not found" });
+      return res
+        .status(404)
+        .json({ message: "Book not found in your library." });
     }
 
+    // Logic: Adjust Available Copies based on change in Total Copies
+    // Parse Int safely (handle NaN if string is empty)
+    const newTotalCopies = parseInt(bookData.totalCopies, 10);
+    const newPrice = parseFloat(bookData.price);
+
     let availableCopies = existingBook.availableCopies;
-    if (totalCopies && totalCopies !== existingBook.totalCopies) {
-      const diff = totalCopies - existingBook.totalCopies;
+
+    if (!isNaN(newTotalCopies) && newTotalCopies !== existingBook.totalCopies) {
+      const diff = newTotalCopies - existingBook.totalCopies;
       availableCopies = existingBook.availableCopies + diff;
+
+      // Prevent negative inventory
       if (availableCopies < 0) {
-        availableCopies = 0;
+        return res.status(400).json({
+          message: `Cannot reduce total copies to ${newTotalCopies} because ${
+            existingBook.totalCopies - existingBook.availableCopies
+          } are currently issued out.`,
+        });
       }
     }
 
+    // Prepare Update Object
     const updateData: any = {
       title: bookData.title,
       author: bookData.author,
       isbn: bookData.isbn,
-      price: price,
-      totalCopies: totalCopies,
+      price: isNaN(newPrice) ? undefined : newPrice, // Only update if valid
+      totalCopies: isNaN(newTotalCopies) ? undefined : newTotalCopies,
       availableCopies: availableCopies,
     };
 
     if (fileUrl) {
       updateData.pdfUrl = fileUrl;
     }
+
+    // Remove undefined keys so we don't overwrite with nulls
+    Object.keys(updateData).forEach(
+      (key) => updateData[key] === undefined && delete updateData[key]
+    );
 
     const updatedBook = await prisma.libraryBook.update({
       where: { id: bookId },
@@ -368,10 +393,9 @@ const pdfFile = (req as any).file;
 
     res.status(200).json(updatedBook);
   } catch (error: any) {
-    next(error); // Pass error to global handler
+    next(error);
   }
 };
-
 
 export const deleteBook = async (
   req: Request,

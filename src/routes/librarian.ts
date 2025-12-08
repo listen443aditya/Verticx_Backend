@@ -14,14 +14,21 @@ router.get("/dashboard", librarianController.getLibrarianDashboardData);
 
 // Book Management
 router.get("/books", librarianController.getLibraryBooks);
-router.delete("/books/:id", librarianController.deleteBook);
-router.get("/books/search", librarianController.searchLibraryBooks);
+router.get("/books/search", librarianController.searchLibraryBooks); // Keep search BEFORE :id routes
 router.post("/books", upload.single("pdfFile"), librarianController.createBook);
+
 router.patch(
   "/books/:id",
   upload.single("pdfFile"),
   librarianController.updateBook
 );
+router.put(
+  "/books/:id",
+  upload.single("pdfFile"),
+  librarianController.updateBook
+);
+
+router.delete("/books/:id", librarianController.deleteBook);
 
 // Issuance Management
 router.get("/issuances", librarianController.getBookIssuancesWithMemberDetails);
