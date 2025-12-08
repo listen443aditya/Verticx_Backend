@@ -29,6 +29,25 @@ const getTeacherAuth = async (req: Request) => {
     branchId: branchId,
   };
 };
+const ACADEMIC_MONTH_NAMES = [
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+  "January",
+  "February",
+  "March",
+];
+
+const getAcademicMonthIndex = (date: Date): number => {
+  const jsMonth = date.getMonth();
+  return (jsMonth + 9) % 12;
+};
 
 // ============================================================================
 // DASHBOARD
@@ -242,6 +261,272 @@ export const getStudentsForTeacher = async (
     });
     res.status(200).json(students);
   } catch (error: any) {
+    next(error);
+  }
+};
+export const getStudentProfile = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const teacherId = (req as any).user?.id; // Assuming auth middleware attaches user
+    const { studentId } = req.params;
+
+    if (!teacherId) return res.status(401).json({ message: "Unauthorized." });
+
+    // 1. Fetch Student Data (Reusing the robust structure)
+    const student = await prisma.student.findUnique({
+      where: { id: studentId },
+      include: {
+        class: {
+          select: {
+            id: true,
+            gradeLevel: true,
+            section: true,
+            feeTemplate: { select: { amount: true, monthlyBreakdown: true } },
+          },
+        },
+        room: { select: { fee: true, roomNumber: true } },
+        busStop: { select: { charges: true, name: true } },
+        parent: true,
+        user: true,
+        FeeAdjustment: { orderBy: { date: "asc" } },
+        feeRecords: { include: { payments: true } },
+        attendanceRecords: { orderBy: { date: "desc" }, take: 90 },
+        grades: { include: { course: { select: { name: true } } } },
+        skillAssessments: { orderBy: { assessedAt: "desc" }, take: 1 },
+        submissions: {
+          take: 5,
+          orderBy: { submittedAt: "desc" },
+          include: { assignment: { select: { title: true } } },
+        },
+        suspensionRecords: {
+          where: { endDate: { gte: new Date() } },
+          orderBy: { endDate: "desc" },
+        },
+        examMarks: {
+          include: { examSchedule: { include: { subject: true } } },
+        },
+      },
+    });
+
+    if (!student) {
+      return res.status(404).json({ message: "Student not found." });
+    }
+
+    // 2. Ranking Logic
+    let rankStats = { class: 0, school: 0 };
+    if (student.class) {
+      const gradePerformance = await prisma.examMark.groupBy({
+        by: ["studentId"],
+        where: {
+          student: {
+            branchId: student.branchId, // Use student's branch
+            gradeLevel: student.gradeLevel,
+            status: "active",
+          },
+        },
+        _sum: { score: true, totalMarks: true },
+      });
+
+      const peers = await prisma.student.findMany({
+        where: {
+          branchId: student.branchId,
+          gradeLevel: student.gradeLevel,
+          status: "active",
+        },
+        select: { id: true, classId: true },
+      });
+
+      const leaderboard = peers.map((peer) => {
+        const stats = gradePerformance.find(
+          (p: any) => p.studentId === peer.id
+        ) as any;
+        const totalScore = stats?._sum?.score || 0;
+        const maxScore = stats?._sum?.totalMarks || 0;
+        const percentage = maxScore > 0 ? (totalScore / maxScore) * 100 : 0;
+        return { studentId: peer.id, classId: peer.classId, percentage };
+      });
+
+      leaderboard.sort((a, b) => b.percentage - a.percentage);
+
+      const schoolRankIndex = leaderboard.findIndex(
+        (p) => p.studentId === studentId
+      );
+      rankStats.school = schoolRankIndex !== -1 ? schoolRankIndex + 1 : 0;
+
+      const classLeaderboard = leaderboard.filter(
+        (p) => p.classId === student.classId
+      );
+      const classRankIndex = classLeaderboard.findIndex(
+        (p) => p.studentId === studentId
+      );
+      rankStats.class = classRankIndex !== -1 ? classRankIndex + 1 : 0;
+    }
+
+    // 3. Fee & Logic Setup
+    const s = student as any;
+
+    // Calculate Breakdown
+    const templateBreakdown =
+      (s.class?.feeTemplate?.monthlyBreakdown as any[]) || [];
+    const monthlyHostelFee = Number(s.room?.fee || 0);
+    const monthlyTransportFee = Number(s.busStop?.charges || 0);
+
+    // Determine Service Start Dates (simplified for teacher view)
+    const sessionStartYear =
+      new Date().getMonth() < 3
+        ? new Date().getFullYear() - 1
+        : new Date().getFullYear();
+    const sessionStartDate = new Date(sessionStartYear, 3, 1);
+
+    const getServiceStartIndex = (keyword: string) => {
+      const log = s.FeeAdjustment.find(
+        (adj: any) => adj.reason && adj.reason.includes(keyword)
+      );
+      if (log) return getAcademicMonthIndex(new Date(log.date));
+      const admission = new Date(s.createdAt);
+      if (admission > sessionStartDate) return getAcademicMonthIndex(admission);
+      return 0;
+    };
+
+    const hostelStartIndex = s.room
+      ? getServiceStartIndex("Hostel Assigned")
+      : 999;
+    const transportStartIndex = s.busStop
+      ? getServiceStartIndex("Transport Assigned")
+      : 999;
+
+    let calculatedTotalFee = 0;
+    const dynamicBreakdown = ACADEMIC_MONTH_NAMES.map((monthName, index) => {
+      const templateMonth = templateBreakdown.find(
+        (m: any) => m.month === monthName
+      );
+      let tuition = 0;
+      if (templateMonth) {
+        if (templateMonth.total) tuition = Number(templateMonth.total);
+        else if (templateMonth.breakdown)
+          tuition = templateMonth.breakdown.reduce(
+            (sum: number, c: any) => sum + (Number(c.amount) || 0),
+            0
+          );
+      } else if (s.class?.feeTemplate?.amount) {
+        tuition = Math.ceil(s.class.feeTemplate.amount / 12);
+      }
+
+      const hostelCharge = index >= hostelStartIndex ? monthlyHostelFee : 0;
+      const transportCharge =
+        index >= transportStartIndex ? monthlyTransportFee : 0;
+      const monthTotal = tuition + hostelCharge + transportCharge;
+      calculatedTotalFee += monthTotal;
+
+      return { month: monthName, total: monthTotal };
+    });
+
+    // Fee Ledger
+    const feeRecord = s.feeRecords[0];
+    const adjustments = s.FeeAdjustment || [];
+    const totalAdjustments = adjustments.reduce(
+      (acc: number, adj: any) =>
+        adj.type === "charge" ? acc + adj.amount : acc - adj.amount,
+      0
+    );
+
+    let netTotal = feeRecord ? feeRecord.totalAmount : calculatedTotalFee;
+    let paidAmount = feeRecord ? feeRecord.paidAmount : 0;
+    const feeStatus = {
+      total: netTotal,
+      paid: paidAmount,
+      pending: netTotal - paidAmount,
+    };
+
+    // 4. Formatting
+    const paymentHistory = (feeRecord?.payments || []).map((p: any) => ({
+      ...p,
+      itemType: "payment",
+    }));
+    const adjustmentHistory = (s.FeeAdjustment || []).map((adj: any) => ({
+      ...adj,
+      itemType: "adjustment",
+    }));
+    const feeHistory = [...paymentHistory, ...adjustmentHistory].sort(
+      (a: any, b: any) =>
+        new Date(b.date || b.paidDate).getTime() -
+        new Date(a.date || a.paidDate).getTime()
+    );
+
+    const present = s.attendanceRecords.filter(
+      (a: any) => a.status === "Present"
+    ).length;
+    const formattedGrades = s.grades.map((g: any) => ({
+      ...g,
+      courseName: g.course.name,
+    }));
+    const formattedSkills = (s.skillAssessments[0]?.skills as Record<
+      string,
+      number
+    >)
+      ? Object.entries(s.skillAssessments[0].skills).map(([k, v]) => ({
+          skill: k,
+          value: v,
+        }))
+      : [];
+
+    const recentActivity = [
+      ...s.attendanceRecords
+        .slice(0, 3)
+        .map((a: any) => ({
+          date: a.date.toISOString().split("T")[0],
+          activity: `Marked ${a.status}`,
+        })),
+      ...s.submissions.map((sub: any) => ({
+        date: sub.submittedAt.toISOString().split("T")[0],
+        activity: `Submitted "${sub.assignment.title}"`,
+      })),
+    ].sort(
+      (a: any, b: any) =>
+        new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+
+    // 5. Final Response
+    const profile = {
+      student: {
+        ...s,
+        userId: s.user?.userId || "N/A",
+        passwordHash: undefined,
+        feeRecords: s.feeRecords,
+        attendanceRecords: s.attendanceRecords,
+        suspensionRecords: s.suspensionRecords,
+        examMarks: s.examMarks,
+        FeeAdjustment: s.FeeAdjustment,
+        room: s.room,
+        busStop: s.busStop,
+      },
+      userId: s.user?.userId || "N/A",
+      studentUser: s.user,
+      parent: s.parent ? { ...s.parent, passwordHash: undefined } : null,
+      classInfo: s.class
+        ? `Grade ${s.class.gradeLevel}-${s.class.section}`
+        : "Unassigned",
+      attendance: {
+        present,
+        absent: s.attendanceRecords.length - present,
+        total: s.attendanceRecords.length,
+      },
+      attendanceHistory: s.attendanceRecords,
+      feeStatus,
+      feeHistory,
+      grades: formattedGrades,
+      skills: formattedSkills,
+      recentActivity,
+      rank: rankStats,
+      activeSuspension: s.suspensionRecords[0] || null,
+      feeBreakdown: dynamicBreakdown,
+    };
+
+    res.status(200).json(profile);
+  } catch (error) {
     next(error);
   }
 };
@@ -759,7 +1044,7 @@ export const updateAssignment = async (
   }
 };
 
-// --- IMPLEMENTATION ---
+
 export const createMarkingTemplate = async (
   req: Request,
   res: Response,
@@ -787,7 +1072,7 @@ export const createMarkingTemplate = async (
   }
 };
 
-// --- IMPLEMENTATION ---
+
 export const getMarkingTemplatesForCourse = async (
   req: Request,
   res: Response,
@@ -813,7 +1098,6 @@ export const getMarkingTemplatesForCourse = async (
   }
 };
 
-// --- IMPLEMENTATION ---
 export const getStudentMarksForTemplate = async (
   req: Request,
   res: Response,
@@ -878,7 +1162,6 @@ export const getStudentMarksForTemplate = async (
   }
 };
 
-// --- IMPLEMENTATION ---
 export const saveStudentMarks = async (
   req: Request,
   res: Response,
@@ -932,7 +1215,7 @@ export const saveStudentMarks = async (
   }
 };
 
-// --- IMPLEMENTATION ---
+
 export const deleteMarkingTemplate = async (
   req: Request,
   res: Response,
@@ -964,7 +1247,7 @@ export const deleteMarkingTemplate = async (
   }
 };
 
-// --- IMPLEMENTATION ---
+
 export const getQuizzesForTeacher = async (
   req: Request,
   res: Response,
@@ -988,7 +1271,7 @@ export const getQuizzesForTeacher = async (
   }
 };
 
-// --- IMPLEMENTATION ---
+
 export const getQuizWithQuestions = async (
   req: Request,
   res: Response,
@@ -1022,7 +1305,7 @@ export const getQuizWithQuestions = async (
   }
 };
 
-// --- IMPLEMENTATION ---
+
 export const saveQuiz = async (
   req: Request,
   res: Response,
@@ -1097,7 +1380,6 @@ export const saveQuiz = async (
   }
 };
 
-// --- IMPLEMENTATION ---
 export const updateQuizStatus = async (
   req: Request,
   res: Response,
@@ -1130,7 +1412,6 @@ export const updateQuizStatus = async (
   }
 };
 
-// --- IMPLEMENTATION ---
 export const getQuizResults = async (
   req: Request,
   res: Response,

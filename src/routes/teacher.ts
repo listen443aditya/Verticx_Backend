@@ -16,6 +16,7 @@ router.get("/dashboard", teacherController.getTeacherDashboardData);
 // Students
 router.get("/students", teacherController.getStudentsForTeacher);
 router.get("/classes/:classId/students", teacherController.getStudentsForClass);
+router.get("/students/:studentId/profile", teacherController.getStudentProfile);
 
 // Courses & Syllabus
 router.get("/courses", teacherController.getTeacherCourses);
