@@ -922,6 +922,159 @@ export const saveAttendance = async (
   }
 };
 
+export const getMentoredClass = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { teacherId } = await getTeacherAuth(req);
+    if (!teacherId) return res.status(401).json({ message: "Unauthorized" });
+
+    const mentoredClass = await prisma.schoolClass.findFirst({
+      where: { mentorId: teacherId },
+      select: { id: true, gradeLevel: true, section: true },
+    });
+
+    if (!mentoredClass) {
+      return res
+        .status(404)
+        .json({ message: "You are not assigned as a Class Mentor." });
+    }
+
+    res.status(200).json(mentoredClass);
+  } catch (error) {
+    next(error);
+  }
+};
+
+
+export const getDailyAttendance = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { classId } = req.params;
+    const { date } = req.query;
+
+    if (!date) return res.status(400).json({ message: "Date required" });
+
+    const targetDate = new Date(date as string);
+    // Normalize date to UTC midnight to avoid timezone issues
+    const startDate = new Date(
+      Date.UTC(
+        targetDate.getFullYear(),
+        targetDate.getMonth(),
+        targetDate.getDate()
+      )
+    );
+    const endDate = new Date(
+      Date.UTC(
+        targetDate.getFullYear(),
+        targetDate.getMonth(),
+        targetDate.getDate() + 1
+      )
+    );
+
+    // Fetch Students
+    const students = await prisma.student.findMany({
+      where: { classId, status: "active" },
+      select: { id: true, name: true, classRollNumber: true },
+      orderBy: { classRollNumber: "asc" }, // Sort by Roll No
+    });
+
+    // Fetch Existing Attendance
+    const existingRecords = await prisma.attendanceRecord.findMany({
+      where: {
+        classId,
+        date: { gte: startDate, lt: endDate }, // Range check for date
+      },
+    });
+
+    const isSaved = existingRecords.length > 0;
+    const recordMap = new Map(existingRecords.map((r) => [r.studentId, r]));
+
+    const attendanceList = students.map((student) => {
+      const record = recordMap.get(student.id);
+      return {
+        studentId: student.id,
+        studentName: student.name,
+        rollNumber: student.classRollNumber,
+        status: record?.status || "Present", // Default to Present
+        id: record?.id,
+      };
+    });
+
+    res.status(200).json({ isSaved, attendance: attendanceList });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const saveDailyAttendance = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { classId, date, records } = req.body;
+
+    if (!records || !date)
+      return res.status(400).json({ message: "Invalid data" });
+
+    const targetDate = new Date(date);
+    // Normalize to UTC Midnight to match DB query expectations
+    const utcDate = new Date(
+      Date.UTC(
+        targetDate.getFullYear(),
+        targetDate.getMonth(),
+        targetDate.getDate()
+      )
+    );
+
+    // Use an interactive transaction to ensure data integrity
+    await prisma.$transaction(async (tx) => {
+      for (const r of records) {
+        // 1. Check if a record already exists for this Student + Date + Class
+        // We use findFirst because we don't have a unique constraint to use findUnique
+        const existingRecord = await tx.attendanceRecord.findFirst({
+          where: {
+            studentId: r.studentId,
+            date: utcDate,
+            classId: classId,
+          },
+        });
+
+        if (existingRecord) {
+          // 2. If exists, UPDATE it
+          // We use the ID found in the previous step
+          await tx.attendanceRecord.update({
+            where: { id: existingRecord.id },
+            data: { status: r.status },
+          });
+        } else {
+          // 3. If not exists, CREATE it
+          // Note: We do NOT pass courseId here, because this is Class Attendance.
+          // Ensure you made courseId optional in schema.prisma as instructed.
+          await tx.attendanceRecord.create({
+            data: {
+              studentId: r.studentId,
+              classId: classId,
+              date: utcDate,
+              status: r.status,
+            },
+          });
+        }
+      }
+    });
+
+    res.status(200).json({ message: "Attendance saved successfully." });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // ============================================================================
 // ASSIGNMENTS, GRADEBOOK, QUIZZES
 // ============================================================================

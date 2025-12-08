@@ -48,6 +48,13 @@ router.get(
 );
 router.post("/courses/attendance", teacherController.saveAttendance); // Matched frontend
 
+router.get("/my-mentored-class", teacherController.getMentoredClass);
+router.get(
+  "/classes/:classId/daily-attendance",
+  teacherController.getDailyAttendance
+);
+router.post("/classes/daily-attendance", teacherController.saveDailyAttendance);
+
 // Assignments
 router.get("/assignments", teacherController.getAssignmentsByTeacher);
 router.post("/assignments", teacherController.createAssignment);

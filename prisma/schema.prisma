@@ -427,6 +427,7 @@ model SchoolClass {
   feeTemplateId  String?
   feeTemplate    FeeTemplate?    @relation(fields: [feeTemplateId], references: [id])
   timetableSlots TimetableSlot[]
+  attendanceRecords AttendanceRecord[]
 
   quizzes          Quiz[]
   syllabusProgress SyllabusProgress[]
@@ -469,6 +470,7 @@ model Course {
   content          CourseContent[]
   markingTemplates MarkingTemplate[]
   grades           Grade[]
+  attendanceRecords AttendanceRecord[]
 }
 
 model Examination {
@@ -696,12 +698,15 @@ model ErpPayment {
 model AttendanceRecord {
   id        String           @id @default(uuid())
   studentId String
-  courseId  String
+  courseId  String?
   classId   String?
   date      DateTime
   status    AttendanceStatus
+  course    Course?  @relation(fields: [courseId], references: [id])
+  class     SchoolClass? @relation(fields: [classId], references: [id])
 
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
   student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
 }
 
