@@ -3,9 +3,9 @@
 import { Request, Response, NextFunction } from "express";
 import prisma from "../prisma";
 import { put } from "@vercel/blob";
-// Added all necessary enums
 import {
   Prisma,
+  Day,
   LectureStatus,
   QuizStatus,
   StudentQuizStatus,
@@ -1705,9 +1705,81 @@ export const getTeacherAvailability = async (
   next: NextFunction
 ) => {
   try {
-    // This is complex logic that requires reading the timetable.
-    // Returning a placeholder.
-    res.status(200).json(["09:00", "10:00", "14:00"]);
+    const { teacherId, date } = req.query;
+
+    if (!teacherId || !date) {
+      return res
+        .status(400)
+        .json({ message: "Teacher ID and Date are required." });
+    }
+
+    // 1. Determine Day of Week
+    const dateObj = new Date(date as string);
+    const days = [
+      "Sunday",
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+    ];
+
+    // logic: getDay() returns 0 for Sunday, 1 for Monday, etc.
+    const dayNameStr = days[dateObj.getDay()];
+
+    // 2. Fetch the Teacher's specific schedule for this day
+    const teacherSlots = await prisma.timetableSlot.findMany({
+      where: {
+        teacherId: String(teacherId),
+        day: dayNameStr as Day,
+      },
+      orderBy: { startTime: "asc" },
+      select: { startTime: true, endTime: true },
+    });
+
+    if (teacherSlots.length === 0) {
+      return res.status(200).json([]);
+    }
+
+    // 3. Determine the "Last Class" end time
+    const lastClassEnd = teacherSlots.reduce(
+      (max, slot) => (slot.endTime > max ? slot.endTime : max),
+      "00:00"
+    );
+
+    // 4. Fetch the "Master Schedule" for the Branch
+    const teacherProfile = await prisma.teacher.findUnique({
+      where: { id: String(teacherId) },
+      select: { branchId: true },
+    });
+
+    if (!teacherProfile) {
+      return res.status(404).json({ message: "Teacher not found." });
+    }
+
+    const allBranchSlots = await prisma.timetableSlot.findMany({
+      where: {
+        branchId: teacherProfile.branchId,
+        day: dayNameStr as Day,
+      },
+      distinct: ["startTime"],
+      orderBy: { startTime: "asc" },
+      select: { startTime: true },
+    });
+
+    // 5. Calculate Free Slots
+    const bookedStartTimes = new Set(teacherSlots.map((s) => s.startTime));
+
+    const freeSlots = allBranchSlots
+      .filter((slot) => {
+        const isBeforeLastClass = slot.startTime < lastClassEnd;
+        const isNotBooked = !bookedStartTimes.has(slot.startTime);
+        return isBeforeLastClass && isNotBooked;
+      })
+      .map((slot) => slot.startTime);
+
+    res.status(200).json(freeSlots);
   } catch (error: any) {
     next(error);
   }
