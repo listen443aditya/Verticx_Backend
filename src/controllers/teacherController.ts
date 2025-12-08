@@ -284,14 +284,12 @@ export const getStudentProfile = async (
             id: true,
             gradeLevel: true,
             section: true,
-            // Removed feeTemplate
           },
         },
-        room: { select: { roomNumber: true } }, // Removed fee
-        busStop: { select: { name: true } }, // Removed charges
+        room: { select: { roomNumber: true } },
+        busStop: { select: { name: true } },
         parent: true,
         user: true,
-        // Removed FeeAdjustment & feeRecords
         attendanceRecords: { orderBy: { date: "desc" }, take: 90 },
         grades: { include: { course: { select: { name: true } } } },
         skillAssessments: { orderBy: { assessedAt: "desc" }, take: 1 },
@@ -314,7 +312,7 @@ export const getStudentProfile = async (
       return res.status(404).json({ message: "Student not found." });
     }
 
-    // 2. Ranking Logic (Kept for Academic Context)
+    // 2. Ranking Logic
     let rankStats = { class: 0, school: 0 };
     if (student.class) {
       const gradePerformance = await prisma.examMark.groupBy({
@@ -364,16 +362,14 @@ export const getStudentProfile = async (
       rankStats.class = classRankIndex !== -1 ? classRankIndex + 1 : 0;
     }
 
-    // 3. Formatting Data
+    // 3. Formatting
     const s = student as any;
 
-    // Attendance Stats
     const present = s.attendanceRecords.filter(
       (a: any) => a.status === "Present"
     ).length;
     const totalAttendance = s.attendanceRecords.length;
 
-    // Academic Stats
     const formattedGrades = s.grades.map((g: any) => ({
       ...g,
       courseName: g.course.name,
@@ -388,7 +384,6 @@ export const getStudentProfile = async (
         }))
       : [];
 
-    // Recent Activity Feed
     const recentActivity = [
       ...s.attendanceRecords.slice(0, 3).map((a: any) => ({
         date: a.date.toISOString().split("T")[0],
@@ -403,16 +398,16 @@ export const getStudentProfile = async (
         new Date(b.date).getTime() - new Date(a.date).getTime()
     );
 
-    // 4. Construct Safe Response (No Fees)
+    // 4. Construct Safe Response (No Fees, No Govt ID)
     const profile = {
       student: {
         ...s,
         userId: s.user?.userId || "N/A",
         passwordHash: undefined,
+        governmentDocNumber: undefined,
         attendanceRecords: s.attendanceRecords,
         suspensionRecords: s.suspensionRecords,
         examMarks: s.examMarks,
-        // Explicitly excluding feeRecords and FeeAdjustment here
         room: s.room,
         busStop: s.busStop,
       },
@@ -435,8 +430,6 @@ export const getStudentProfile = async (
       recentActivity,
       rank: rankStats,
       activeSuspension: s.suspensionRecords[0] || null,
-
-      // Removed: feeStatus, feeHistory, feeBreakdown
     };
 
     res.status(200).json(profile);
