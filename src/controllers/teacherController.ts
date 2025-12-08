@@ -543,7 +543,7 @@ export const getTeacherCourses = async (
       where: { teacherId: teacherId },
       select: {
         id: true,
-        schoolClassId: true, // FIX: Use correct field name
+        schoolClassId: true, 
         subjectId: true,
       },
     });
