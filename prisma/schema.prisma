@@ -573,6 +573,9 @@ model MeetingRequest {
   requestedAt DateTime @default(now())
   agenda      String?
 
+  rescheduledDateTime DateTime?
+  teacherNotes        String?   @db.Text
+
   teacher Teacher @relation("TeacherToMeetings", fields: [teacherId], references: [id])
 
   parent  User    @relation("ParentMeetingRequests", fields: [parentId], references: [id])
