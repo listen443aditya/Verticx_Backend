@@ -1848,22 +1848,38 @@ export const submitSyllabusChangeRequest = async (
     if (!teacherId || !branchId) {
       return res.status(401).json({ message: "Unauthorized" });
     }
-    const { subjectId, description } = req.body;
+
+    const { subjectId, reason, requestType, originalData, newData } = req.body;
+
+    if (!subjectId || !reason) {
+      return res
+        .status(400)
+        .json({ message: "Subject ID and Reason are required." });
+    }
+
+    const formattedDescription = JSON.stringify({
+      type: requestType,
+      reason: reason,
+      original: originalData ? JSON.parse(originalData) : null,
+      proposed: newData ? JSON.parse(newData) : null,
+    });
+
     const requestData = {
       subjectId,
-      description,
-      teacherId: teacherId,
-      branchId: branchId,
+      teacherId,
+      branchId,
+      description: formattedDescription, 
     };
+
     await prisma.syllabusChangeRequest.create({
       data: requestData,
     });
+
     res.status(201).json({ message: "Syllabus change request submitted." });
   } catch (error: any) {
     next(error);
   }
 };
-
 export const submitExamMarkRectificationRequest = async (
   req: Request,
   res: Response,
