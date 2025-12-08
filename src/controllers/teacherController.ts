@@ -1376,46 +1376,48 @@ export const saveStudentMarks = async (
 ) => {
   try {
     const { teacherId } = await getTeacherAuth(req);
-    if (!teacherId) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-    const { templateId, marks } = req.body as {
-      templateId: string;
-      marks: { studentId: string; marksObtained: number | null }[];
-    };
+    if (!teacherId) return res.status(401).json({ message: "Unauthorized" });
 
-    // Verify teacher owns the template
+    const { templateId } = req.params; // Get templateId from URL
+    const { marks } = req.body; // Get marks array from body
+
+    if (!templateId || !marks || !Array.isArray(marks)) {
+      return res.status(400).json({ message: "Invalid data provided." });
+    }
+
+    // Verify template belongs to this teacher (Security Check)
     const template = await prisma.markingTemplate.findFirst({
-      where: { id: templateId, teacherId: teacherId },
-      select: { id: true },
+      where: { id: templateId, teacherId },
     });
+
     if (!template) {
       return res
         .status(403)
-        .json({ message: "You do not have permission to edit this template." });
+        .json({ message: "Template not found or unauthorized." });
     }
 
-    const upsertOps = marks
-      .filter((m) => m.marksObtained !== null) // Don't save nulls
-      .map((mark) => {
-        const marksObtained = parseFloat(mark.marksObtained as any);
-        return prisma.studentMark.upsert({
+    // Use transaction for bulk saving
+    await prisma.$transaction(
+      marks.map((mark: { studentId: string; marksObtained: number }) =>
+        prisma.studentMark.upsert({
           where: {
             studentId_templateId: {
               studentId: mark.studentId,
               templateId: templateId,
             },
           },
-          update: { marksObtained: marksObtained },
+          update: {
+            marksObtained: mark.marksObtained,
+          },
           create: {
             studentId: mark.studentId,
-            templateId: templateId,
-            marksObtained: marksObtained,
+            templateId: templateId, 
+            marksObtained: mark.marksObtained,
           },
-        });
-      });
+        })
+      )
+    );
 
-    await prisma.$transaction(upsertOps);
     res.status(200).json({ message: "Marks saved successfully." });
   } catch (error: any) {
     next(error);
