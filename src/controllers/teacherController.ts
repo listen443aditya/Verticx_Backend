@@ -274,8 +274,6 @@ export const getStudentProfile = async (
     const { studentId } = req.params;
 
     if (!teacherId) return res.status(401).json({ message: "Unauthorized." });
-
-    // 1. Fetch Student Data (Reusing the robust structure)
     const student = await prisma.student.findUnique({
       where: { id: studentId },
       include: {
@@ -291,8 +289,6 @@ export const getStudentProfile = async (
         busStop: { select: { charges: true, name: true } },
         parent: true,
         user: true,
-        FeeAdjustment: { orderBy: { date: "asc" } },
-        feeRecords: { include: { payments: true } },
         attendanceRecords: { orderBy: { date: "desc" }, take: 90 },
         grades: { include: { course: { select: { name: true } } } },
         skillAssessments: { orderBy: { assessedAt: "desc" }, take: 1 },
@@ -399,62 +395,8 @@ export const getStudentProfile = async (
       : 999;
 
     let calculatedTotalFee = 0;
-    const dynamicBreakdown = ACADEMIC_MONTH_NAMES.map((monthName, index) => {
-      const templateMonth = templateBreakdown.find(
-        (m: any) => m.month === monthName
-      );
-      let tuition = 0;
-      if (templateMonth) {
-        if (templateMonth.total) tuition = Number(templateMonth.total);
-        else if (templateMonth.breakdown)
-          tuition = templateMonth.breakdown.reduce(
-            (sum: number, c: any) => sum + (Number(c.amount) || 0),
-            0
-          );
-      } else if (s.class?.feeTemplate?.amount) {
-        tuition = Math.ceil(s.class.feeTemplate.amount / 12);
-      }
-
-      const hostelCharge = index >= hostelStartIndex ? monthlyHostelFee : 0;
-      const transportCharge =
-        index >= transportStartIndex ? monthlyTransportFee : 0;
-      const monthTotal = tuition + hostelCharge + transportCharge;
-      calculatedTotalFee += monthTotal;
-
-      return { month: monthName, total: monthTotal };
-    });
-
-    // Fee Ledger
-    const feeRecord = s.feeRecords[0];
-    const adjustments = s.FeeAdjustment || [];
-    const totalAdjustments = adjustments.reduce(
-      (acc: number, adj: any) =>
-        adj.type === "charge" ? acc + adj.amount : acc - adj.amount,
-      0
-    );
-
-    let netTotal = feeRecord ? feeRecord.totalAmount : calculatedTotalFee;
-    let paidAmount = feeRecord ? feeRecord.paidAmount : 0;
-    const feeStatus = {
-      total: netTotal,
-      paid: paidAmount,
-      pending: netTotal - paidAmount,
-    };
-
-    // 4. Formatting
-    const paymentHistory = (feeRecord?.payments || []).map((p: any) => ({
-      ...p,
-      itemType: "payment",
-    }));
-    const adjustmentHistory = (s.FeeAdjustment || []).map((adj: any) => ({
-      ...adj,
-      itemType: "adjustment",
-    }));
-    const feeHistory = [...paymentHistory, ...adjustmentHistory].sort(
-      (a: any, b: any) =>
-        new Date(b.date || b.paidDate).getTime() -
-        new Date(a.date || a.paidDate).getTime()
-    );
+    
+    
 
     const present = s.attendanceRecords.filter(
       (a: any) => a.status === "Present"
@@ -494,12 +436,9 @@ export const getStudentProfile = async (
       student: {
         ...s,
         userId: s.user?.userId || "N/A",
-        passwordHash: undefined,
-        feeRecords: s.feeRecords,
         attendanceRecords: s.attendanceRecords,
         suspensionRecords: s.suspensionRecords,
         examMarks: s.examMarks,
-        FeeAdjustment: s.FeeAdjustment,
         room: s.room,
         busStop: s.busStop,
       },
@@ -515,14 +454,11 @@ export const getStudentProfile = async (
         total: s.attendanceRecords.length,
       },
       attendanceHistory: s.attendanceRecords,
-      feeStatus,
-      feeHistory,
       grades: formattedGrades,
       skills: formattedSkills,
       recentActivity,
       rank: rankStats,
       activeSuspension: s.suspensionRecords[0] || null,
-      feeBreakdown: dynamicBreakdown,
     };
 
     res.status(200).json(profile);
