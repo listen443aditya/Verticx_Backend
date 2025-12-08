@@ -760,31 +760,28 @@ export const getCourseContentForTeacher = async (
   next: NextFunction
 ) => {
   try {
-    // --- IMPLEMENTATION ---
     const { teacherId } = await getTeacherAuth(req);
     if (!teacherId) {
       return res.status(401).json({ message: "Unauthorized" });
     }
+
     const { courseId } = req.query;
-    if (!courseId) {
-      return res
-        .status(400)
-        .json({ message: "courseId query param is required." });
+    const whereClause: any = { teacherId: teacherId };
+
+    if (courseId) {
+      whereClause.courseId = courseId as string;
     }
 
     const content = await prisma.courseContent.findMany({
-      where: {
-        teacherId: teacherId,
-        courseId: courseId as string,
-      },
+      where: whereClause,
       orderBy: { uploadedAt: "desc" },
     });
+
     res.status(200).json(content);
   } catch (error: any) {
     next(error);
   }
 };
-
 export const uploadCourseContent = async (
   req: Request,
   res: Response,
@@ -2256,7 +2253,6 @@ export const raiseComplaintAboutStudent = async (
 // STUDENT SKILLS
 // ============================================================================
 
-// --- IMPLEMENTATION ---
 export const getTeacherSkillAssessmentForStudent = async (
   req: Request,
   res: Response,
@@ -2283,7 +2279,6 @@ export const getTeacherSkillAssessmentForStudent = async (
   }
 };
 
-// --- IMPLEMENTATION ---
 export const submitSkillAssessment = async (
   req: Request,
   res: Response,
