@@ -527,14 +527,28 @@ export const getTeacherCourses = async (
     if (!teacherId) {
       return res.status(401).json({ message: "Unauthorized" });
     }
+
     const courses = await prisma.course.findMany({
       where: { teacherId: teacherId },
       include: {
         subject: { select: { name: true } },
-        schoolClass: { select: { gradeLevel: true, section: true } },
+        schoolClass: { select: { id: true, gradeLevel: true, section: true } },
       },
     });
-    res.status(200).json(courses);
+
+    // FIX: Filter out null classes first, then map
+    const formattedCourses = courses
+      .filter((c) => c.schoolClass !== null) // Ensure class exists
+      .map((c) => ({
+        id: `${c.schoolClass!.id}|${c.subjectId}`, // Use '!' because we filtered above
+        classId: c.schoolClass!.id,
+        subjectId: c.subjectId,
+        name: `${c.subject.name} - Grade ${c.schoolClass!.gradeLevel}${
+          c.schoolClass!.section
+        }`,
+      }));
+
+    res.status(200).json(formattedCourses);
   } catch (error: any) {
     next(error);
   }
@@ -591,6 +605,9 @@ export const getLectures = async (
 ) => {
   try {
     const { classId, subjectId } = req.query;
+    if (!classId || !subjectId)
+      return res.status(400).json({ message: "Missing params" });
+
     const lectures = await prisma.lecture.findMany({
       where: {
         classId: classId as string,
@@ -616,39 +633,38 @@ export const saveLectures = async (
     }
 
     const { classId, subjectId, lectures, newLectures, deletedLectureIds } =
-      req.body as {
-        classId: string;
-        subjectId: string;
-        lectures: (Omit<Prisma.LectureGetPayload<{}>, "scheduledDate"> & {
-          scheduledDate: string;
-        })[];
-        newLectures: string;
-        deletedLectureIds: string[];
-      };
+      req.body;
 
     const operations = [];
 
     // 1. Handle Updates
-    if (lectures && lectures.length > 0) {
+    if (lectures && Array.isArray(lectures)) {
       for (const lec of lectures) {
-        operations.push(
-          prisma.lecture.updateMany({
-            where: {
-              id: lec.id,
-              teacherId: teacherId,
-            },
-            data: {
-              topic: lec.topic,
-              status: lec.status as LectureStatus,
-              scheduledDate: new Date(lec.scheduledDate),
-            },
-          })
-        );
+        if (lec.id) {
+          operations.push(
+            prisma.lecture.updateMany({
+              where: {
+                id: lec.id,
+                teacherId: teacherId,
+              },
+              data: {
+                topic: lec.topic,
+                scheduledDate: new Date(lec.scheduledDate),
+                // FIX: Cast string to Enum
+                status: (lec.status as LectureStatus) || undefined,
+              },
+            })
+          );
+        }
       }
     }
 
     // 2. Handle Deletes
-    if (deletedLectureIds && deletedLectureIds.length > 0) {
+    if (
+      deletedLectureIds &&
+      Array.isArray(deletedLectureIds) &&
+      deletedLectureIds.length > 0
+    ) {
       operations.push(
         prisma.lecture.deleteMany({
           where: {
@@ -660,32 +676,25 @@ export const saveLectures = async (
     }
 
     // 3. Handle Creates
-    const lectureTopics = newLectures
-      .split("\n")
-      .map((l: string) => l.trim())
-      .filter((l: string) => l !== "");
-
-    if (lectureTopics.length > 0) {
-      const lectureData = lectureTopics.map((topic: string) => ({
+    if (newLectures && Array.isArray(newLectures) && newLectures.length > 0) {
+      const createData = newLectures.map((l: any) => ({
         branchId,
         classId,
         subjectId,
-        teacherId: teacherId,
-        topic,
-        scheduledDate: new Date(),
+        teacherId,
+        topic: l.topic,
+        scheduledDate: new Date(l.scheduledDate),
         status: "pending" as LectureStatus,
       }));
 
-      await prisma.lecture.createMany({
-        data: lectureData,
-      });
+      operations.push(prisma.lecture.createMany({ data: createData }));
     }
 
     if (operations.length > 0) {
       await prisma.$transaction(operations);
     }
 
-    res.status(201).json({ message: "Lectures saved." });
+    res.status(201).json({ message: "Lectures saved successfully." });
   } catch (error: any) {
     next(error);
   }
