@@ -1967,20 +1967,40 @@ export const submitExamMarkRectificationRequest = async (
     if (!teacherId || !branchId) {
       return res.status(401).json({ message: "Unauthorized" });
     }
-    const { examMarkId, reason, newScore } = req.body;
-    const requestData = {
-      examMarkId,
-      reason,
-      newScore: Number(newScore),
-      teacherId: teacherId,
-      branchId,
-    };
-    await prisma.examMarkRectificationRequest.create({
-      data: requestData,
+
+    const { details, reason } = req.body;
+
+    // 1. Find the existing Exam Mark record to link against
+    const existingMark = await prisma.examMark.findFirst({
+      where: {
+        studentId: details.studentId,
+        examScheduleId: details.examScheduleId,
+      },
+      select: { id: true },
     });
-    res
-      .status(201)
-      .json({ message: "Exam mark rectification request submitted." });
+
+    if (!existingMark) {
+      return res
+        .status(404)
+        .json({
+          message:
+            "Original exam mark record not found. Cannot rectify a missing mark.",
+        });
+    }
+
+    // 2. Create the Request
+    await prisma.examMarkRectificationRequest.create({
+      data: {
+        branchId: branchId,
+        teacherId: teacherId,
+        examMarkId: existingMark.id,
+        reason: reason,
+        newScore: Number(details.toScore),
+        status: "Pending",
+      },
+    });
+
+    res.status(201).json({ message: "Rectification request submitted." });
   } catch (error: any) {
     next(error);
   }
