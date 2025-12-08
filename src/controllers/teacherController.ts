@@ -830,6 +830,39 @@ export const uploadCourseContent = async (
   }
 };
 
+export const deleteCourseContent = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { teacherId } = await getTeacherAuth(req);
+    if (!teacherId) return res.status(401).json({ message: "Unauthorized" });
+
+    const { contentId } = req.params;
+
+    // 1. Verify ownership (Security Check)
+    const content = await prisma.courseContent.findFirst({
+      where: { id: contentId, teacherId },
+    });
+
+    if (!content) {
+      return res
+        .status(404)
+        .json({ message: "Content not found or unauthorized." });
+    }
+
+    // 2. Delete from Database
+    await prisma.courseContent.delete({
+      where: { id: contentId },
+    });
+
+    res.status(200).json({ message: "Content deleted successfully." });
+  } catch (error: any) {
+    next(error);
+  }
+};
+
 export const initializeCourse = async (
   req: Request,
   res: Response,

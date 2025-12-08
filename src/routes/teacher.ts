@@ -39,7 +39,10 @@ router.post(
   upload.single("file"),
   teacherController.uploadCourseContent
 );
-
+router.delete(
+  "/course-content/:contentId",
+  teacherController.deleteCourseContent
+);
 // Attendance
 router.get("/my-attendance", teacherController.getTeacherAttendance);
 router.get(
