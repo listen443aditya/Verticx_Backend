@@ -1521,32 +1521,30 @@ export const getQuizWithQuestions = async (
 ) => {
   try {
     const { teacherId } = await getTeacherAuth(req);
-    if (!teacherId) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
+    if (!teacherId) return res.status(401).json({ message: "Unauthorized" });
+
     const { quizId } = req.params;
 
-    const quiz = await prisma.quiz.findFirst({
-      where: {
-        id: quizId,
-        teacherId: teacherId, // Security check
-      },
-      include: {
-        questions: true,
-      },
+    const fullQuiz = await prisma.quiz.findFirst({
+      where: { id: quizId, teacherId },
+      include: { questions: true },
     });
 
-    if (!quiz) {
-      return res
-        .status(404)
-        .json({ message: "Quiz not found or you lack permission." });
+    if (!fullQuiz) {
+      return res.status(404).json({ message: "Quiz not found." });
     }
-    res.status(200).json(quiz);
+
+    // Separate them for the frontend
+    const { questions, ...quizDetails } = fullQuiz;
+
+    res.status(200).json({
+      quiz: quizDetails,
+      questions: questions,
+    });
   } catch (error: any) {
     next(error);
   }
 };
-
 
 export const saveQuiz = async (
   req: Request,
@@ -1555,68 +1553,81 @@ export const saveQuiz = async (
 ) => {
   try {
     const { teacherId, branchId } = await getTeacherAuth(req);
-    if (!teacherId || !branchId) {
+    if (!teacherId || !branchId)
       return res.status(401).json({ message: "Unauthorized" });
-    }
 
     const {
-      id,
+      id, // If present, it's an update. If "new" or missing, it's a create.
       title,
       classId,
       status,
       questionsPerStudent,
-      questions, // Array of QuizQuestion
-      deletedQuestionIds, // Array of question IDs to delete
+      questions,
+      deletedQuestionIds,
     } = req.body;
 
     const quizData = {
       title,
       classId,
-      status: status as QuizStatus,
-      questionsPerStudent: parseInt(questionsPerStudent, 10),
+      status,
+      questionsPerStudent: Number(questionsPerStudent),
       teacherId,
       branchId,
     };
 
-    const savedQuiz = await prisma.$transaction(async (tx) => {
-      // 1. Upsert the Quiz
-      const quiz = await tx.quiz.upsert({
-        where: { id: id || `new-quiz-${Math.random()}` },
-        update: quizData,
-        create: quizData,
-      });
+    await prisma.$transaction(async (tx) => {
+      let quizId = id;
 
-      // 2. Delete questions
+      // A. Create or Update Quiz Header
+      if (id && id !== "new") {
+        await tx.quiz.update({
+          where: { id },
+          data: quizData,
+        });
+      } else {
+        const newQuiz = await tx.quiz.create({
+          data: quizData,
+        });
+        quizId = newQuiz.id;
+      }
+
+      // B. Delete removed questions
       if (deletedQuestionIds && deletedQuestionIds.length > 0) {
         await tx.quizQuestion.deleteMany({
           where: {
             id: { in: deletedQuestionIds },
-            quizId: quiz.id, // Security check
+            quizId: quizId,
           },
         });
       }
 
-      // 3. Upsert questions
+      // C. Upsert Questions
       if (questions && questions.length > 0) {
         for (const q of questions) {
-          const questionPayload = {
-            quizId: quiz.id,
+          const qPayload = {
+            quizId: quizId,
             questionText: q.questionText,
             options: q.options,
             correctOptionIndex: q.correctOptionIndex,
           };
-          await tx.quizQuestion.upsert({
-            where: { id: q.id || `new-question-${Math.random()}` },
-            update: questionPayload,
-            create: questionPayload,
-          });
+
+          if (q.id) {
+            // Update existing
+            await tx.quizQuestion.update({
+              where: { id: q.id },
+              data: qPayload,
+            });
+          } else {
+            // Create new
+            await tx.quizQuestion.create({
+              data: qPayload,
+            });
+          }
         }
       }
-
-      return quiz;
     });
 
-    res.status(201).json(savedQuiz);
+    res.status(200).json({ message: "Quiz saved successfully" });
   } catch (error: any) {
     next(error);
   }
@@ -1661,32 +1672,27 @@ export const getQuizResults = async (
 ) => {
   try {
     const { teacherId } = await getTeacherAuth(req);
-    if (!teacherId) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
+    if (!teacherId) return res.status(401).json({ message: "Unauthorized" });
+
     const { quizId } = req.params;
 
-    // Verify teacher owns the quiz
+    // 1. Get Quiz & Questions
     const quiz = await prisma.quiz.findFirst({
-      where: { id: quizId, teacherId: teacherId },
-      select: { id: true },
+      where: { id: quizId, teacherId },
+      include: { questions: true },
     });
-    if (!quiz) {
-      return res
-        .status(403)
-        .json({ message: "You do not have permission to view these results." });
-    }
 
-    // Get all student instances for this quiz
+    if (!quiz) return res.status(404).json({ message: "Quiz not found." });
+
+    // 2. Get Results
     const results = await prisma.studentQuiz.findMany({
       where: { quizId: quizId },
       include: {
         student: { select: { id: true, name: true } },
       },
-      orderBy: { student: { name: "asc" } },
+      orderBy: { score: "desc" },
     });
 
-    // Format to match QuizResult type
     const formattedResults = results.map((r) => ({
       studentId: r.student.id,
       studentName: r.student.name,
@@ -1695,7 +1701,12 @@ export const getQuizResults = async (
       submittedAt: r.submittedAt,
     }));
 
-    res.status(200).json({ results: formattedResults });
+    // 3. Send combined object
+    res.status(200).json({
+      quiz: { ...quiz, questions: undefined }, // send quiz metadata
+      questions: quiz.questions, // send questions array
+      results: formattedResults, // send results
+    });
   } catch (error: any) {
     next(error);
   }
