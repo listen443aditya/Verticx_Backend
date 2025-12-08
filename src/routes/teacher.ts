@@ -17,7 +17,10 @@ router.get("/dashboard", teacherController.getTeacherDashboardData);
 router.get("/students", teacherController.getStudentsForTeacher);
 router.get("/classes/:classId/students", teacherController.getStudentsForClass);
 router.get("/students/:studentId/profile", teacherController.getStudentProfile);
-
+router.patch(
+  "/students/:studentId/roll-number",
+  teacherController.updateStudentRollNumber
+);
 // Courses & Syllabus
 router.get("/courses", teacherController.getTeacherCourses);
 router.get("/courses/by-branch", teacherController.getCoursesByBranch);

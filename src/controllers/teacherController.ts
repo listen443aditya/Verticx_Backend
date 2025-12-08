@@ -260,11 +260,12 @@ export const getStudentsForTeacher = async (
       where: {
         branchId: branchId,
         classId: { in: classIds },
-        status: "active", 
+        status: "active",
+        class: { timetableSlots: { some: { teacherId: String(teacherId) } } },
       },
       include: {
         class: {
-          select: { gradeLevel: true, section: true },
+          select: { gradeLevel: true, section: true, mentorId: true },
         },
         user: {
           select: { userId: true },
@@ -473,7 +474,44 @@ export const getStudentsForClass = async (
     next(error);
   }
 };
+export const updateStudentRollNumber = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const teacherId = (req as any).user?.id;
+    const { studentId } = req.params;
+    const { rollNo } = req.body;
 
+    if (!teacherId) return res.status(401).json({ message: "Unauthorized" });
+
+    // 1. Fetch student and their class mentor
+    const student = await prisma.student.findUnique({
+      where: { id: studentId },
+      include: { class: true },
+    });
+
+    if (!student) return res.status(404).json({ message: "Student not found" });
+
+    // 2. SECURITY CHECK: Is this teacher the mentor?
+    if (student.class?.mentorId !== teacherId) {
+      return res
+        .status(403)
+        .json({ message: "Only the Class Mentor can update Roll Numbers." });
+    }
+
+    // 3. Update
+    await prisma.student.update({
+      where: { id: studentId },
+      data: { classRollNumber: rollNo },
+    });
+
+    res.status(200).json({ message: "Roll number updated successfully." });
+  } catch (error) {
+    next(error);
+  }
+};
 // ============================================================================
 // COURSES, SYLLABUS, CONTENT
 // ============================================================================
