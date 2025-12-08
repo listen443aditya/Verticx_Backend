@@ -85,6 +85,7 @@ router.put("/quizzes/:quizId/status", teacherController.updateQuizStatus);
 router.get("/quizzes/:quizId/details", teacherController.getQuizWithQuestions);
 router.post("/quizzes/save", teacherController.saveQuiz);
 router.get("/quizzes/:quizId/results", teacherController.getQuizResults);
+router.delete("/quizzes/:quizId", teacherController.deleteQuiz);
 
 // Examinations & Marks
 router.get("/examinations", teacherController.getExaminations);

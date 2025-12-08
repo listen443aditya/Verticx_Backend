@@ -1712,6 +1712,39 @@ export const getQuizResults = async (
   }
 };
 
+export const deleteQuiz = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { teacherId } = await getTeacherAuth(req);
+    if (!teacherId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const { quizId } = req.params;
+
+    // Verify ownership before deleting
+    const quiz = await prisma.quiz.findFirst({
+      where: { id: quizId, teacherId },
+    });
+
+    if (!quiz) {
+      return res
+        .status(404)
+        .json({ message: "Quiz not found or unauthorized." });
+    }
+
+    await prisma.quiz.delete({
+      where: { id: quizId },
+    });
+
+    res.status(200).json({ message: "Quiz deleted successfully." });
+  } catch (error: any) {
+    next(error);
+  }
+};
+
 // ============================================================================
 // EXAMS & MARKS
 // ============================================================================
