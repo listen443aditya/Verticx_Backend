@@ -236,6 +236,8 @@ export const getStudentsForTeacher = async (
     if (!teacherId || !branchId) {
       return res.status(401).json({ message: "Unauthorized" });
     }
+
+    // 1. Find all classes the teacher teaches via Timetable
     const slots = await prisma.timetableSlot.findMany({
       where: { teacherId: teacherId },
       select: { classId: true },
@@ -243,6 +245,7 @@ export const getStudentsForTeacher = async (
     });
     const classIds = slots.map((s) => s.classId);
 
+    // 2. Find the class the teacher Mentors
     const mentoredClass = await prisma.schoolClass.findFirst({
       where: { mentorId: teacherId },
       select: { id: true },
@@ -252,18 +255,30 @@ export const getStudentsForTeacher = async (
       classIds.push(mentoredClass.id);
     }
 
+    // 3. Fetch Students with required relations
     const students = await prisma.student.findMany({
-      where: { branchId: branchId, classId: { in: classIds } },
+      where: {
+        branchId: branchId,
+        classId: { in: classIds },
+        status: "active", 
+      },
       include: {
-        class: { select: { gradeLevel: true, section: true } },
+        class: {
+          select: { gradeLevel: true, section: true },
+        },
+        user: {
+          select: { userId: true },
+        },
       },
       orderBy: [{ class: { gradeLevel: "asc" } }, { name: "asc" }],
     });
+
     res.status(200).json(students);
   } catch (error: any) {
     next(error);
   }
 };
+
 export const getStudentProfile = async (
   req: Request,
   res: Response,
