@@ -526,7 +526,7 @@ export const getTeacherCourses = async (
     const { teacherId } = await getTeacherAuth(req);
     if (!teacherId) return res.status(401).json({ message: "Unauthorized" });
 
-    // Fetch from Timetable to get all assigned class/subjects
+    // 1. Fetch teaching slots from Timetable (Source of Truth for "What I teach")
     const teachingSlots = await prisma.timetableSlot.findMany({
       where: { teacherId: teacherId },
       distinct: ["classId", "subjectId"],
@@ -538,33 +538,30 @@ export const getTeacherCourses = async (
       },
     });
 
-    // NOW: We need the actual Course DB ID for the gradebook to work.
-    // We can fetch the Course records that match these slots.
+    // 2. Fetch existing Course records to get the DB ID (for gradebook)
     const courses = await prisma.course.findMany({
-      where: {
-        teacherId: teacherId,
-        // Optimization: Only fetch active courses
+      where: { teacherId: teacherId },
+      select: {
+        id: true,
+        schoolClassId: true, // FIX: Use correct field name
+        subjectId: true,
       },
-      select: { id: true, classId: true, subjectId: true },
     });
 
+    // 3. Map Timetable Slots to Course Objects
     const formattedCourses = teachingSlots
       .filter((slot: any) => slot.class && slot.subject)
       .map((slot: any) => {
-        // Find the matching Course DB ID
+        // Find the matching Course record
+        // FIX: Compare slot.classId with c.schoolClassId
         const match = courses.find(
-          (c) => c.classId === slot.classId && c.subjectId === slot.subjectId
+          (c) =>
+            c.schoolClassId === slot.classId && c.subjectId === slot.subjectId
         );
 
         return {
-          // Dropdown ID (Composite)
-          id: `${slot.class.id}|${slot.subject.id}`,
-
-          // Real DB ID (Required for Gradebook Templates)
-          // If no Course record exists yet, we send null.
-          // The frontend should handle this (maybe disable button or auto-create).
-          realCourseId: match ? match.id : null,
-
+          id: `${slot.class.id}|${slot.subject.id}`, // Composite ID for frontend dropdown
+          realCourseId: match ? match.id : null, // DB ID for Gradebook
           classId: slot.class.id,
           subjectId: slot.subject.id,
           name: `${slot.subject.name} - Grade ${slot.class.gradeLevel}${slot.class.section}`,
@@ -576,7 +573,6 @@ export const getTeacherCourses = async (
     next(error);
   }
 };
-
 export const getCoursesByBranch = async (
   req: Request,
   res: Response,
