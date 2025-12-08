@@ -78,7 +78,7 @@ router.delete(
   "/gradebook/templates/:templateId",
   teacherController.deleteMarkingTemplate
 );
-
+router.post("/courses/initialize", teacherController.initializeCourse);
 // Quizzes
 router.get("/quizzes", teacherController.getQuizzesForTeacher);
 router.put("/quizzes/:quizId/status", teacherController.updateQuizStatus);

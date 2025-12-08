@@ -833,6 +833,70 @@ export const uploadCourseContent = async (
   }
 };
 
+export const initializeCourse = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { teacherId, branchId } = await getTeacherAuth(req);
+    if (!teacherId || !branchId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const { classId, subjectId } = req.body;
+
+    // 1. Verify Authorization: Does the teacher actually teach this class?
+    const slot = await prisma.timetableSlot.findFirst({
+      where: { teacherId, classId, subjectId },
+    });
+
+    if (!slot) {
+      return res
+        .status(403)
+        .json({
+          message:
+            "You are not assigned to this class/subject in the timetable.",
+        });
+    }
+
+    // 2. Check if it already exists (to prevent duplicates)
+    let course = await prisma.course.findFirst({
+      where: { teacherId, schoolClassId: classId, subjectId },
+    });
+
+    // 3. Create if missing
+    if (!course) {
+      // Fetch names for the record label
+      const subject = await prisma.subject.findUnique({
+        where: { id: subjectId },
+      });
+      const cls = await prisma.schoolClass.findUnique({
+        where: { id: classId },
+      });
+
+      if (!subject || !cls)
+        return res
+          .status(404)
+          .json({ message: "Subject or Class data missing." });
+
+      course = await prisma.course.create({
+        data: {
+          branchId,
+          teacherId,
+          schoolClassId: classId,
+          subjectId,
+          name: `${subject.name} - Grade ${cls.gradeLevel}${cls.section}`,
+        },
+      });
+    }
+
+    res.status(200).json(course);
+  } catch (error: any) {
+    next(error);
+  }
+};
+
 // ============================================================================
 // ATTENDANCE
 // ============================================================================
