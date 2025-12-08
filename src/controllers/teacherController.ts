@@ -251,8 +251,6 @@ export const getStudentsForTeacher = async (
     if (mentoredClass && !classIds.includes(mentoredClass.id)) {
       classIds.push(mentoredClass.id);
     }
-
-    // 3. Fetch Students
     const students = await prisma.student.findMany({
       where: {
         branchId: branchId,
@@ -264,17 +262,20 @@ export const getStudentsForTeacher = async (
           select: {
             gradeLevel: true,
             section: true,
-            mentorId: true,
+            mentorId: true, // Fetch mentor ID for comparison
           },
         },
-        user: {
-          select: { userId: true },
-        },
+        user: { select: { userId: true } },
       },
       orderBy: [{ class: { gradeLevel: "asc" } }, { name: "asc" }],
     });
 
-    res.status(200).json(students);
+    const studentsWithFlags = students.map((s: any) => ({
+      ...s,
+      isMentee: s.class?.mentorId === teacherId,
+    }));
+
+    res.status(200).json(studentsWithFlags);
   } catch (error: any) {
     next(error);
   }
