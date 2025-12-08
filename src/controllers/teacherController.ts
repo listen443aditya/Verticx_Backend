@@ -1172,26 +1172,6 @@ export const saveDailyAttendance = async (
 // ASSIGNMENTS, GRADEBOOK, QUIZZES
 // ============================================================================
 
-export const getAssignmentsByTeacher = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const { teacherId } = await getTeacherAuth(req);
-    if (!teacherId) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-    const assignments = await prisma.assignment.findMany({
-      where: { teacherId: teacherId },
-      orderBy: { dueDate: "desc" },
-    });
-    res.status(200).json(assignments);
-  } catch (error: any) {
-    next(error);
-  }
-};
-
 export const createAssignment = async (
   req: Request,
   res: Response,
@@ -1202,18 +1182,71 @@ export const createAssignment = async (
     if (!teacherId || !branchId) {
       return res.status(401).json({ message: "Unauthorized" });
     }
-    const { title, dueDate } = req.body;
-    const assignmentData = {
-      ...req.body,
-      title,
-      dueDate: new Date(dueDate),
-      teacherId: teacherId,
-      branchId: branchId,
-    };
-    const newAssignment = await prisma.assignment.create({
-      data: assignmentData,
+
+    const { courseId, title, description, dueDate } = req.body;
+
+    if (!courseId || !title || !dueDate) {
+      return res.status(400).json({ message: "Missing required fields." });
+    }
+
+    await prisma.assignment.create({
+      data: {
+        branchId,
+        teacherId,
+        courseId,
+        title,
+        description,
+        dueDate: new Date(dueDate),
+        status: "Open",
+      },
     });
-    res.status(201).json(newAssignment);
+
+    res.status(201).json({ message: "Assignment created successfully." });
+  } catch (error: any) {
+    next(error);
+  }
+};
+
+export const getAssignmentsByTeacher = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { teacherId } = await getTeacherAuth(req);
+    if (!teacherId) return res.status(401).json({ message: "Unauthorized" });
+
+    const assignments = await prisma.assignment.findMany({
+      where: { teacherId: teacherId },
+      include: {
+        // FIX: Now this works because we added the relation to the schema
+        course: {
+          include: {
+            schoolClass: {
+              select: { id: true, gradeLevel: true, section: true },
+            },
+            subject: { select: { name: true } },
+          },
+        },
+      },
+      orderBy: { dueDate: "desc" },
+    });
+
+    // Flatten for Frontend
+    const formattedAssignments = assignments.map((a: any) => ({
+      id: a.id,
+      title: a.title,
+      description: a.description,
+      dueDate: a.dueDate,
+      status: a.status,
+      // Safe navigation in case course is null (e.g. old data)
+      classId: a.course?.schoolClass?.id || null,
+      courseName: a.course
+        ? `${a.course.subject.name} (Grade ${a.course.schoolClass.gradeLevel}-${a.course.schoolClass.section})`
+        : "General",
+    }));
+
+    res.status(200).json(formattedAssignments);
   } catch (error: any) {
     next(error);
   }

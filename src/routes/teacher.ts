@@ -112,6 +112,7 @@ router.post(
   teacherController.submitExamMarkRectificationRequest
 );
 
+
 // Meetings & Availability
 router.get("/meetings", teacherController.getMeetingRequestsForTeacher); // Matched frontend
 router.put("/meetings/:requestId", teacherController.updateMeetingRequest); // Matched frontend

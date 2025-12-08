@@ -471,6 +471,7 @@ model Course {
   markingTemplates MarkingTemplate[]
   grades           Grade[]
   attendanceRecords AttendanceRecord[]
+  assignments   Assignment[]
 }
 
 model Examination {
@@ -536,6 +537,10 @@ model Assignment {
   teacherId String
   branchId  String?
   status    String?  @default("Pending")
+  description String?  @db.Text
+
+  courseId  String? 
+  course    Course?  @relation(fields: [courseId], references: [id])
 
   teacher     Teacher                @relation("TeacherToAssignments", fields: [teacherId], references: [id])
   branch      Branch?                @relation("BranchToAssignments", fields: [branchId], references: [id])
