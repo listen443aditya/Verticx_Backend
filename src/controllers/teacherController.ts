@@ -1075,6 +1075,7 @@ export const saveDailyAttendance = async (
   }
 };
 
+
 // ============================================================================
 // ASSIGNMENTS, GRADEBOOK, QUIZZES
 // ============================================================================
@@ -1758,29 +1759,68 @@ export const submitRectificationRequest = async (
 ) => {
   try {
     const { teacherId, branchId } = await getTeacherAuth(req);
+    const { type, details, reason } = req.body;
+
     if (!teacherId || !branchId) {
       return res.status(401).json({ message: "Unauthorized" });
     }
-    const { date, fromStatus, toStatus, reason } = req.body;
 
-    await prisma.teacherAttendanceRectificationRequest.create({
-      data: {
-        branchId,
-        teacherId: teacherId,
-        teacherName: req.user?.name || "Teacher",
-        date: new Date(date),
-        fromStatus,
-        toStatus,
-        reason,
-        status: "Pending",
-      },
-    });
-    res.status(201).json({ message: "Rectification request submitted." });
+    // CASE 1: Student Attendance Correction
+    if (type === "StudentAttendance") {
+      // We must combine 'reason' and 'details' into the single 'description' field
+      // and ensure we provide the mandatory 'studentId'
+      const combinedDescription = `Reason: ${reason}. Change: ${details.from} -> ${details.to}. Date: ${details.date}`;
+
+      await prisma.rectificationRequest.create({
+        data: {
+          branchId,
+          teacherId: teacherId,
+          studentId: details.studentId, // MANDATORY FIELD from schema
+          requestType: "Attendance",
+          description: combinedDescription, 
+        },
+      });
+    }
+    // CASE 2: Teacher Self-Attendance (Different Table)
+    else if (type === "TeacherAttendance") {
+      await prisma.teacherAttendanceRectificationRequest.create({
+        data: {
+          branchId,
+          teacherId,
+          teacherName: (req as any).user?.name || "Unknown",
+          date: new Date(details.date),
+          fromStatus: details.from,
+          toStatus: details.to,
+          reason: reason,
+          status: "Pending",
+        },
+      });
+    }
+    // CASE 3: Other Requests
+    else {
+
+      if (!details.studentId) {
+        return res
+          .status(400)
+          .json({ message: "Student ID is required for this request type." });
+      }
+
+      await prisma.rectificationRequest.create({
+        data: {
+          branchId,
+          teacherId: teacherId,
+          studentId: details.studentId,
+          requestType: type, // FIX: mapped to 'requestType'
+          description: `${reason} | ${JSON.stringify(details)}`, // FIX: mapped to 'description'
+        },
+      });
+    }
+
+    res.status(200).json({ message: "Request submitted successfully." });
   } catch (error: any) {
     next(error);
   }
 };
-
 export const submitSyllabusChangeRequest = async (
   req: Request,
   res: Response,
