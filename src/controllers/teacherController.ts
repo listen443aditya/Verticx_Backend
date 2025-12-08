@@ -2547,3 +2547,31 @@ export const getMyTransportDetails = async (
     next(error);
   }
 };
+
+export const getSchoolEvents = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { branchId } = await getTeacherAuth(req);
+    if (!branchId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    // Fetch approved events for this branch
+    const events = await prisma.schoolEvent.findMany({
+      where: {
+        branchId: branchId,
+        status: "Approved", // Only show approved events
+        // Optional: Filter by audience if you want strict backend filtering
+        // audience: { hasSome: ["All", "Staff", "Teacher"] }
+      },
+      orderBy: { date: "asc" },
+    });
+
+    res.status(200).json(events);
+  } catch (error: any) {
+    next(error);
+  }
+};

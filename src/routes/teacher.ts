@@ -153,5 +153,6 @@ router.put(
 // General / Utility
 router.get("/my-transport-details", teacherController.getMyTransportDetails);
 router.get("/library/search", teacherController.searchLibraryBooks);
+router.get("/events", teacherController.getSchoolEvents);
 
 export default router;
