@@ -62,7 +62,7 @@ export const getStudentDashboardData = async (
       teacherCompletedCount,
       skillAssessments,
     ] = await prisma.$transaction([
-      // A. Core Profile (Fetch BusStop & Room for Fees)
+      // A. Core Profile
       prisma.student.findUnique({
         where: { id: studentId },
         include: {
@@ -80,12 +80,13 @@ export const getStudentDashboardData = async (
           principal: { select: { id: true, name: true, email: true } },
         },
       }),
-      // Fetch Fee Structure via Class
+
+      // FIX: Correctly fetch feeTemplate (no invalid 'include' for components)
       prisma.schoolClass.findUnique({
         where: { id: classId },
         include: {
           mentor: { select: { name: true, email: true, phone: true } },
-          feeStructure: { include: { components: true } },
+          feeTemplate: true, // Fetch the whole template including the JSON field
         },
       }),
 
@@ -94,8 +95,6 @@ export const getStudentDashboardData = async (
         where: { studentId: studentId },
         include: { payments: true },
       }),
-
-      // ... (Standard queries)
       prisma.announcement.findMany({
         where: { branchId: branchId, audience: { in: ["All", "Students"] } },
         orderBy: { sentAt: "desc" },
@@ -111,6 +110,8 @@ export const getStudentDashboardData = async (
         orderBy: { date: "asc" },
         take: 5,
       }),
+
+      // C. Academic & Attendance
       prisma.attendanceRecord.findMany({
         where: { studentId: studentId },
         orderBy: { date: "desc" },
@@ -146,6 +147,8 @@ export const getStudentDashboardData = async (
         orderBy: { date: "asc" },
         take: 5,
       }),
+
+      // D. Marks & Ranking Data
       prisma.examMark.findMany({
         where: { studentId: studentId },
         include: {
@@ -163,6 +166,8 @@ export const getStudentDashboardData = async (
         where: { branchId: branchId },
         _sum: { score: true, totalMarks: true },
       }),
+
+      // E. Progress & Skills
       prisma.studentSyllabusProgress.findMany({
         where: { studentId: studentId },
         select: { lectureId: true },
@@ -291,36 +296,42 @@ export const getStudentDashboardData = async (
         submission: a.submissions[0],
       }));
 
-    // --- F. FEES LOGIC (REAL STRUCTURE BASED) ---
+    // --- F. FEES LOGIC (JSON Template Based) ---
 
-    // 1. Calculate Real Monthly Fee
+    // 1. Get Monthly Academic Fee
     let academicMonthlyFee = 0;
 
-    // FIX: Cast classInfo to 'any' to bypass TS error on deeply nested 'components'
-    const classInfoAny = classInfo as any;
-
-    if (classInfoAny.feeStructure && classInfoAny.feeStructure.components) {
-      // Sum up all components that are charged "Monthly"
-      academicMonthlyFee = classInfoAny.feeStructure.components
-        .filter((c: any) => c.frequency === "Monthly")
-        .reduce((sum: number, c: any) => sum + c.amount, 0);
+    // Extract from JSON 'monthlyBreakdown' if available
+    if (classInfo.feeTemplate && classInfo.feeTemplate.monthlyBreakdown) {
+      const breakdown = classInfo.feeTemplate.monthlyBreakdown as Record<
+        string,
+        number
+      >;
+      // Assuming the JSON structure is like { "Tuition": 2000, "Development": 500 }
+      // We sum all values to get the monthly total
+      academicMonthlyFee = Object.values(breakdown).reduce(
+        (sum, val) => sum + Number(val),
+        0
+      );
+    } else if (classInfo.feeTemplate?.amount) {
+      // Fallback: If no breakdown, assume 'amount' is Annual and divide by 12
+      academicMonthlyFee = Math.floor(classInfo.feeTemplate.amount / 12);
     }
 
+    // 2. Add Student-Specific Extras (Transport + Hostel)
     const transportMonthlyFee = student.busStop?.charges || 0;
     const hostelMonthlyFee = student.room?.fee || 0;
 
-    // Total Monthly Recurrence
     const totalMonthlyFee =
       academicMonthlyFee + transportMonthlyFee + hostelMonthlyFee;
 
-    // 2. Financial Totals
+    // 3. Payment Distribution
     const totalPaid =
       feeRecord?.payments.reduce((acc, p) => acc + p.amount, 0) || 0;
     const previousSessionDues = feeRecord?.previousSessionDues || 0;
     const totalAnnualFee = feeRecord?.totalAmount || totalMonthlyFee * 12;
     const totalOutstanding = totalAnnualFee + previousSessionDues - totalPaid;
 
-    // 3. Payment Distribution
     const previousSessionDuesPaid = Math.min(totalPaid, previousSessionDues);
     let paidTracker = Math.max(0, totalPaid - previousSessionDuesPaid);
 
@@ -467,7 +478,6 @@ export const getStudentDashboardData = async (
     next(error);
   }
 };
-
 export const getStudentProfile = async (
   req: Request,
   res: Response,
