@@ -328,15 +328,23 @@ export const getStudentDashboardData = async (
 
     let paidTracker = currentSessionPaid;
 
+    const baseMonthlyFee = Math.floor(totalAnnualFee / 12);
+    let remainder = totalAnnualFee % 12; 
+
     const monthlyDues = months.map((month, index) => {
-      const isNextYear = index > 8; // Jan, Feb, Mar are next year
+      const isNextYear = index > 8;
+      let currentMonthAmount = baseMonthlyFee;
+      if (remainder > 0) {
+        currentMonthAmount += 1;
+        remainder--;
+      }
       let paidForMonth = 0;
       let status = "Due";
 
-      if (paidTracker >= monthlyAmount) {
-        paidForMonth = monthlyAmount;
+      if (paidTracker >= currentMonthAmount) {
+        paidForMonth = currentMonthAmount;
         status = "Paid";
-        paidTracker -= monthlyAmount;
+        paidTracker -= currentMonthAmount;
       } else if (paidTracker > 0) {
         paidForMonth = paidTracker;
         status = "Partially Paid";
@@ -349,7 +357,7 @@ export const getStudentDashboardData = async (
       return {
         month: month,
         year: isNextYear ? currentYear + 1 : currentYear,
-        total: monthlyAmount,
+        total: currentMonthAmount,
         paid: paidForMonth,
         status: status,
       };
@@ -357,7 +365,8 @@ export const getStudentDashboardData = async (
 
     const fees = {
       totalOutstanding: Math.max(0, totalOutstanding),
-      currentMonthDue: monthlyAmount, // Show monthly installment amount
+      // Current month due is based on the first month that isn't fully paid
+      currentMonthDue: monthlyDues.find((m) => m.status !== "Paid")?.total || 0,
       dueDate: feeRecord?.dueDate.toISOString() || new Date().toISOString(),
       totalAnnualFee: totalAnnualFee,
       totalPaid: totalPaid,
