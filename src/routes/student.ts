@@ -11,19 +11,16 @@ router.use(protect);
 // Fees
 router.get(
   "/fees/record",
-  authorize(["Student", "Parent"]),
   studentController.getFeeRecordForStudent
 );
 
 router.post(
   "/fees/record-payment",
-  authorize(["Student", "Parent"]),
   studentController.recordFeePayment
 );
 
 router.post(
   "/pay-fees",
-  authorize(["Student", "Parent"]),
   studentController.payStudentFees
 );
 
