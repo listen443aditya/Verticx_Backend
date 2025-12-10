@@ -1,21 +1,19 @@
 import { Request, Response, NextFunction } from "express";
 import prisma from "../prisma";
-import { Assignment, Prisma,Branch } from "@prisma/client";
+import { Assignment, Prisma, Branch } from "@prisma/client";
 
-// --- HELPER FUNCTION ---
-// Get the Student ID, User ID, Branch ID, and Class ID from the authenticated user
+// --- HELPERS ---
+
 const getStudentAuth = async (req: Request) => {
   const userId = req.user?.id;
   const branchId = req.user?.branchId;
   if (!userId || !branchId) {
     return { studentId: null, userId: null, branchId: null, classId: null };
   }
-
   const student = await prisma.student.findUnique({
     where: { userId: userId },
     select: { id: true, classId: true },
   });
-
   return {
     studentId: student?.id || null,
     userId: userId,
@@ -24,7 +22,14 @@ const getStudentAuth = async (req: Request) => {
   };
 };
 
-// --- CONTROLLER FUNCTIONS ---
+// Helper to map date to Academic Year Index (April = 0, March = 11)
+const getAcademicMonthIndex = (date: Date): number => {
+  const month = date.getMonth(); // 0 = Jan, 11 = Dec
+  // April(3) -> 0, May(4) -> 1 ... Dec(11) -> 8, Jan(0) -> 9 ... March(2) -> 11
+  return month >= 3 ? month - 3 : month + 9;
+};
+
+// --- CONTROLLER ---
 
 export const getStudentDashboardData = async (
   req: Request,
@@ -62,12 +67,13 @@ export const getStudentDashboardData = async (
       teacherCompletedCount,
       skillAssessments,
     ] = await prisma.$transaction([
-      // A. Core Profile
+      // A. Core Profile (Fetch Extra Details for Smart Fee Engine)
       prisma.student.findUnique({
         where: { id: studentId },
         include: {
-          busStop: { select: { charges: true } },
-          room: { select: { fee: true } },
+          busStop: { select: { charges: true, name: true } },
+          room: { select: { fee: true, roomNumber: true } },
+          FeeAdjustment: { orderBy: { date: "asc" } }, // Needed for service start dates
         },
       }),
       prisma.user.findUnique({
@@ -80,12 +86,12 @@ export const getStudentDashboardData = async (
           principal: { select: { id: true, name: true, email: true } },
         },
       }),
-      // Correctly fetch feeTemplate
+      // Fetch Fee Template with JSON breakdown
       prisma.schoolClass.findUnique({
         where: { id: classId },
         include: {
           mentor: { select: { name: true, email: true, phone: true } },
-          feeTemplate: true, // Fetches monthlyBreakdown JSON
+          feeTemplate: true,
         },
       }),
 
@@ -110,7 +116,7 @@ export const getStudentDashboardData = async (
         take: 5,
       }),
 
-      // C. Academic & Attendance
+      // C. Academic
       prisma.attendanceRecord.findMany({
         where: { studentId: studentId },
         orderBy: { date: "desc" },
@@ -190,7 +196,7 @@ export const getStudentDashboardData = async (
 
     // --- 3. LOGIC ENGINE ---
 
-    // FIX: Cast for safety
+    // FIX: Cast classInfo to 'any' for nested relations safety
     const classInfoAny = classInfo as any;
 
     // A. Profile
@@ -298,35 +304,9 @@ export const getStudentDashboardData = async (
         submission: a.submissions[0],
       }));
 
-    // --- F. FEES LOGIC (FIXED: Uses monthlyBreakdown JSON) ---
+    // --- F. SMART FEE ENGINE (PORTED FROM REGISTRAR LOGIC) ---
 
-    // 1. Get Extra Charges (Transport & Hostel)
-    const transportMonthlyFee = student.busStop?.charges || 0;
-    const hostelMonthlyFee = student.room?.fee || 0;
-
-    // 2. Prepare Breakdown Data
-    // Check if the template has the JSON 'monthlyBreakdown'
-    let monthlyBreakdownMap: Record<string, number> | null = null;
-    let baseAcademicFee = 0;
-
-    if (classInfoAny.feeTemplate?.monthlyBreakdown) {
-      // e.g. { "April": 1500, "May": 1500, "August": 2800 }
-      monthlyBreakdownMap = classInfoAny.feeTemplate.monthlyBreakdown;
-    } else if (classInfoAny.feeTemplate?.amount) {
-      // Fallback: If no breakdown exists, spread amount evenly
-      baseAcademicFee = Math.floor(classInfoAny.feeTemplate.amount / 12);
-    }
-
-    // 3. Payment Totals
-    const totalPaid =
-      feeRecord?.payments.reduce((acc, p) => acc + p.amount, 0) || 0;
-    const previousSessionDues = feeRecord?.previousSessionDues || 0;
-
-    // 4. Payment Priority Logic
-    const previousSessionDuesPaid = Math.min(totalPaid, previousSessionDues);
-    let paidTracker = Math.max(0, totalPaid - previousSessionDuesPaid);
-
-    const months = [
+    const ACADEMIC_MONTH_NAMES = [
       "April",
       "May",
       "June",
@@ -341,40 +321,105 @@ export const getStudentDashboardData = async (
       "March",
     ];
     const currentYear = new Date().getFullYear();
-    let calculatedAnnualTotal = 0;
 
-    const monthlyDues = months.map((month, index) => {
+    // 1. Determine Service Start Indices
+    const getServiceStartIndex = (keyword: string) => {
+      const logs = student.FeeAdjustment || [];
+      const log = logs.find(
+        (adj) => adj.reason && adj.reason.includes(keyword)
+      );
+
+      if (log) return getAcademicMonthIndex(new Date(log.date));
+
+      // Fallback: If admission was during this session, use admission date
+      const sessionStartDate = new Date(currentYear, 3, 1); // April 1st
+      const admission = new Date(student.createdAt);
+      if (admission > sessionStartDate) return getAcademicMonthIndex(admission);
+
+      return 0; // Default: Start of session
+    };
+
+    const hostelStartIndex = student.room
+      ? getServiceStartIndex("Hostel Assigned")
+      : 999;
+    const transportStartIndex = student.busStop
+      ? getServiceStartIndex("Transport Assigned")
+      : 999;
+
+    // 2. Fetch Base Values
+    const templateBreakdown =
+      (classInfoAny.feeTemplate?.monthlyBreakdown as any[]) || [];
+    const monthlyHostelFee = Number(student.room?.fee || 0);
+    const monthlyTransportFee = Number(student.busStop?.charges || 0);
+
+    // 3. Build Dynamic Monthly Totals
+    // This replicates the "Smart Fee Engine" loop exactly
+    let calculatedTotalFee = 0;
+
+    // We calculate the *ideal* monthly structure first
+    const idealMonthlyDues = ACADEMIC_MONTH_NAMES.map((monthName, index) => {
       const isNextYear = index > 8;
+      const templateMonth = templateBreakdown.find(
+        (m: any) => m.month === monthName
+      );
 
-      // A. Determine Academic Fee for this Month
-      let academicAmount = 0;
-
-      if (monthlyBreakdownMap && monthlyBreakdownMap[month] !== undefined) {
-        // Use exact value from JSON (e.g. 1500)
-        academicAmount = Number(monthlyBreakdownMap[month]);
-      } else {
-        // Fallback to even spread
-        academicAmount = baseAcademicFee;
-        // Add remainder to March if using fallback logic
-        if (!monthlyBreakdownMap && classInfoAny.feeTemplate?.amount) {
-          const remainder = classInfoAny.feeTemplate.amount % 12;
-          if (index === 11) academicAmount += remainder;
+      // A. Tuition Priority Logic
+      let tuition = 0;
+      if (templateMonth) {
+        if (
+          Array.isArray(templateMonth.breakdown) &&
+          templateMonth.breakdown.length > 0
+        ) {
+          // Priority 1: Sum from breakdown components
+          tuition = templateMonth.breakdown.reduce(
+            (sum: number, c: any) => sum + (Number(c.amount) || 0),
+            0
+          );
+        } else if (templateMonth.total) {
+          // Priority 2: Use total if breakdown missing
+          tuition = Number(templateMonth.total);
         }
+      } else if (classInfoAny.feeTemplate?.amount) {
+        // Priority 3: Fallback Annual Distribution
+        tuition = Math.ceil(classInfoAny.feeTemplate.amount / 12);
       }
 
-      // B. Total for Month (Academic + Extras)
-      const totalForMonth =
-        academicAmount + transportMonthlyFee + hostelMonthlyFee;
-      calculatedAnnualTotal += totalForMonth;
+      // B. Add Service Charges if active for this month
+      const hostelCharge = index >= hostelStartIndex ? monthlyHostelFee : 0;
+      const transportCharge =
+        index >= transportStartIndex ? monthlyTransportFee : 0;
 
-      // C. Payment Status
+      const monthTotal = tuition + hostelCharge + transportCharge;
+      calculatedTotalFee += monthTotal;
+
+      return {
+        month: monthName,
+        year: isNextYear ? currentYear + 1 : currentYear,
+        total: monthTotal, // Precise Amount per month
+      };
+    });
+
+    // 4. Financial Totals (Use Calculated Total for accuracy)
+    const totalPaid =
+      feeRecord?.payments.reduce((acc, p) => acc + p.amount, 0) || 0;
+    const previousSessionDues = feeRecord?.previousSessionDues || 0;
+    const totalAnnualFee = calculatedTotalFee; // Trust our engine over the DB cache if needed
+    const totalOutstanding = totalAnnualFee + previousSessionDues - totalPaid;
+
+    // 5. Payment Distribution Logic (Waterfall)
+    const previousSessionDuesPaid = Math.min(totalPaid, previousSessionDues);
+    let paidTracker = Math.max(0, totalPaid - previousSessionDuesPaid);
+
+    // Combine Ideal Data + Payment Status
+    const monthlyDues = idealMonthlyDues.map((due) => {
       let paidForMonth = 0;
       let status = "Due";
 
-      if (paidTracker >= totalForMonth) {
-        paidForMonth = totalForMonth;
+      // Logic: Try to pay off this month's exact fee
+      if (paidTracker >= due.total) {
+        paidForMonth = due.total;
         status = "Paid";
-        paidTracker -= totalForMonth;
+        paidTracker -= due.total;
       } else if (paidTracker > 0) {
         paidForMonth = paidTracker;
         status = "Partially Paid";
@@ -385,27 +430,16 @@ export const getStudentDashboardData = async (
       }
 
       return {
-        month: month,
-        year: isNextYear ? currentYear + 1 : currentYear,
-        total: totalForMonth,
+        ...due,
         paid: paidForMonth,
         status: status,
       };
     });
 
-    // Use calculated total if feeRecord doesn't have a static one
-    const totalAnnualFee = feeRecord?.totalAmount || calculatedAnnualTotal;
-    const totalOutstanding = totalAnnualFee + previousSessionDues - totalPaid;
-
     const fees = {
       totalOutstanding: Math.max(0, totalOutstanding),
-      // Current month due is approximate for the dashboard card (using average or current month index)
-      currentMonthDue:
-        monthlyDues[
-          new Date().getMonth() > 2
-            ? new Date().getMonth() - 3
-            : new Date().getMonth() + 9
-        ]?.total || 0,
+      // Current month due: Finds the first non-Paid month's total amount
+      currentMonthDue: monthlyDues.find((m) => m.status !== "Paid")?.total || 0,
       dueDate: feeRecord?.dueDate.toISOString() || new Date().toISOString(),
       totalAnnualFee: totalAnnualFee,
       totalPaid: totalPaid,
@@ -414,7 +448,7 @@ export const getStudentDashboardData = async (
       monthlyDues: monthlyDues,
     };
 
-    // G. Skills & AI Suggestion
+    // G. Skills Logic
     let skillsData: { skill: string; value: number }[] = [];
     let aiSuggestion = "Keep up the good work!";
 
@@ -502,7 +536,6 @@ export const getStudentDashboardData = async (
     next(error);
   }
 };
-
 
 export const getStudentProfile = async (
   req: Request,
@@ -723,7 +756,11 @@ export const payStudentFees = async (
           amount: parseFloat(amount),
           paidDate: new Date(),
           transactionId: `MANUAL_${Date.now()}`,
-          details: details || (hasOnlinePaymentSetup ? "Online Payment (Recorded)" : "Manual Payment by Student"),
+          details:
+            details ||
+            (hasOnlinePaymentSetup
+              ? "Online Payment (Recorded)"
+              : "Manual Payment by Student"),
         },
       }),
       prisma.feeRecord.update({
@@ -1159,7 +1196,7 @@ export const resolveStudentComplaint = async (
     const result = await prisma.complaint.updateMany({
       where: {
         id: complaintId,
-        raisedById: userId, 
+        raisedById: userId,
       },
       data: {
         status: "Resolved",
@@ -1167,11 +1204,9 @@ export const resolveStudentComplaint = async (
     });
 
     if (result.count === 0) {
-      return res
-        .status(404)
-        .json({
-          message: "Complaint not found or you do not have permission.",
-        });
+      return res.status(404).json({
+        message: "Complaint not found or you do not have permission.",
+      });
     }
     res.status(200).json({ message: "Complaint resolved." });
   } catch (error: any) {
