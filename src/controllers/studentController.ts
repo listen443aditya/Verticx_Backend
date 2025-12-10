@@ -872,22 +872,29 @@ export const getCourseContentForStudent = async (
 ) => {
   try {
     const { classId } = await getStudentAuth(req);
+
     if (!classId) {
-      return res
-        .status(401)
-        .json({ message: "Unauthorized or no class assigned." });
+      return res.status(404).json({ message: "Class not assigned." });
     }
-
-    const courses = await prisma.course.findMany({
-      where: { schoolClassId: classId },
-      select: { id: true },
-    });
-    const courseIds = courses.map((c) => c.id);
-
     const content = await prisma.courseContent.findMany({
-      where: { courseId: { in: courseIds } },
+      where: {
+        course: {
+          schoolClassId: classId,
+        },
+      },
+      include: {
+        course: {
+          select: {
+            id: true,
+            subject: {
+              select: { name: true },
+            },
+          },
+        },
+      },
       orderBy: { uploadedAt: "desc" },
     });
+
     res.status(200).json(content);
   } catch (error: any) {
     next(error);
