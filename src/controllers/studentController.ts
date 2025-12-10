@@ -60,17 +60,15 @@ export const getStudentDashboardData = async (
       allSchoolMarksRaw,
       studentProgress,
       totalLecturesCount,
+      teacherCompletedCount, // <--- NEW: Real count of taught lectures
       skillAssessments,
     ] = await prisma.$transaction([
       // A. Core Profile
       prisma.student.findUnique({ where: { id: studentId } }),
-
-      // FIX 1: Select 'userId' (the readable ID) instead of 'username'
       prisma.user.findUnique({
         where: { id: userId },
         select: { userId: true },
       }),
-
       prisma.branch.findUnique({
         where: { id: branchId },
         include: {
@@ -150,7 +148,6 @@ export const getStudentDashboardData = async (
           examination: { select: { name: true } },
         },
       }),
-      // Aggregate Queries (Note: Casting handled in logic section)
       prisma.examMark.groupBy({
         by: ["studentId"],
         where: { branchId: branchId, student: { classId: classId } },
@@ -167,7 +164,15 @@ export const getStudentDashboardData = async (
         where: { studentId: studentId },
         select: { lectureId: true },
       }),
+
+      // 1. Total Lectures in Class Syllabus
       prisma.lecture.count({ where: { classId: classId } }),
+
+      // 2. NEW: Lectures marked as "completed" by teacher
+      prisma.lecture.count({
+        where: { classId: classId, status: "completed" },
+      }),
+
       prisma.skillAssessment.findMany({
         where: { studentId: studentId },
         orderBy: { assessedAt: "desc" },
@@ -231,7 +236,7 @@ export const getStudentDashboardData = async (
     const overallMarksPercentage =
       myMaxScore > 0 ? (myTotalScore / myMaxScore) * 100 : 0;
 
-    // C. Ranking (Typescript Fix: Cast to any[] for _sum access)
+    // C. Ranking
     const allClassMarks = allClassMarksRaw as any[];
     const allSchoolMarks = allSchoolMarksRaw as any[];
 
@@ -339,14 +344,12 @@ export const getStudentDashboardData = async (
         "Complete your first skill assessment to get personalized tips.";
     }
 
-    // H. Progress
+    // H. Progress (FIXED)
     const selfStudyProgress = {
       totalLectures: totalLecturesCount,
       studentCompletedLectures: studentProgress.length,
-      teacherCompletedLectures: Math.min(
-        totalLecturesCount,
-        Math.floor(totalLecturesCount * 0.6)
-      ),
+      // FIX: Use real DB count instead of simulation
+      teacherCompletedLectures: teacherCompletedCount,
     };
 
     const timetableConfig = {
@@ -394,7 +397,6 @@ export const getStudentDashboardData = async (
     next(error);
   }
 };
-
 export const getStudentProfile = async (
   req: Request,
   res: Response,
