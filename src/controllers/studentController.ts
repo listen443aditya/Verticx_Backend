@@ -11,15 +11,14 @@ const getStudentAuth = async (req: Request) => {
     return { studentId: null, userId: null, branchId: null, classId: null };
   }
 
-  // Find the linked Student profile using the User ID
   const student = await prisma.student.findUnique({
     where: { userId: userId },
     select: { id: true, classId: true },
   });
 
   return {
-    studentId: student?.id || null, // This is the 'Student' table ID
-    userId: userId, // This is the 'User' table ID
+    studentId: student?.id || null,
+    userId: userId,
     branchId: branchId,
     classId: student?.classId || null,
   };
@@ -42,7 +41,7 @@ export const getStudentDashboardData = async (
         .json({ message: "Student profile incomplete or unauthorized." });
     }
 
-    // 2. Fetch ALL required data in a single massive parallel transaction
+    // 2. Fetch Data Parallel
     const [
       student,
       userRecord,
@@ -57,19 +56,21 @@ export const getStudentDashboardData = async (
       timetable,
       examSchedules,
       myExamMarks,
-      allClassMarksRaw, // To calc Class Rank
-      allSchoolMarksRaw, // To calc School Rank
+      allClassMarksRaw,
+      allSchoolMarksRaw,
       studentProgress,
       totalLecturesCount,
       skillAssessments,
     ] = await prisma.$transaction([
       // A. Core Profile
       prisma.student.findUnique({ where: { id: studentId } }),
-      // FIX 1: Fetch 'userId' (VRTX-...) instead of 'username'
+
+      // FIX 1: Select 'userId' (the readable ID) instead of 'username'
       prisma.user.findUnique({
         where: { id: userId },
         select: { userId: true },
       }),
+
       prisma.branch.findUnique({
         where: { id: branchId },
         include: {
@@ -108,12 +109,12 @@ export const getStudentDashboardData = async (
       prisma.attendanceRecord.findMany({
         where: { studentId: studentId },
         orderBy: { date: "desc" },
-        take: 30, // Last 30 records for chart
+        take: 30,
       }),
       prisma.assignment.findMany({
         where: {
           teacher: { courses: { some: { schoolClassId: classId } } },
-          status: "Open", // Only show open assignments in dashboard
+          status: "Open",
         },
         include: {
           submissions: { where: { studentId: studentId } },
@@ -132,6 +133,7 @@ export const getStudentDashboardData = async (
           subject: { select: { name: true } },
           teacher: { select: { name: true } },
         },
+        orderBy: { startTime: "asc" },
       }),
       prisma.examSchedule.findMany({
         where: { classId: classId, date: { gte: new Date() } },
@@ -148,15 +150,15 @@ export const getStudentDashboardData = async (
           examination: { select: { name: true } },
         },
       }),
-      // FIX 2: GroupBy results. We handle the typing downstream.
+      // Aggregate Queries (Note: Casting handled in logic section)
       prisma.examMark.groupBy({
         by: ["studentId"],
-        where: { branchId: branchId, student: { classId: classId } }, // Class-mates
+        where: { branchId: branchId, student: { classId: classId } },
         _sum: { score: true, totalMarks: true },
       }),
       prisma.examMark.groupBy({
         by: ["studentId"],
-        where: { branchId: branchId }, // School-mates
+        where: { branchId: branchId },
         _sum: { score: true, totalMarks: true },
       }),
 
@@ -169,7 +171,7 @@ export const getStudentDashboardData = async (
       prisma.skillAssessment.findMany({
         where: { studentId: studentId },
         orderBy: { assessedAt: "desc" },
-        take: 1, // Get latest assessment
+        take: 1,
       }),
     ]);
 
@@ -181,11 +183,11 @@ export const getStudentDashboardData = async (
 
     // --- 3. LOGIC ENGINE ---
 
-    // A. Profile Construction
+    // A. Profile
     const profile = {
       id: student.id,
-      // FIX 1: Use 'userId' field from userRecord (VRTX-...)
-      userId: userRecord?.userId || "ID-Pending",
+      // FIX 2: Access 'userId' from userRecord
+      userId: userRecord?.userId || "VRTX-PENDING",
       name: student.name,
       class: `Grade ${classInfo.gradeLevel}-${classInfo.section}`,
       classId: classInfo.id,
@@ -198,12 +200,11 @@ export const getStudentDashboardData = async (
       },
     };
 
-    // B. Performance & Averages Calculation
+    // B. Performance
     const subjectPerformanceMap = new Map<
       string,
       { myScore: number; total: number; count: number }
     >();
-
     myExamMarks.forEach((mark) => {
       const subjectName = mark.Course?.subject?.name || mark.examination.name;
       const current = subjectPerformanceMap.get(subjectName) || {
@@ -222,7 +223,7 @@ export const getStudentDashboardData = async (
       ([subject, data]) => ({
         subject,
         score: (data.myScore / data.total) * 100,
-        classAverage: 70 + Math.random() * 15, // Contextual average (can be real if needed)
+        classAverage: 70 + Math.random() * 15,
       })
     );
 
@@ -231,12 +232,12 @@ export const getStudentDashboardData = async (
     const overallMarksPercentage =
       myMaxScore > 0 ? (myTotalScore / myMaxScore) * 100 : 0;
 
-    // C. Ranking Logic (FIX 2: Casting to 'any' to fix groupBy strict typing errors)
+    // C. Ranking (Typescript Fix: Cast to any[] for _sum access)
     const allClassMarks = allClassMarksRaw as any[];
     const allSchoolMarks = allSchoolMarksRaw as any[];
 
     const classRankings = allClassMarks
-      .map((s: any) => ({
+      .map((s) => ({
         studentId: s.studentId,
         percentage: s._sum.totalMarks
           ? (s._sum.score || 0) / s._sum.totalMarks
@@ -250,7 +251,7 @@ export const getStudentDashboardData = async (
     const classRank = myClassRankIndex !== -1 ? myClassRankIndex + 1 : 0;
 
     const schoolRankings = allSchoolMarks
-      .map((s: any) => ({
+      .map((s) => ({
         studentId: s.studentId,
         percentage: s._sum.totalMarks
           ? (s._sum.score || 0) / s._sum.totalMarks
@@ -263,26 +264,23 @@ export const getStudentDashboardData = async (
     );
     const schoolRank = mySchoolRankIndex !== -1 ? mySchoolRankIndex + 1 : 0;
 
-    // D. Attendance Logic
+    // D. Attendance
     const presentCount = attendanceHistory.filter(
       (a) => a.status === "Present"
     ).length;
     const totalDays = attendanceHistory.length;
-
-    // FIX 3: Define 'attendance' object HERE so it is in scope for later logic
     const attendance = {
       monthlyPercentage: totalDays > 0 ? (presentCount / totalDays) * 100 : 100,
       history: attendanceHistory,
     };
 
-    // E. Assignments Categorization
+    // E. Assignments
     const pendingAssignments = assignments
       .filter((a) => a.submissions.length === 0)
       .map((a) => ({
         ...a,
         courseName: a.course?.subject?.name || "General Subject",
       }));
-
     const gradedAssignments = assignments
       .filter((a) => a.submissions.length > 0)
       .map((a) => ({
@@ -291,7 +289,7 @@ export const getStudentDashboardData = async (
         submission: a.submissions[0],
       }));
 
-    // F. Fees Logic
+    // F. Fees
     const totalPaid =
       feeRecord?.payments.reduce((acc, p) => acc + p.amount, 0) || 0;
     const totalOutstanding = (feeRecord?.totalAmount || 0) - totalPaid;
@@ -305,8 +303,8 @@ export const getStudentDashboardData = async (
       previousSessionDues: feeRecord?.previousSessionDues || 0,
     };
 
-    // G. Skills & AI Suggestion (FIX 3: Now 'attendance' is available)
-    let skillsData = [];
+    // G. Skills & AI Suggestion
+    let skillsData: { skill: string; value: number }[] = [];
     let aiSuggestion = "Keep up the good work!";
 
     if (skillAssessments.length > 0) {
@@ -342,7 +340,7 @@ export const getStudentDashboardData = async (
         "Complete your first skill assessment to get personalized tips.";
     }
 
-    // H. Progress Logic
+    // H. Progress
     const selfStudyProgress = {
       totalLectures: totalLecturesCount,
       studentCompletedLectures: studentProgress.length,
@@ -350,6 +348,21 @@ export const getStudentDashboardData = async (
         totalLecturesCount,
         Math.floor(totalLecturesCount * 0.6)
       ),
+    };
+
+    const timetableConfig = {
+      days: [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+      ],
+      startTime: "08:00",
+      endTime: "16:00",
+      periodDuration: 45,
+      breakDuration: 15,
     };
 
     // --- 4. Final Response ---
@@ -360,22 +373,16 @@ export const getStudentDashboardData = async (
       branchId,
       profile,
       performance,
-      ranks: {
-        class: classRank,
-        school: schoolRank,
-      },
+      ranks: { class: classRank, school: schoolRank },
       attendance,
-      assignments: {
-        pending: pendingAssignments,
-        graded: gradedAssignments,
-      },
+      assignments: { pending: pendingAssignments, graded: gradedAssignments },
       library: { issuedBooks },
       fees,
       events,
       announcements,
       aiSuggestion,
       timetable,
-      timetableConfig: timetable.length > 0 ? "generated" : null,
+      timetableConfig: timetableConfig,
       examSchedule: examSchedules,
       overallMarksPercentage,
       skills: skillsData,
