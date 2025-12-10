@@ -186,7 +186,6 @@ export const getStudentDashboardData = async (
     // A. Profile
     const profile = {
       id: student.id,
-      // FIX 2: Access 'userId' from userRecord
       userId: userRecord?.userId || "VRTX-PENDING",
       name: student.name,
       class: `Grade ${classInfo.gradeLevel}-${classInfo.section}`,
