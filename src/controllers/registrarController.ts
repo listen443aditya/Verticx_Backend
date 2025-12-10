@@ -5329,11 +5329,9 @@ export const getStudentProfileDetails = async (
 
     // --- SMART FEE ENGINE (FIXED) ---
 
-    // A. Service Start Dates
+    const currentYear = new Date().getFullYear();
     const sessionStartYear =
-      new Date().getMonth() < 3
-        ? new Date().getFullYear() - 1
-        : new Date().getFullYear();
+      new Date().getMonth() < 3 ? currentYear - 1 : currentYear;
     const sessionStartDate = new Date(sessionStartYear, 3, 1);
 
     const getServiceStartIndex = (keyword: string) => {
@@ -5342,10 +5340,9 @@ export const getStudentProfileDetails = async (
       );
       if (log) return getAcademicMonthIndex(new Date(log.date));
 
-      // Fallback: If admission was during this session, use admission month
       const admission = new Date(s.createdAt);
       if (admission > sessionStartDate) return getAcademicMonthIndex(admission);
-      return 0; // Default to start of session
+      return 0;
     };
 
     const hostelStartIndex = s.room
@@ -5355,7 +5352,18 @@ export const getStudentProfileDetails = async (
       ? getServiceStartIndex("Transport Assigned")
       : 999;
 
-    // B. Breakdown Calculation
+    // B. Financial Context
+    const feeRecord = feeRecords[0];
+    const totalPaid =
+      feeRecord?.payments.reduce((acc: number, p: any) => acc + p.amount, 0) ||
+      0;
+    const previousSessionDues = feeRecord?.previousSessionDues || 0;
+
+    // Allocate payments: Clear previous dues first
+    const previousSessionDuesPaid = Math.min(totalPaid, previousSessionDues);
+    let paidTracker = Math.max(0, totalPaid - previousSessionDuesPaid);
+
+    // C. Monthly Calculation Loop
     const templateBreakdown =
       (s.class?.feeTemplate?.monthlyBreakdown as any[]) || [];
     const monthlyHostelFee = Number(s.room?.fee || 0);
@@ -5368,29 +5376,28 @@ export const getStudentProfileDetails = async (
         (m: any) => m.month === monthName
       );
 
-      // --- FIX: Priority to Summing Breakdown ---
+      // 1. Calculate Academic Portion
       let tuition = 0;
       if (templateMonth) {
         if (
-          templateMonth.breakdown &&
           Array.isArray(templateMonth.breakdown) &&
           templateMonth.breakdown.length > 0
         ) {
-          // Priority 1: Calculate fresh sum from components
+          // Priority 1: Exact sum from components
           tuition = templateMonth.breakdown.reduce(
             (sum: number, c: any) => sum + (Number(c.amount) || 0),
             0
           );
         } else if (templateMonth.total) {
-          // Priority 2: Use total if breakdown is missing
+          // Priority 2: Use total if breakdown missing
           tuition = Number(templateMonth.total);
         }
       } else if (s.class?.feeTemplate?.amount) {
-        // Priority 3: Distribute annual fee
+        // Priority 3: Annual / 12 Fallback
         tuition = Math.ceil(s.class.feeTemplate.amount / 12);
       }
 
-      // Service Charges
+      // 2. Add Service Charges
       const hostelCharge = index >= hostelStartIndex ? monthlyHostelFee : 0;
       const transportCharge =
         index >= transportStartIndex ? monthlyTransportFee : 0;
@@ -5398,7 +5405,7 @@ export const getStudentProfileDetails = async (
       const monthTotal = tuition + hostelCharge + transportCharge;
       calculatedTotalFee += monthTotal;
 
-      // Components for Frontend
+      // 3. Components for UI
       const components = [];
       if (tuition > 0)
         components.push({ component: "Tuition", amount: tuition });
@@ -5413,48 +5420,56 @@ export const getStudentProfileDetails = async (
           amount: transportCharge,
         });
 
+      // 4. Calculate Paid Status for this Month (The Fix)
+      let paidForMonth = 0;
+      let status = "Due";
+
+      if (paidTracker >= monthTotal) {
+        paidForMonth = monthTotal;
+        status = "Paid";
+        paidTracker -= monthTotal;
+      } else if (paidTracker > 0) {
+        paidForMonth = paidTracker;
+        status = "Partially Paid";
+        paidTracker = 0;
+      } else {
+        paidForMonth = 0;
+        status = "Due";
+      }
+
       return {
         month: monthName,
         total: monthTotal,
+        paid: paidForMonth, // <--- Added
+        status: status, // <--- Added
         breakdown: components,
       };
     });
 
-    // C. Ledger Logic
-    const feeRecord = feeRecords[0];
-    const adjustments = s.FeeAdjustment || [];
-    const totalAdjustments = adjustments.reduce((acc: number, adj: any) => {
-      return adj.type === "charge" ? acc + adj.amount : acc - adj.amount;
-    }, 0);
-
-    let netTotal = 0;
-    let paidAmount = 0;
-
-    if (feeRecord) {
-      netTotal = feeRecord.totalAmount;
-      paidAmount = feeRecord.paidAmount;
-    } else {
-      netTotal = calculatedTotalFee; // Use our robust calculation
-      paidAmount = 0;
-    }
+    // D. Final Totals
+    const totalOutstanding =
+      calculatedTotalFee + previousSessionDues - totalPaid;
 
     const feeStatus = {
-      total: netTotal,
-      paid: paidAmount,
-      pending: netTotal - paidAmount,
+      total: calculatedTotalFee, // Total Annual for this session
+      paid: totalPaid,
+      pending: Math.max(0, totalOutstanding),
+      previousSessionDues,
+      previousSessionDuesPaid,
     };
 
-    // --- Formatting (History, etc.) ---
-    // ... (Same formatting logic as previous steps) ...
-    const paymentHistory = (feeRecord?.payments || []).map((p: any) => ({
-      ...p,
-      itemType: "payment" as const,
-    }));
-    const adjustmentHistory = (s.FeeAdjustment || []).map((adj: any) => ({
-      ...adj,
-      itemType: "adjustment" as const,
-    }));
-    const feeHistory = [...paymentHistory, ...adjustmentHistory].sort(
+    // --- 4. FORMATTING & RESPONSE ---
+
+    const feeHistory = [
+      ...(feeRecord?.payments || []).map((p: any) => ({
+        ...p,
+        itemType: "payment",
+      })),
+      ...(s.FeeAdjustment || []).map((adj: any) => ({
+        ...adj,
+        itemType: "adjustment",
+      })),
+    ].sort(
       (a: any, b: any) =>
         new Date(b.date || b.paidDate).getTime() -
         new Date(a.date || a.paidDate).getTime()
@@ -5463,9 +5478,8 @@ export const getStudentProfileDetails = async (
     const grades = s.examMarks.map((mark: any) => ({
       courseName: mark.examSchedule?.subject?.name || "Unknown Subject",
       score: mark.score,
-      total: mark.totalMarks || 100, // Optional: Include total if your frontend needs it
+      total: mark.totalMarks || 100,
     }));
-
     // --- 2. Skills Logic ---
     // Takes the most recent assessment and converts the JSON object to an array
     let skills: { skill: string; value: number }[] = [];
