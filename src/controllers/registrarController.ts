@@ -5310,10 +5310,56 @@ export const getStudentProfileDetails = async (
     if (!student)
       return res.status(404).json({ message: "Student not found." });
 
-    // --- Ranking & Basic Stats ---
-    // (Assuming you keep your existing ranking logic here...)
-    let rankStats = { class: 0, school: 0 };
-    // ... [Paste your existing Ranking Logic block here] ...
+  const [classAggregates, schoolAggregates] = await prisma.$transaction([
+    // A. Class Rank Data
+    prisma.examMark.groupBy({
+      by: ["studentId"],
+      where: {
+        branchId: branchId,
+        student: { classId: student.classId || "undefined" }, // Safe fallback
+      },
+      _sum: { score: true, totalMarks: true },
+    }),
+    // B. School Rank Data
+    prisma.examMark.groupBy({
+      by: ["studentId"],
+      where: { branchId: branchId },
+      _sum: { score: true, totalMarks: true },
+    }),
+  ]);
+
+  // 3. RANKING LOGIC (With TS Fixes)
+
+  const classRankList = (classAggregates as any[])
+    .map((s) => ({
+      studentId: s.studentId,
+      percentage: s._sum.totalMarks
+        ? (s._sum.score || 0) / s._sum.totalMarks
+        : 0,
+    }))
+    .sort((a, b) => b.percentage - a.percentage);
+
+  const myClassIndex = classRankList.findIndex(
+    (r) => r.studentId === studentId
+  );
+  const classRank = myClassIndex !== -1 ? myClassIndex + 1 : 0;
+
+  // FIX: Cast to any[]
+  const schoolRankList = (schoolAggregates as any[])
+    .map((s) => ({
+      studentId: s.studentId,
+      percentage: s._sum.totalMarks
+        ? (s._sum.score || 0) / s._sum.totalMarks
+        : 0,
+    }))
+    .sort((a, b) => b.percentage - a.percentage);
+
+  const mySchoolIndex = schoolRankList.findIndex(
+    (r) => r.studentId === studentId
+  );
+  const schoolRank = mySchoolIndex !== -1 ? mySchoolIndex + 1 : 0;
+
+  const rankStats = { class: classRank, school: schoolRank };
 
     const s = student as any;
     const {
