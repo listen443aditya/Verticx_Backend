@@ -5352,14 +5352,14 @@ export const getStudentProfileDetails = async (
       ? getServiceStartIndex("Transport Assigned")
       : 999;
 
-    // B. Financial Context
+    // B. Financial Context & Payment Tracking
     const feeRecord = feeRecords[0];
     const totalPaid =
       feeRecord?.payments.reduce((acc: number, p: any) => acc + p.amount, 0) ||
       0;
     const previousSessionDues = feeRecord?.previousSessionDues || 0;
 
-    // Allocate payments: Clear previous dues first
+    // Allocate payments: Clear previous dues first, then start current session
     const previousSessionDuesPaid = Math.min(totalPaid, previousSessionDues);
     let paidTracker = Math.max(0, totalPaid - previousSessionDuesPaid);
 
@@ -5383,7 +5383,7 @@ export const getStudentProfileDetails = async (
           Array.isArray(templateMonth.breakdown) &&
           templateMonth.breakdown.length > 0
         ) {
-          // Priority 1: Exact sum from components
+          // Priority 1: Sum from components
           tuition = templateMonth.breakdown.reduce(
             (sum: number, c: any) => sum + (Number(c.amount) || 0),
             0
@@ -5393,11 +5393,11 @@ export const getStudentProfileDetails = async (
           tuition = Number(templateMonth.total);
         }
       } else if (s.class?.feeTemplate?.amount) {
-        // Priority 3: Annual / 12 Fallback
+        // Priority 3: Fallback Annual Distribution
         tuition = Math.ceil(s.class.feeTemplate.amount / 12);
       }
 
-      // 2. Add Service Charges
+      // 2. Add Service Charges (If active for this month)
       const hostelCharge = index >= hostelStartIndex ? monthlyHostelFee : 0;
       const transportCharge =
         index >= transportStartIndex ? monthlyTransportFee : 0;
@@ -5420,7 +5420,7 @@ export const getStudentProfileDetails = async (
           amount: transportCharge,
         });
 
-      // 4. Calculate Paid Status for this Month (The Fix)
+      // 4. Calculate Paid Status (Waterfall Logic)
       let paidForMonth = 0;
       let status = "Due";
 
@@ -5440,18 +5440,19 @@ export const getStudentProfileDetails = async (
       return {
         month: monthName,
         total: monthTotal,
-        paid: paidForMonth, // <--- Added
-        status: status, // <--- Added
+        paid: paidForMonth, // <--- Now calculates correctly
+        status: status, // <--- Now calculates correctly
         breakdown: components,
       };
     });
 
     // D. Final Totals
+    // We rely on 'calculatedTotalFee' as the source of truth for the Annual Fee
     const totalOutstanding =
       calculatedTotalFee + previousSessionDues - totalPaid;
 
     const feeStatus = {
-      total: calculatedTotalFee, // Total Annual for this session
+      total: calculatedTotalFee, // Total Annual for this session (Matches sum of months)
       paid: totalPaid,
       pending: Math.max(0, totalOutstanding),
       previousSessionDues,
