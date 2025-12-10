@@ -22,6 +22,20 @@ const getStudentAuth = async (req: Request) => {
   };
 };
 
+const ACADEMIC_MONTH_NAMES = [
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+  "January",
+  "February",
+  "March",
+];
 // Helper to map date to Academic Year Index (April = 0, March = 11)
 const getAcademicMonthIndex = (date: Date): number => {
   const month = date.getMonth(); // 0 = Jan, 11 = Dec
@@ -86,7 +100,7 @@ export const getStudentDashboardData = async (
           principal: { select: { id: true, name: true, email: true } },
         },
       }),
-      // Fetch Fee Template with JSON breakdown
+      // Fetch Fee Template (Relation name is feeTemplate)
       prisma.schoolClass.findUnique({
         where: { id: classId },
         include: {
@@ -196,7 +210,6 @@ export const getStudentDashboardData = async (
 
     // --- 3. LOGIC ENGINE ---
 
-    // FIX: Cast classInfo to 'any' for nested relations safety
     const classInfoAny = classInfo as any;
 
     // A. Profile
@@ -304,39 +317,24 @@ export const getStudentDashboardData = async (
         submission: a.submissions[0],
       }));
 
-    // --- F. SMART FEE ENGINE (PORTED FROM REGISTRAR LOGIC) ---
+    // --- F. SMART FEE ENGINE (PORTED LOGIC) ---
 
-    const ACADEMIC_MONTH_NAMES = [
-      "April",
-      "May",
-      "June",
-      "July",
-      "August",
-      "September",
-      "October",
-      "November",
-      "December",
-      "January",
-      "February",
-      "March",
-    ];
+    // 1. Service Start Dates
     const currentYear = new Date().getFullYear();
+    const sessionStartYear =
+      new Date().getMonth() < 3 ? currentYear - 1 : currentYear;
+    const sessionStartDate = new Date(sessionStartYear, 3, 1); // April 1st
 
-    // 1. Determine Service Start Indices
     const getServiceStartIndex = (keyword: string) => {
       const logs = student.FeeAdjustment || [];
       const log = logs.find(
         (adj) => adj.reason && adj.reason.includes(keyword)
       );
-
       if (log) return getAcademicMonthIndex(new Date(log.date));
 
-      // Fallback: If admission was during this session, use admission date
-      const sessionStartDate = new Date(currentYear, 3, 1); // April 1st
       const admission = new Date(student.createdAt);
       if (admission > sessionStartDate) return getAcademicMonthIndex(admission);
-
-      return 0; // Default: Start of session
+      return 0;
     };
 
     const hostelStartIndex = student.room
@@ -346,80 +344,64 @@ export const getStudentDashboardData = async (
       ? getServiceStartIndex("Transport Assigned")
       : 999;
 
-    // 2. Fetch Base Values
+    // 2. Base Values
     const templateBreakdown =
       (classInfoAny.feeTemplate?.monthlyBreakdown as any[]) || [];
     const monthlyHostelFee = Number(student.room?.fee || 0);
     const monthlyTransportFee = Number(student.busStop?.charges || 0);
 
-    // 3. Build Dynamic Monthly Totals
-    // This replicates the "Smart Fee Engine" loop exactly
-    let calculatedTotalFee = 0;
+    // 3. Calculate Financial Context
+    const totalPaid =
+      feeRecord?.payments.reduce((acc, p) => acc + p.amount, 0) || 0;
+    const previousSessionDues = feeRecord?.previousSessionDues || 0;
+    const previousSessionDuesPaid = Math.min(totalPaid, previousSessionDues);
+    let paidTracker = Math.max(0, totalPaid - previousSessionDuesPaid);
 
-    // We calculate the *ideal* monthly structure first
-    const idealMonthlyDues = ACADEMIC_MONTH_NAMES.map((monthName, index) => {
+    // 4. Monthly Calculation Loop
+    let calculatedAnnualTotal = 0;
+
+    const monthlyDues = ACADEMIC_MONTH_NAMES.map((monthName, index) => {
       const isNextYear = index > 8;
       const templateMonth = templateBreakdown.find(
         (m: any) => m.month === monthName
       );
 
-      // A. Tuition Priority Logic
+      // A. Academic Fee
       let tuition = 0;
       if (templateMonth) {
         if (
           Array.isArray(templateMonth.breakdown) &&
           templateMonth.breakdown.length > 0
         ) {
-          // Priority 1: Sum from breakdown components
+          // Sum components from JSON
           tuition = templateMonth.breakdown.reduce(
             (sum: number, c: any) => sum + (Number(c.amount) || 0),
             0
           );
         } else if (templateMonth.total) {
-          // Priority 2: Use total if breakdown missing
           tuition = Number(templateMonth.total);
         }
       } else if (classInfoAny.feeTemplate?.amount) {
-        // Priority 3: Fallback Annual Distribution
+        // Fallback: Annual / 12
         tuition = Math.ceil(classInfoAny.feeTemplate.amount / 12);
       }
 
-      // B. Add Service Charges if active for this month
+      // B. Add Service Charges if active
       const hostelCharge = index >= hostelStartIndex ? monthlyHostelFee : 0;
       const transportCharge =
         index >= transportStartIndex ? monthlyTransportFee : 0;
 
-      const monthTotal = tuition + hostelCharge + transportCharge;
-      calculatedTotalFee += monthTotal;
+      const totalForMonth = tuition + hostelCharge + transportCharge;
+      calculatedAnnualTotal += totalForMonth;
 
-      return {
-        month: monthName,
-        year: isNextYear ? currentYear + 1 : currentYear,
-        total: monthTotal, // Precise Amount per month
-      };
-    });
-
-    // 4. Financial Totals (Use Calculated Total for accuracy)
-    const totalPaid =
-      feeRecord?.payments.reduce((acc, p) => acc + p.amount, 0) || 0;
-    const previousSessionDues = feeRecord?.previousSessionDues || 0;
-    const totalAnnualFee = calculatedTotalFee; // Trust our engine over the DB cache if needed
-    const totalOutstanding = totalAnnualFee + previousSessionDues - totalPaid;
-
-    // 5. Payment Distribution Logic (Waterfall)
-    const previousSessionDuesPaid = Math.min(totalPaid, previousSessionDues);
-    let paidTracker = Math.max(0, totalPaid - previousSessionDuesPaid);
-
-    // Combine Ideal Data + Payment Status
-    const monthlyDues = idealMonthlyDues.map((due) => {
+      // C. Payment Status
       let paidForMonth = 0;
       let status = "Due";
 
-      // Logic: Try to pay off this month's exact fee
-      if (paidTracker >= due.total) {
-        paidForMonth = due.total;
+      if (paidTracker >= totalForMonth) {
+        paidForMonth = totalForMonth;
         status = "Paid";
-        paidTracker -= due.total;
+        paidTracker -= totalForMonth;
       } else if (paidTracker > 0) {
         paidForMonth = paidTracker;
         status = "Partially Paid";
@@ -430,15 +412,21 @@ export const getStudentDashboardData = async (
       }
 
       return {
-        ...due,
+        month: monthName,
+        year: isNextYear ? currentYear + 1 : currentYear,
+        total: totalForMonth,
         paid: paidForMonth,
         status: status,
       };
     });
 
+    // 5. Final Outstanding Calculation
+    const totalAnnualFee = calculatedAnnualTotal; // Trust the calculated sum
+    const totalOutstanding = totalAnnualFee + previousSessionDues - totalPaid;
+
     const fees = {
       totalOutstanding: Math.max(0, totalOutstanding),
-      // Current month due: Finds the first non-Paid month's total amount
+      // Use the first non-paid month's total as "Current Installment" display
       currentMonthDue: monthlyDues.find((m) => m.status !== "Paid")?.total || 0,
       dueDate: feeRecord?.dueDate.toISOString() || new Date().toISOString(),
       totalAnnualFee: totalAnnualFee,
@@ -448,7 +436,6 @@ export const getStudentDashboardData = async (
       monthlyDues: monthlyDues,
     };
 
-    // G. Skills Logic
     let skillsData: { skill: string; value: number }[] = [];
     let aiSuggestion = "Keep up the good work!";
 
