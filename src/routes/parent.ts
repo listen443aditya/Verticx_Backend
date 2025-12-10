@@ -5,6 +5,10 @@ import { restrictTo } from '../middlewares/roles';
 
 const router = Router();
 router.use(protect);
+
+router.post("/fees/record-payment", parentController.recordFeePayment);
+router.post("/children/:id/fees/pay", parentController.payStudentFees);
+
 router.use(restrictTo('Parent'));
 // --- Dashboard & Child Data ---
 router.get('/dashboard', parentController.getParentDashboardData);
@@ -22,8 +26,7 @@ router.put('/meetings/:id', parentController.updateMeetingRequest);
 router.get('/teachers/:teacherId/availability', parentController.getTeacherAvailability);
 
 // --- Financials ---
-router.post('/fees/record-payment', parentController.recordFeePayment);
-router.post('/children/:id/fees/pay', parentController.payStudentFees);
+
 router.get('/branches/:branchId/events', parentController.getSchoolEventsForParent);
 
 export default router;
