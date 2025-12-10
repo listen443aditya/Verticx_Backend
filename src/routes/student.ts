@@ -1,6 +1,6 @@
 import { Router } from "express";
 import * as studentController from "../controllers/studentController";
-import { protect } from "../middlewares/auth";
+import { protect, authorize } from "../middlewares/auth";
 import { restrictTo } from "../middlewares/roles";
 
 const router = Router();
@@ -42,8 +42,11 @@ router.post("/quizzes/:id/submit", studentController.submitStudentQuiz);
 // --- Fees & Communication ---
 router.get("/fees/record", studentController.getFeeRecordForStudent); 
 router.post("/fees/record-payment", studentController.recordFeePayment); 
-router.post("/pay-fees", studentController.payStudentFees); 
-
+router.post(
+  "/pay-fees",
+  authorize(["Student", "Parent"]), 
+  studentController.payStudentFees
+);
 // --- Feedback & Complaints (FIXED) ---
 router.get(
   "/feedback/history/:id",
