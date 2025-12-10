@@ -80,13 +80,12 @@ export const getStudentDashboardData = async (
           principal: { select: { id: true, name: true, email: true } },
         },
       }),
-
-      // FIX: Correctly fetch feeTemplate (no invalid 'include' for components)
+      // Correctly fetch feeTemplate
       prisma.schoolClass.findUnique({
         where: { id: classId },
         include: {
           mentor: { select: { name: true, email: true, phone: true } },
-          feeTemplate: true, // Fetch the whole template including the JSON field
+          feeTemplate: true, // Fetches monthlyBreakdown JSON
         },
       }),
 
@@ -148,7 +147,7 @@ export const getStudentDashboardData = async (
         take: 5,
       }),
 
-      // D. Marks & Ranking Data
+      // D. Marks
       prisma.examMark.findMany({
         where: { studentId: studentId },
         include: {
@@ -191,6 +190,9 @@ export const getStudentDashboardData = async (
 
     // --- 3. LOGIC ENGINE ---
 
+    // FIX: Cast for safety
+    const classInfoAny = classInfo as any;
+
     // A. Profile
     const profile = {
       id: student.id,
@@ -200,7 +202,7 @@ export const getStudentDashboardData = async (
       classId: classInfo.id,
       rollNo: student.classRollNumber,
       profilePictureUrl: student.profilePictureUrl,
-      mentor: classInfo.mentor || {
+      mentor: classInfoAny.mentor || {
         name: "Not Assigned",
         email: null,
         phone: null,
@@ -296,42 +298,31 @@ export const getStudentDashboardData = async (
         submission: a.submissions[0],
       }));
 
-    // --- F. FEES LOGIC (JSON Template Based) ---
+    // --- F. FEES LOGIC (FIXED: Uses monthlyBreakdown JSON) ---
 
-    // 1. Get Monthly Academic Fee
-    let academicMonthlyFee = 0;
-
-    // Extract from JSON 'monthlyBreakdown' if available
-    if (classInfo.feeTemplate && classInfo.feeTemplate.monthlyBreakdown) {
-      const breakdown = classInfo.feeTemplate.monthlyBreakdown as Record<
-        string,
-        number
-      >;
-      // Assuming the JSON structure is like { "Tuition": 2000, "Development": 500 }
-      // We sum all values to get the monthly total
-      academicMonthlyFee = Object.values(breakdown).reduce(
-        (sum, val) => sum + Number(val),
-        0
-      );
-    } else if (classInfo.feeTemplate?.amount) {
-      // Fallback: If no breakdown, assume 'amount' is Annual and divide by 12
-      academicMonthlyFee = Math.floor(classInfo.feeTemplate.amount / 12);
-    }
-
-    // 2. Add Student-Specific Extras (Transport + Hostel)
+    // 1. Get Extra Charges (Transport & Hostel)
     const transportMonthlyFee = student.busStop?.charges || 0;
     const hostelMonthlyFee = student.room?.fee || 0;
 
-    const totalMonthlyFee =
-      academicMonthlyFee + transportMonthlyFee + hostelMonthlyFee;
+    // 2. Prepare Breakdown Data
+    // Check if the template has the JSON 'monthlyBreakdown'
+    let monthlyBreakdownMap: Record<string, number> | null = null;
+    let baseAcademicFee = 0;
 
-    // 3. Payment Distribution
+    if (classInfoAny.feeTemplate?.monthlyBreakdown) {
+      // e.g. { "April": 1500, "May": 1500, "August": 2800 }
+      monthlyBreakdownMap = classInfoAny.feeTemplate.monthlyBreakdown;
+    } else if (classInfoAny.feeTemplate?.amount) {
+      // Fallback: If no breakdown exists, spread amount evenly
+      baseAcademicFee = Math.floor(classInfoAny.feeTemplate.amount / 12);
+    }
+
+    // 3. Payment Totals
     const totalPaid =
       feeRecord?.payments.reduce((acc, p) => acc + p.amount, 0) || 0;
     const previousSessionDues = feeRecord?.previousSessionDues || 0;
-    const totalAnnualFee = feeRecord?.totalAmount || totalMonthlyFee * 12;
-    const totalOutstanding = totalAnnualFee + previousSessionDues - totalPaid;
 
+    // 4. Payment Priority Logic
     const previousSessionDuesPaid = Math.min(totalPaid, previousSessionDues);
     let paidTracker = Math.max(0, totalPaid - previousSessionDuesPaid);
 
@@ -350,17 +341,40 @@ export const getStudentDashboardData = async (
       "March",
     ];
     const currentYear = new Date().getFullYear();
+    let calculatedAnnualTotal = 0;
 
     const monthlyDues = months.map((month, index) => {
       const isNextYear = index > 8;
 
+      // A. Determine Academic Fee for this Month
+      let academicAmount = 0;
+
+      if (monthlyBreakdownMap && monthlyBreakdownMap[month] !== undefined) {
+        // Use exact value from JSON (e.g. 1500)
+        academicAmount = Number(monthlyBreakdownMap[month]);
+      } else {
+        // Fallback to even spread
+        academicAmount = baseAcademicFee;
+        // Add remainder to March if using fallback logic
+        if (!monthlyBreakdownMap && classInfoAny.feeTemplate?.amount) {
+          const remainder = classInfoAny.feeTemplate.amount % 12;
+          if (index === 11) academicAmount += remainder;
+        }
+      }
+
+      // B. Total for Month (Academic + Extras)
+      const totalForMonth =
+        academicAmount + transportMonthlyFee + hostelMonthlyFee;
+      calculatedAnnualTotal += totalForMonth;
+
+      // C. Payment Status
       let paidForMonth = 0;
       let status = "Due";
 
-      if (paidTracker >= totalMonthlyFee) {
-        paidForMonth = totalMonthlyFee;
+      if (paidTracker >= totalForMonth) {
+        paidForMonth = totalForMonth;
         status = "Paid";
-        paidTracker -= totalMonthlyFee;
+        paidTracker -= totalForMonth;
       } else if (paidTracker > 0) {
         paidForMonth = paidTracker;
         status = "Partially Paid";
@@ -373,15 +387,25 @@ export const getStudentDashboardData = async (
       return {
         month: month,
         year: isNextYear ? currentYear + 1 : currentYear,
-        total: totalMonthlyFee,
+        total: totalForMonth,
         paid: paidForMonth,
         status: status,
       };
     });
 
+    // Use calculated total if feeRecord doesn't have a static one
+    const totalAnnualFee = feeRecord?.totalAmount || calculatedAnnualTotal;
+    const totalOutstanding = totalAnnualFee + previousSessionDues - totalPaid;
+
     const fees = {
       totalOutstanding: Math.max(0, totalOutstanding),
-      currentMonthDue: totalMonthlyFee,
+      // Current month due is approximate for the dashboard card (using average or current month index)
+      currentMonthDue:
+        monthlyDues[
+          new Date().getMonth() > 2
+            ? new Date().getMonth() - 3
+            : new Date().getMonth() + 9
+        ]?.total || 0,
       dueDate: feeRecord?.dueDate.toISOString() || new Date().toISOString(),
       totalAnnualFee: totalAnnualFee,
       totalPaid: totalPaid,
@@ -478,6 +502,8 @@ export const getStudentDashboardData = async (
     next(error);
   }
 };
+
+
 export const getStudentProfile = async (
   req: Request,
   res: Response,
