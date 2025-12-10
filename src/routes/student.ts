@@ -66,5 +66,5 @@ router.get(
   "/my-transport-details",
   studentController.getStudentTransportDetails
 ); 
-
+router.get("/my-hostel-details", studentController.getMyHostelDetails);
 export default router;

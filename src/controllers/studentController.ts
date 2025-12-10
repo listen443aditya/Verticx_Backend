@@ -1462,3 +1462,51 @@ export const getStudentAssignments = async (
     next(error);
   }
 };
+
+export const getMyHostelDetails = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { studentId } = await getStudentAuth(req);
+    if (!studentId) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    // Fetch Student with Room and Hostel relation
+    const student = await prisma.student.findUnique({
+      where: { id: studentId },
+      select: {
+        room: {
+          include: {
+            hostel: true, // Get parent Hostel details (Warden, Name)
+          },
+        },
+      },
+    });
+
+    // If no room is assigned, return null (Frontend will hide the card)
+    if (!student?.room) {
+      return res.status(200).json(null);
+    }
+
+    // Return structured data matching Frontend expectations
+    const data = {
+      room: {
+        roomNumber: student.room.roomNumber,
+        roomType: student.room.roomType,
+        fee: student.room.fee,
+      },
+      hostel: {
+        name: student.room.hostel.name,
+        warden: student.room.hostel.warden,
+        wardenNumber: student.room.hostel.wardenNumber,
+      },
+    };
+
+    res.status(200).json(data);
+  } catch (error: any) {
+    next(error);
+  }
+};
