@@ -60,7 +60,7 @@ export const getStudentDashboardData = async (
       allSchoolMarksRaw,
       studentProgress,
       totalLecturesCount,
-      teacherCompletedCount, // <--- NEW: Real count of taught lectures
+      teacherCompletedCount,
       skillAssessments,
     ] = await prisma.$transaction([
       // A. Core Profile
@@ -164,15 +164,10 @@ export const getStudentDashboardData = async (
         where: { studentId: studentId },
         select: { lectureId: true },
       }),
-
-      // 1. Total Lectures in Class Syllabus
       prisma.lecture.count({ where: { classId: classId } }),
-
-      // 2. NEW: Lectures marked as "completed" by teacher
       prisma.lecture.count({
         where: { classId: classId, status: "completed" },
       }),
-
       prisma.skillAssessment.findMany({
         where: { studentId: studentId },
         orderBy: { assessedAt: "desc" },
@@ -293,18 +288,68 @@ export const getStudentDashboardData = async (
         submission: a.submissions[0],
       }));
 
-    // F. Fees
+    // F. Fees Logic (FIXED: Added monthlyDues generation)
     const totalPaid =
       feeRecord?.payments.reduce((acc, p) => acc + p.amount, 0) || 0;
-    const totalOutstanding = (feeRecord?.totalAmount || 0) - totalPaid;
+    const totalAnnualFee = feeRecord?.totalAmount || 0;
+    const previousSessionDues = feeRecord?.previousSessionDues || 0;
+
+    // Assume payment priority: Previous Dues first, then Current Session
+    const previousSessionDuesPaid = Math.min(totalPaid, previousSessionDues);
+    const currentSessionPaid = Math.max(0, totalPaid - previousSessionDuesPaid);
+
+    const totalOutstanding = totalAnnualFee + previousSessionDues - totalPaid;
+
+    // Generate simulated monthly breakdown (since DB doesn't store monthly rows)
+    const months = [
+      "April",
+      "May",
+      "June",
+      "July",
+      "August",
+      "September",
+      "October",
+      "November",
+      "December",
+      "January",
+      "February",
+      "March",
+    ];
+    const monthlyAmount = totalAnnualFee > 0 ? totalAnnualFee / 12 : 0;
+    let paidTracker = currentSessionPaid;
+    const currentYear = new Date().getFullYear();
+
+    const monthlyDues = months.map((month, index) => {
+      const isNextYear = index > 8; // Jan, Feb, Mar are next year
+      const status =
+        paidTracker >= monthlyAmount
+          ? "Paid"
+          : paidTracker > 0
+          ? "Partially Paid"
+          : "Due";
+      const paidForMonth = Math.min(paidTracker, monthlyAmount);
+
+      // Decrease tracker for next iteration
+      paidTracker = Math.max(0, paidTracker - monthlyAmount);
+
+      return {
+        month: month,
+        year: isNextYear ? currentYear + 1 : currentYear,
+        total: monthlyAmount,
+        paid: paidForMonth,
+        status: status,
+      };
+    });
 
     const fees = {
       totalOutstanding: Math.max(0, totalOutstanding),
-      currentMonthDue: totalOutstanding > 0 ? totalOutstanding / 10 : 0,
+      currentMonthDue: monthlyDues.find((m) => m.status !== "Paid")?.total || 0,
       dueDate: feeRecord?.dueDate.toISOString() || new Date().toISOString(),
-      totalAnnualFee: feeRecord?.totalAmount || 0,
+      totalAnnualFee: totalAnnualFee,
       totalPaid: totalPaid,
-      previousSessionDues: feeRecord?.previousSessionDues || 0,
+      previousSessionDues: previousSessionDues,
+      previousSessionDuesPaid: previousSessionDuesPaid, // Added for frontend logic
+      monthlyDues: monthlyDues, // Added the array frontend expects
     };
 
     // G. Skills & AI Suggestion
@@ -317,7 +362,6 @@ export const getStudentDashboardData = async (
         skill,
         value,
       }));
-
       const weakSkill = skillsData.sort((a, b) => a.value - b.value)[0];
 
       if (weakSkill && weakSkill.value < 6) {
@@ -344,11 +388,10 @@ export const getStudentDashboardData = async (
         "Complete your first skill assessment to get personalized tips.";
     }
 
-    // H. Progress (FIXED)
+    // H. Progress
     const selfStudyProgress = {
       totalLectures: totalLecturesCount,
       studentCompletedLectures: studentProgress.length,
-      // FIX: Use real DB count instead of simulation
       teacherCompletedLectures: teacherCompletedCount,
     };
 
