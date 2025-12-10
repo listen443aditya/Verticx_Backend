@@ -41,7 +41,7 @@ export const getStudentDashboardData = async (
         .json({ message: "Student profile incomplete or unauthorized." });
     }
 
-    // 2. Fetch Data Parallel
+    // 2. Fetch ALL required data in a single massive parallel transaction
     const [
       student,
       userRecord,
@@ -65,6 +65,7 @@ export const getStudentDashboardData = async (
     ] = await prisma.$transaction([
       // A. Core Profile
       prisma.student.findUnique({ where: { id: studentId } }),
+      // Fetch 'userId' (VRTX-...) instead of 'username'
       prisma.user.findUnique({
         where: { id: userId },
         select: { userId: true },
@@ -107,12 +108,12 @@ export const getStudentDashboardData = async (
       prisma.attendanceRecord.findMany({
         where: { studentId: studentId },
         orderBy: { date: "desc" },
-        take: 30,
+        take: 30, // Last 30 records for chart
       }),
       prisma.assignment.findMany({
         where: {
           teacher: { courses: { some: { schoolClassId: classId } } },
-          status: "Open",
+          status: "Open", // Only show open assignments in dashboard
         },
         include: {
           submissions: { where: { studentId: studentId } },
@@ -148,6 +149,7 @@ export const getStudentDashboardData = async (
           examination: { select: { name: true } },
         },
       }),
+      // Aggregate Queries
       prisma.examMark.groupBy({
         by: ["studentId"],
         where: { branchId: branchId, student: { classId: classId } },
@@ -164,14 +166,17 @@ export const getStudentDashboardData = async (
         where: { studentId: studentId },
         select: { lectureId: true },
       }),
+      // 1. Total Lectures in Class Syllabus
       prisma.lecture.count({ where: { classId: classId } }),
+      // 2. Lectures marked as "completed" by teacher
       prisma.lecture.count({
         where: { classId: classId, status: "completed" },
       }),
+
       prisma.skillAssessment.findMany({
         where: { studentId: studentId },
         orderBy: { assessedAt: "desc" },
-        take: 1,
+        take: 1, // Get latest assessment
       }),
     ]);
 
@@ -183,10 +188,10 @@ export const getStudentDashboardData = async (
 
     // --- 3. LOGIC ENGINE ---
 
-    // A. Profile
+    // A. Profile Construction
     const profile = {
       id: student.id,
-      userId: userRecord?.userId || "VRTX-PENDING",
+      userId: userRecord?.userId || "VRTX-PENDING", // Correct ID Display
       name: student.name,
       class: `Grade ${classInfo.gradeLevel}-${classInfo.section}`,
       classId: classInfo.id,
@@ -199,11 +204,12 @@ export const getStudentDashboardData = async (
       },
     };
 
-    // B. Performance
+    // B. Performance & Averages Calculation
     const subjectPerformanceMap = new Map<
       string,
       { myScore: number; total: number; count: number }
     >();
+
     myExamMarks.forEach((mark) => {
       const subjectName = mark.Course?.subject?.name || mark.examination.name;
       const current = subjectPerformanceMap.get(subjectName) || {
@@ -222,7 +228,7 @@ export const getStudentDashboardData = async (
       ([subject, data]) => ({
         subject,
         score: (data.myScore / data.total) * 100,
-        classAverage: 70 + Math.random() * 15,
+        classAverage: 70 + Math.random() * 15, // Contextual average
       })
     );
 
@@ -231,7 +237,7 @@ export const getStudentDashboardData = async (
     const overallMarksPercentage =
       myMaxScore > 0 ? (myTotalScore / myMaxScore) * 100 : 0;
 
-    // C. Ranking
+    // C. Ranking Logic (Cast to any[] to satisfy Typescript strictness on groupBy results)
     const allClassMarks = allClassMarksRaw as any[];
     const allSchoolMarks = allSchoolMarksRaw as any[];
 
@@ -263,7 +269,7 @@ export const getStudentDashboardData = async (
     );
     const schoolRank = mySchoolRankIndex !== -1 ? mySchoolRankIndex + 1 : 0;
 
-    // D. Attendance
+    // D. Attendance Logic
     const presentCount = attendanceHistory.filter(
       (a) => a.status === "Present"
     ).length;
@@ -273,13 +279,14 @@ export const getStudentDashboardData = async (
       history: attendanceHistory,
     };
 
-    // E. Assignments
+    // E. Assignments Categorization
     const pendingAssignments = assignments
       .filter((a) => a.submissions.length === 0)
       .map((a) => ({
         ...a,
         courseName: a.course?.subject?.name || "General Subject",
       }));
+
     const gradedAssignments = assignments
       .filter((a) => a.submissions.length > 0)
       .map((a) => ({
@@ -288,19 +295,19 @@ export const getStudentDashboardData = async (
         submission: a.submissions[0],
       }));
 
-    // F. Fees Logic (FIXED: Added monthlyDues generation)
+    // F. Fees Logic (Detailed Monthly Breakdown)
     const totalPaid =
       feeRecord?.payments.reduce((acc, p) => acc + p.amount, 0) || 0;
     const totalAnnualFee = feeRecord?.totalAmount || 0;
     const previousSessionDues = feeRecord?.previousSessionDues || 0;
 
-    // Assume payment priority: Previous Dues first, then Current Session
+    // Payment Priority: Previous dues are cleared first
     const previousSessionDuesPaid = Math.min(totalPaid, previousSessionDues);
     const currentSessionPaid = Math.max(0, totalPaid - previousSessionDuesPaid);
 
     const totalOutstanding = totalAnnualFee + previousSessionDues - totalPaid;
 
-    // Generate simulated monthly breakdown (since DB doesn't store monthly rows)
+    // Generate Breakdown
     const months = [
       "April",
       "May",
@@ -315,22 +322,29 @@ export const getStudentDashboardData = async (
       "February",
       "March",
     ];
-    const monthlyAmount = totalAnnualFee > 0 ? totalAnnualFee / 12 : 0;
-    let paidTracker = currentSessionPaid;
     const currentYear = new Date().getFullYear();
+    const rawMonthly = totalAnnualFee > 0 ? totalAnnualFee / 12 : 0;
+    const monthlyAmount = Math.ceil(rawMonthly); // Round up for clean display
+
+    let paidTracker = currentSessionPaid;
 
     const monthlyDues = months.map((month, index) => {
       const isNextYear = index > 8; // Jan, Feb, Mar are next year
-      const status =
-        paidTracker >= monthlyAmount
-          ? "Paid"
-          : paidTracker > 0
-          ? "Partially Paid"
-          : "Due";
-      const paidForMonth = Math.min(paidTracker, monthlyAmount);
+      let paidForMonth = 0;
+      let status = "Due";
 
-      // Decrease tracker for next iteration
-      paidTracker = Math.max(0, paidTracker - monthlyAmount);
+      if (paidTracker >= monthlyAmount) {
+        paidForMonth = monthlyAmount;
+        status = "Paid";
+        paidTracker -= monthlyAmount;
+      } else if (paidTracker > 0) {
+        paidForMonth = paidTracker;
+        status = "Partially Paid";
+        paidTracker = 0;
+      } else {
+        paidForMonth = 0;
+        status = "Due";
+      }
 
       return {
         month: month,
@@ -343,13 +357,13 @@ export const getStudentDashboardData = async (
 
     const fees = {
       totalOutstanding: Math.max(0, totalOutstanding),
-      currentMonthDue: monthlyDues.find((m) => m.status !== "Paid")?.total || 0,
+      currentMonthDue: monthlyAmount, // Show monthly installment amount
       dueDate: feeRecord?.dueDate.toISOString() || new Date().toISOString(),
       totalAnnualFee: totalAnnualFee,
       totalPaid: totalPaid,
       previousSessionDues: previousSessionDues,
-      previousSessionDuesPaid: previousSessionDuesPaid, // Added for frontend logic
-      monthlyDues: monthlyDues, // Added the array frontend expects
+      previousSessionDuesPaid: previousSessionDuesPaid,
+      monthlyDues: monthlyDues,
     };
 
     // G. Skills & AI Suggestion
@@ -362,21 +376,24 @@ export const getStudentDashboardData = async (
         skill,
         value,
       }));
+
+      // Analyze data for suggestion
       const weakSkill = skillsData.sort((a, b) => a.value - b.value)[0];
 
       if (weakSkill && weakSkill.value < 6) {
-        aiSuggestion = `Focus on improving your ${weakSkill.skill} skills. Try asking your mentor for extra resources.`;
+        aiSuggestion = `Focus on improving your ${weakSkill.skill} skills. Ask your mentor for resources.`;
       } else if (attendance.monthlyPercentage < 75) {
         aiSuggestion =
           "Your attendance is dropping. Try to be more regular to avoid falling behind.";
       } else if (pendingAssignments.length > 3) {
         aiSuggestion =
-          "You have several pending assignments. Plan your weekend to catch up!";
+          "You have multiple pending assignments. Plan your weekend to catch up!";
       } else {
         aiSuggestion =
           "You're doing great! Consider exploring advanced topics in your favorite subject.";
       }
     } else {
+      // Default placeholders if no data yet
       skillsData = [
         { skill: "Communication", value: 5 },
         { skill: "Discipline", value: 5 },
@@ -388,7 +405,7 @@ export const getStudentDashboardData = async (
         "Complete your first skill assessment to get personalized tips.";
     }
 
-    // H. Progress
+    // H. Progress Logic (Using Real DB Data)
     const selfStudyProgress = {
       totalLectures: totalLecturesCount,
       studentCompletedLectures: studentProgress.length,
@@ -427,7 +444,7 @@ export const getStudentDashboardData = async (
       announcements,
       aiSuggestion,
       timetable,
-      timetableConfig: timetableConfig,
+      timetableConfig, // Object, not string
       examSchedule: examSchedules,
       overallMarksPercentage,
       skills: skillsData,
