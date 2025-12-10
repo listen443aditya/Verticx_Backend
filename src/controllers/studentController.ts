@@ -658,13 +658,105 @@ export const updateStudent = async (
   }
 };
 
+export const payStudentFees = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    // 1. Determine Student ID based on User Role
+    let targetStudentId = null;
+
+    if (req.user?.role === "Student") {
+      const auth = await getStudentAuth(req);
+      targetStudentId = auth.studentId;
+    } else if (req.user?.role === "Parent") {
+      // If Parent, they MUST provide the studentId in the body
+      const { studentId } = req.body;
+      // Security: Verify this parent owns this student
+      const parentLink = await prisma.student.findFirst({
+        where: {
+          id: studentId,
+          // Assuming 'user' table ID of parent links to 'parentId' or via 'parent' relation
+          // Adjust based on your schema. Commonly: parent: { userId: req.user.id }
+          parent: { id: req.user.id }, // OR parentId if your schema uses direct User ID
+        },
+      });
+      if (parentLink) targetStudentId = studentId;
+    }
+
+    // Fallback/Validation
+    if (!targetStudentId) {
+      // Try getStudentAuth one last time as generic fallback
+      const auth = await getStudentAuth(req);
+      targetStudentId = auth.studentId;
+    }
+
+    if (!targetStudentId) {
+      return res
+        .status(401)
+        .json({ message: "Unauthorized or Student not found." });
+    }
+
+    // 2. Process Payment
+    const { amount, details } = req.body;
+
+    const student = await prisma.student.findUnique({
+      where: { id: targetStudentId },
+      include: {
+        branch: true,
+        feeRecords: {
+          orderBy: { dueDate: "asc" },
+          take: 1,
+        },
+      },
+    });
+
+    if (!student || !student.feeRecords.length) {
+      return res.status(404).json({ message: "No fee record found." });
+    }
+
+    const hasOnlinePaymentSetup =
+      student.branch.paymentGatewayPublicKey &&
+      student.branch.paymentGatewaySecretKey;
+
+    const feeRecordId = student.feeRecords[0].id;
+
+    // 3. Perform Transaction
+    await prisma.$transaction([
+      prisma.feePayment.create({
+        data: {
+          studentId: targetStudentId,
+          feeRecordId,
+          amount: parseFloat(amount),
+          paidDate: new Date(),
+          transactionId: `MANUAL_${Date.now()}`,
+          details:
+            details ||
+            (hasOnlinePaymentSetup
+              ? "Online Payment (Recorded)"
+              : "Manual Payment"),
+        },
+      }),
+      prisma.feeRecord.update({
+        where: { id: feeRecordId },
+        data: { paidAmount: { increment: parseFloat(amount) } },
+      }),
+    ]);
+
+    res.status(200).json({ message: "Fee payment recorded successfully." });
+  } catch (error: any) {
+    next(error);
+  }
+};
+
 export const recordFeePayment = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    // This is for a payment gateway webhook.
+    // Payment Gateway Webhook Logic
     const { studentId, amount, transactionId, details } = req.body;
 
     const student = await prisma.student.findUnique({
@@ -701,66 +793,6 @@ export const recordFeePayment = async (
     next(error);
   }
 };
-
-export const payStudentFees = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const { studentId } = await getStudentAuth(req);
-    const { amount, details } = req.body;
-
-    if (!studentId) {
-      return res.status(401).json({ message: "Unauthorized." });
-    }
-    const student = await prisma.student.findUnique({
-      where: { id: studentId },
-      include: {
-        branch: true, // Fetch branch to check keys
-        feeRecords: {
-          orderBy: { dueDate: "asc" },
-          take: 1,
-        },
-      },
-    });
-
-    if (!student || !student.feeRecords.length) {
-      return res.status(404).json({ message: "No fee record found." });
-    }
-    const hasOnlinePaymentSetup =
-      student.branch.paymentGatewayPublicKey &&
-      student.branch.paymentGatewaySecretKey;
-
-    const feeRecordId = student.feeRecords[0].id;
-
-    // FIX 4: Transaction
-    await prisma.$transaction([
-      prisma.feePayment.create({
-        data: {
-          studentId,
-          feeRecordId,
-          amount: parseFloat(amount),
-          paidDate: new Date(),
-          transactionId: `MANUAL_${Date.now()}`,
-          details:
-            details ||
-            (hasOnlinePaymentSetup
-              ? "Online Payment (Recorded)"
-              : "Manual Payment by Student"),
-        },
-      }),
-      prisma.feeRecord.update({
-        where: { id: feeRecordId },
-        data: { paidAmount: { increment: parseFloat(amount) } },
-      }),
-    ]);
-    res.status(200).json({ message: "Fee payment recorded." });
-  } catch (error: any) {
-    next(error);
-  }
-};
-
 export const getStudentAttendance = async (
   req: Request,
   res: Response,
