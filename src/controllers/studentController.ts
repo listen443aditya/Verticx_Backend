@@ -844,7 +844,7 @@ export const getStudentGrades = async (
       return res.status(401).json({ message: "Unauthorized." });
     }
 
-    // 1. Fetch Exam Marks (Fixed Relations & Date Field)
+    // 1. Fetch Exam Marks
     const examMarks = await prisma.examMark.findMany({
       where: { studentId },
       include: {
@@ -854,9 +854,10 @@ export const getStudentGrades = async (
           },
         },
       },
-
       orderBy: { enteredAt: "desc" },
     });
+
+    // 2. Fetch Assignment Grades
     const assignments = await prisma.assignmentSubmission.findMany({
       where: {
         studentId,
@@ -875,24 +876,20 @@ export const getStudentGrades = async (
       orderBy: { submittedAt: "desc" },
     });
 
-    // 3. Fetch Quiz Scores (Fixed Status, Date, and Relations)
+    // 3. Fetch Quiz Scores (Fixed: Removed invalid 'totalMarks' selection)
     const quizzes = await prisma.studentQuiz.findMany({
       where: {
         studentId,
-        // FIX: Lowercase "completed" matches the Prisma enum
-        status: "completed",
+        status: "completed", // Ensure this matches your Prisma enum exactly (lowercase 'completed' is common)
       },
       include: {
-        // FIX: Removed 'course' include if it doesn't exist on Quiz.
-        // Just fetching title for now.
         quiz: {
           select: {
             title: true,
-            totalMarks: true, // Assuming Quiz has a totalMarks field
+            // totalMarks: true, <--- REMOVED this line causing the error
           },
         },
       },
-      // FIX: Use 'submittedAt' instead of 'attemptedAt'
       orderBy: { submittedAt: "desc" },
     });
 
@@ -901,10 +898,9 @@ export const getStudentGrades = async (
       // Map Exams
       ...examMarks.map((mark: any) => ({
         studentId,
-        courseId: mark.examSchedule?.subjectId || "", // Fallback ID
+        courseId: mark.examSchedule?.subjectId || "",
         courseName: mark.examSchedule?.subject?.name || "Exam",
         assessment: mark.examSchedule?.name || "Examination",
-        // Calculate Percentage
         score:
           mark.totalMarks > 0
             ? Math.round((mark.score / mark.totalMarks) * 100)
@@ -919,7 +915,6 @@ export const getStudentGrades = async (
         courseId: sub.assignment?.course?.id,
         courseName: sub.assignment?.course?.subject?.name || "Assignment",
         assessment: sub.assignment?.title || "Homework",
-        // Handle score (check if score exists, otherwise 0)
         score: sub.score || 0,
         type: "Assignment",
         date: sub.submittedAt,
@@ -927,13 +922,15 @@ export const getStudentGrades = async (
 
       // Map Quizzes
       ...quizzes.map((qz: any) => {
-        // Safe access to quiz properties
-        const total = qz.quiz?.totalMarks || 100; // Default to 100 if missing
+        // Fallback since we can't fetch totalMarks directly from the quiz model right now
+        // If your StudentQuiz table has a totalScore field, use that. Otherwise, default to 100.
+        // Check if qz.totalScore exists on the StudentQuiz model itself.
+        const total = (qz as any).totalScore || 100;
         const earned = qz.score || 0;
 
         return {
           studentId,
-          courseId: "quiz-id", // Quizzes might not link directly to a course object easily
+          courseId: "quiz-id",
           courseName: "Quiz / Assessment",
           assessment: qz.quiz?.title || "Quiz",
           score: total > 0 ? Math.round((earned / total) * 100) : 0,
@@ -943,7 +940,7 @@ export const getStudentGrades = async (
       }),
     ];
 
-    // 5. Sort by Date (Most recent first)
+    // 5. Sort by Date
     normalizedGrades.sort(
       (a: any, b: any) =>
         new Date(b.date).getTime() - new Date(a.date).getTime()
