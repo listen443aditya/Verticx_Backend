@@ -841,25 +841,115 @@ export const getStudentGrades = async (
   try {
     const { studentId } = await getStudentAuth(req);
     if (!studentId) {
-      return res.status(401).json({ message: "Unauthorized" });
+      return res.status(401).json({ message: "Unauthorized." });
     }
 
-    const grades = await prisma.grade.findMany({
-      where: { studentId: studentId },
+    // 1. Fetch Exam Marks (Fixed Relations & Date Field)
+    const examMarks = await prisma.examMark.findMany({
+      where: { studentId },
       include: {
-        course: {
-          select: { name: true },
+        examSchedule: {
+          include: {
+            subject: { select: { name: true } },
+          },
         },
       },
+
+      orderBy: { enteredAt: "desc" },
+    });
+    const assignments = await prisma.assignmentSubmission.findMany({
+      where: {
+        studentId,
+        status: "Graded",
+      },
+      include: {
+        assignment: {
+          select: {
+            title: true,
+            course: {
+              include: { subject: { select: { name: true } } },
+            },
+          },
+        },
+      },
+      orderBy: { submittedAt: "desc" },
     });
 
-    // Map to GradeWithCourse
-    const gradesWithCourse = grades.map((g) => ({
-      ...g,
-      courseName: g.course.name,
-    }));
+    // 3. Fetch Quiz Scores (Fixed Status, Date, and Relations)
+    const quizzes = await prisma.studentQuiz.findMany({
+      where: {
+        studentId,
+        // FIX: Lowercase "completed" matches the Prisma enum
+        status: "completed",
+      },
+      include: {
+        // FIX: Removed 'course' include if it doesn't exist on Quiz.
+        // Just fetching title for now.
+        quiz: {
+          select: {
+            title: true,
+            totalMarks: true, // Assuming Quiz has a totalMarks field
+          },
+        },
+      },
+      // FIX: Use 'submittedAt' instead of 'attemptedAt'
+      orderBy: { submittedAt: "desc" },
+    });
 
-    res.status(200).json(gradesWithCourse);
+    // 4. Normalize & Merge Data
+    const normalizedGrades = [
+      // Map Exams
+      ...examMarks.map((mark: any) => ({
+        studentId,
+        courseId: mark.examSchedule?.subjectId || "", // Fallback ID
+        courseName: mark.examSchedule?.subject?.name || "Exam",
+        assessment: mark.examSchedule?.name || "Examination",
+        // Calculate Percentage
+        score:
+          mark.totalMarks > 0
+            ? Math.round((mark.score / mark.totalMarks) * 100)
+            : 0,
+        type: "Exam",
+        date: mark.enteredAt,
+      })),
+
+      // Map Assignments
+      ...assignments.map((sub: any) => ({
+        studentId,
+        courseId: sub.assignment?.course?.id,
+        courseName: sub.assignment?.course?.subject?.name || "Assignment",
+        assessment: sub.assignment?.title || "Homework",
+        // Handle score (check if score exists, otherwise 0)
+        score: sub.score || 0,
+        type: "Assignment",
+        date: sub.submittedAt,
+      })),
+
+      // Map Quizzes
+      ...quizzes.map((qz: any) => {
+        // Safe access to quiz properties
+        const total = qz.quiz?.totalMarks || 100; // Default to 100 if missing
+        const earned = qz.score || 0;
+
+        return {
+          studentId,
+          courseId: "quiz-id", // Quizzes might not link directly to a course object easily
+          courseName: "Quiz / Assessment",
+          assessment: qz.quiz?.title || "Quiz",
+          score: total > 0 ? Math.round((earned / total) * 100) : 0,
+          type: "Quiz",
+          date: qz.submittedAt,
+        };
+      }),
+    ];
+
+    // 5. Sort by Date (Most recent first)
+    normalizedGrades.sort(
+      (a: any, b: any) =>
+        new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+
+    res.status(200).json(normalizedGrades);
   } catch (error: any) {
     next(error);
   }
